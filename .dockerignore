@@ -1,0 +1,6 @@
+# Be sure to add `output: "standalone"` to your next.config.js
+node_modules
+.next
+out
+build
+dist

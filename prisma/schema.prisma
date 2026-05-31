@@ -1,0 +1,119 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  agents       Agent[]
+  contacts     Contact[]
+  hitlRequests HITLRequest[]
+  transactions Transaction[]
+}
+
+model Agent {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  urn                   String   @unique
+  publicKey             String
+  encryptedPrivateKey  String   // AES-256-GCM encrypted private key
+  keySalt              String   // Salt for key derivation
+  platformRegistered   Boolean  @default(false)
+  lastActiveAt          DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  contacts              Contact[]
+  messages              Message[]
+  hitlRequests          HITLRequest[]
+  transactions          Transaction[]
+
+  @@index([userId])
+  @@index([urn])
+}
+
+model Contact {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  contactUrn   String
+  trustTier    String   @default("stranger") // family, friend, stranger
+  alias        String?
+  publicKey    String?
+  lastMessageAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([agentId, contactUrn])
+  @@index([userId])
+  @@index([agentId])
+}
+
+model Message {
+  id           String   @id @default(cuid())
+  userId       String
+  agentId      String
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  senderUrn    String
+  recipientUrn String
+  content      String   // Encrypted content
+  isIncoming   Boolean  @default(true)
+  isRead       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([agentId])
+  @@index([userId])
+  @@index([senderUrn, recipientUrn])
+}
+
+model HITLRequest {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  requestType  String   // message, service_call, transaction
+  payload      String   // JSON payload
+  status       String   @default("pending") // pending, approved, rejected
+  resolvedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([status])
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  fromUrn      String
+  toUrn        String
+  amount       String   // Using String for decimal precision
+  currency     String   @default("TOKEN")
+  status       String   @default("pending") // pending, confirmed, failed
+  txHash       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([fromUrn])
+  @@index([toUrn])
+}

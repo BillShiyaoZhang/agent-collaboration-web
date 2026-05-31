@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:./prod.db
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - AGENT_PLATFORM_URL=http://platform:8080
+      - AGENT_PLATFORM_API_KEY=${AGENT_PLATFORM_API_KEY:-}
+    volumes:
+      - ./prisma:/app/prisma
+    depends_on:
+      - platform
+    restart: unless-stopped
+
+  platform:
+    image: ghcr.io/billshiyaozhang/agent-comm-platform:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - PLATFORM_MODE=privacy
+      - PLATFORM_LISTEN=:8080
+    restart: unless-stopped
+
+networks:
+  default:
+    name: agent-network
