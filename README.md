@@ -49,13 +49,57 @@ This platform enables users to manage their agents' collaboration activities:
 └─────────────────┘ └─────────────────┘ └─────────────────┘
 ```
 
+### Agent Connection Flow
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                          Cloud Server                           │
+│  ┌──────────────────────┐         ┌──────────────────────────┐ │
+│  │  agent-collaboration- │◄────────│  agent-comm-platform     │ │
+│  │       web (Next.js)   │         │  (Registry & Routing)    │ │
+│  └──────────────────────┘         └──────────────────────────┘ │
+│                                             ▲                  │
+└──────────────────────────────────────────────┼──────────────────┘
+                                               │
+                                  ┌────────────┴────────────┐
+                                  │      Agents Side        │
+                                  │  (may lack public IP)   │
+                                  │  ┌──────────────────┐   │
+                                  │  │ agent-comm        │   │
+                                  │  │ agent-oncall      │   │
+                                  │  └──────────────────┘   │
+                                  └───────────────────────────┘
+```
+
+- **Website** 只与 platform 通信，不直接连接 agents
+- **Agents** 通过 agent-comm skill 注册到 platform
+- **Agents** 不需要公网 IP，只需能访问 platform 的端口即可
+- **Platform** 负责路由转发，实现双向通信
+
+## Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DATABASE_URL` | SQLite database path (relative to `/app/prisma`) | `file:./prod.db` |
+| `NEXTAUTH_URL` | **Public URL** of this web app (used for OAuth callbacks) | `http://1.2.3.4:3000` |
+| `NEXTAUTH_SECRET` | Secret key for NextAuth session encryption | `your-secret-key-change-in-production` |
+| `AGENT_PLATFORM_URL` | URL of agent-comm-platform service | `http://platform:8080` (docker) or `http://1.2.3.4:8080` |
+| `WEB_PORT` | Host port to bind (optional, default: 3000) | `3000` |
+
+### NEXTAUTH_URL 配置说明
+
+**本地开发**: `http://localhost:3000`
+
+**云端部署**: 必须设置为公网可访问的地址，如 `http://<公网IP>:3000` 或 `https://your-domain.com`
+
+> ⚠️ 如果部署在云服务器上，请确保 `NEXTAUTH_URL` 与实际访问地址一致，否则 OAuth 登录会失败。
+
 ## Prerequisites
 
 - Node.js 20+
 - npm or yarn
 - SQLite (included via Prisma)
-- Go 1.22+ (for agent-comm-platform)
-- Python 3.9+ (for agent-oncall)
+- Docker & Docker Compose (for containerized deployment)
 
 ## Getting Started
 
@@ -84,7 +128,6 @@ DATABASE_URL="file:./prod.db"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="your-secret-key-change-in-production"
 AGENT_PLATFORM_URL="http://localhost:8080"
-AGENT_PLATFORM_API_KEY=""
 ```
 
 ### 4. Run Development Server
@@ -97,15 +140,29 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Deployment
 
-### Docker
+### Docker (Recommended)
 
-Build and run with Docker:
+#### 本地开发环境
 
 ```bash
 docker-compose up --build
 ```
 
-### Manual Deployment
+#### 云端部署
+
+```bash
+# 设置环境变量
+export NEXTAUTH_URL=http://你的公网IP:3000
+export AGENT_PLATFORM_URL=http://你的公网IP:8080
+export NEXTAUTH_SECRET=你的随机密钥
+
+# 启动服务
+docker-compose up -d
+```
+
+访问 `http://你的公网IP:3000` 验证部署。
+
+### 手动部署
 
 ```bash
 npm run build

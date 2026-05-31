@@ -6,13 +6,12 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
     environment:
       - DATABASE_URL=file:./prod.db
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - AGENT_PLATFORM_URL=http://platform:8080
-      - AGENT_PLATFORM_API_KEY=${AGENT_PLATFORM_API_KEY:-}
+      - AGENT_PLATFORM_URL=${AGENT_PLATFORM_URL:-http://platform:8080}
     volumes:
       - ./prisma:/app/prisma
     depends_on:
