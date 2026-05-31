@@ -11,13 +11,12 @@ services:
       - DATABASE_URL=file:./prod.db
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - AGENT_PLATFORM_URL=${AGENT_PLATFORM_URL:-http://platform:8080}
+      - AGENT_PLATFORM_URL=${AGENT_PLATFORM_URL:-http://localhost:8080}
     volumes:
       - ./prisma:/app/prisma
-    depends_on:
-      - platform
     restart: unless-stopped
 
+  # Platform 服务（本地开发用，云端部署时需单独部署 platform）
   platform:
     image: ghcr.io/billshiyaozhang/agent-comm-platform:latest
     ports:
