@@ -16,9 +16,7 @@ COPY . .
 # Generate Prisma Client
 RUN npx prisma generate
 
-# Copy migrations for deployment
-COPY prisma/migrations ./prisma/migrations
-
+# Run npm build
 RUN npm run build
 
 # Production image, copy all the files and run next
