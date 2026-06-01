@@ -22,6 +22,7 @@ interface Message {
 
 interface Contact {
   id: string;
+  agentId: string;
   contactUrn: string;
   alias: string | null;
   trustTier: string;
@@ -97,7 +98,7 @@ export default function MessagesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          agentId: selectedContact.id,
+          agentId: selectedContact.agentId,
           recipientUrn: selectedContact.contactUrn,
           content: newMessage,
         }),
