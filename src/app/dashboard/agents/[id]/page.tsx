@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Copy, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,12 +35,9 @@ interface Contact {
   createdAt: string;
 }
 
-export default function AgentDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const { id } = params;
+export default function AgentDetailPage() {
+  const params = useParams();
+  const id = params.id as string;
   const router = useRouter();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
