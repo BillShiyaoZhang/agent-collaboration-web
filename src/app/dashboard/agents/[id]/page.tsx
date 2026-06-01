@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Copy, Trash2, UserPlus, Globe, Edit3, Check, RefreshCw, X, Download, AlertTriangle, Terminal, Key, ShieldCheck, ShieldAlert, Send } from "lucide-react";
+import { ArrowLeft, Copy, Trash2, UserPlus, Globe, Edit3, Check, RefreshCw, X, Download, AlertTriangle, Terminal, MessageCircle, Key, ShieldCheck, ShieldAlert, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -555,7 +555,7 @@ export default function AgentDetailPage() {
               Contacts ({agent.contacts.length})
             </TabsTrigger>
             <TabsTrigger value="control">
-              <Terminal className="mr-1.5 h-4 w-4" />
+              <MessageCircle className="mr-1.5 h-4 w-4" />
               Cloud Control
             </TabsTrigger>
           </TabsList>
@@ -661,61 +661,133 @@ export default function AgentDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Terminal Console Card */}
-            <Card className="md:col-span-2 flex flex-col h-[400px]">
-              <CardHeader className="py-3.5 border-b flex flex-row items-center justify-between">
-                <CardTitle className="text-md flex items-center gap-2">
-                  <Terminal className="h-4 w-4" />
-                  Interactive Console Shell
-                </CardTitle>
-                <Badge variant={localConnected === "connected" ? "success" : "destructive"}>
-                  {localConnected === "connected" ? "Agent Reachable" : "Agent Offline"}
-                </Badge>
-              </CardHeader>
-              <CardContent className="flex-1 flex flex-col p-0 overflow-hidden bg-zinc-950 font-mono text-zinc-300 text-xs">
-                <div className="flex-1 p-4 overflow-y-auto space-y-3.5 min-h-0">
-                  <div className="text-zinc-500">
-                    {"// Welcome to the Agent-Comm Control Terminal."}<br />
-                    {"// Commands are end-to-end encrypted via ECIES X25519."}<br />
-                    {"// Supported commands: ping, stats, help"}
+            {/* Chat Console Card */}
+            <Card className="md:col-span-2 flex flex-col h-[480px] overflow-hidden shadow-lg">
+              {/* Chat Header */}
+              <div className="px-5 py-3.5 border-b bg-gradient-to-r from-white to-gray-50/80 dark:from-zinc-900 dark:to-zinc-800/80 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm shadow-md">
+                      🤖
+                    </div>
+                    <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-900 ${
+                      localConnected === "connected" ? "bg-green-500" : "bg-zinc-400"
+                    }`} />
                   </div>
+                  <div>
+                    <h3 className="text-sm font-semibold leading-tight">{agent.name}</h3>
+                    <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[200px]">
+                      {truncateUrn(agent.urn)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={localConnected === "connected" ? "success" : "destructive"} className="text-[10px] px-2 py-0.5">
+                    {localConnected === "connected" ? "Online" : "Offline"}
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] px-2 py-0.5 gap-1">
+                    <ShieldCheck className="h-3 w-3" />
+                    E2E Encrypted
+                  </Badge>
+                </div>
+              </div>
 
-                  {consoleMessages.map((msg) => (
-                    <div key={msg.id} className="space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className={msg.isIncoming ? "text-blue-400" : "text-emerald-400 font-bold"}>
-                          {msg.isIncoming ? "◀ [AGENT]" : "▶ [OWNER]"}
-                        </span>
-                        <span className="text-[10px] text-zinc-600">
-                          {formatDateTime(msg.createdAt)}
-                        </span>
+              {/* Chat Messages Area */}
+              <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-4 bg-gray-50/50 dark:bg-zinc-900/50">
+                {/* Empty state */}
+                {consoleMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full text-center gap-2 opacity-60">
+                    <MessageCircle className="h-10 w-10 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground">No messages yet</p>
+                    <p className="text-xs text-muted-foreground/70">Messages are end-to-end encrypted via ECIES X25519</p>
+                  </div>
+                )}
+
+                {consoleMessages.map((msg) => {
+                  const isUser = !msg.isIncoming;
+                  const msgTime = new Date(msg.createdAt);
+                  const timeStr = msgTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex items-end gap-2 ${
+                        isUser ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      {/* Agent avatar */}
+                      {!isUser && (
+                        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-zinc-700 dark:to-zinc-600 flex items-center justify-center text-xs shrink-0 shadow-sm">
+                          🤖
+                        </div>
+                      )}
+
+                      {/* Message bubble */}
+                      <div className={`max-w-[75%] group ${
+                        isUser ? "items-end" : "items-start"
+                      }`}>
+                        <div
+                          className={`px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
+                            isUser
+                              ? "bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-2xl rounded-br-sm"
+                              : "bg-white dark:bg-zinc-800 text-foreground rounded-2xl rounded-bl-sm border border-gray-100 dark:border-zinc-700"
+                          }`}
+                        >
+                          {msg.content}
+                        </div>
+                        <p className={`text-[10px] text-muted-foreground/60 mt-1 px-1 ${
+                          isUser ? "text-right" : "text-left"
+                        }`}>
+                          {timeStr}
+                        </p>
                       </div>
-                      <div className="pl-4 whitespace-pre-wrap select-text selection:bg-zinc-700">
-                        {msg.content}
+
+                      {/* User avatar */}
+                      {isUser && (
+                        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs text-white shrink-0 shadow-sm">
+                          👤
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Typing indicator */}
+                {isSendingConsole && (
+                  <div className="flex items-end gap-2 justify-start">
+                    <div className="h-7 w-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-zinc-700 dark:to-zinc-600 flex items-center justify-center text-xs shrink-0 shadow-sm">
+                      🤖
+                    </div>
+                    <div className="bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
+                      <div className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-gray-400 dark:bg-zinc-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1.2s" }} />
+                        <span className="h-2 w-2 rounded-full bg-gray-400 dark:bg-zinc-500 animate-bounce" style={{ animationDelay: "200ms", animationDuration: "1.2s" }} />
+                        <span className="h-2 w-2 rounded-full bg-gray-400 dark:bg-zinc-500 animate-bounce" style={{ animationDelay: "400ms", animationDuration: "1.2s" }} />
                       </div>
                     </div>
-                  ))}
-                  <div ref={terminalEndRef} />
-                </div>
+                  </div>
+                )}
 
-                <form onSubmit={handleSendConsole} className="border-t border-zinc-800 p-2 bg-zinc-900/50 flex gap-2">
-                  <Input
-                    value={consoleInput}
-                    onChange={(e) => setConsoleInput(e.target.value)}
-                    placeholder={isOwnerTrusted ? "Type 'stats' or 'ping' and press Enter..." : "Establish mutual trust above to unlock control console."}
-                    className="flex-1 h-9 bg-zinc-950 border-zinc-800 focus:border-zinc-700 text-zinc-100 placeholder:text-zinc-600 rounded text-xs"
-                    disabled={!isOwnerTrusted || isSendingConsole}
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="h-9 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-                    disabled={!isOwnerTrusted || !consoleInput.trim() || isSendingConsole}
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                  </Button>
-                </form>
-              </CardContent>
+                <div ref={terminalEndRef} />
+              </div>
+
+              {/* Chat Input Area */}
+              <form onSubmit={handleSendConsole} className="border-t bg-white dark:bg-zinc-900 p-3 flex items-center gap-2">
+                <Input
+                  value={consoleInput}
+                  onChange={(e) => setConsoleInput(e.target.value)}
+                  placeholder={isOwnerTrusted ? "发送消息..." : "请先建立信任关系以启用聊天"}
+                  className="flex-1 h-10 rounded-full border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 px-4 text-sm placeholder:text-muted-foreground/50 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-0 transition-colors"
+                  disabled={!isOwnerTrusted || isSendingConsole}
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="h-10 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-40 disabled:shadow-none shrink-0"
+                  disabled={!isOwnerTrusted || !consoleInput.trim() || isSendingConsole}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </form>
             </Card>
           </div>
         </TabsContent>
