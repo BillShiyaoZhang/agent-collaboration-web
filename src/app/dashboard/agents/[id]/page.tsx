@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Copy, Trash2, UserPlus, Globe, Edit3, Check, RefreshCw, X, Download, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Copy, Trash2, UserPlus, Globe, Edit3, Check, RefreshCw, X, Download, AlertTriangle, Terminal, Key, ShieldCheck, ShieldAlert, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +54,17 @@ export default function AgentDetailPage() {
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
+  // Console / Cloud Control states
+  const [activeTab, setActiveTab] = useState("contacts");
+  const [virtualUrn, setVirtualUrn] = useState<string | null>(null);
+  const [virtualEd25519PublicKey, setVirtualEd25519PublicKey] = useState<string | null>(null);
+  const [virtualX25519PublicKey, setVirtualX25519PublicKey] = useState<string | null>(null);
+  const [isBindingOwner, setIsBindingOwner] = useState(false);
+  const [consoleInput, setConsoleInput] = useState("");
+  const [consoleMessages, setConsoleMessages] = useState<any[]>([]);
+  const [isSendingConsole, setIsSendingConsole] = useState(false);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchAgent();
   }, [id]);
@@ -64,6 +75,21 @@ export default function AgentDetailPage() {
       setEditingUrl(agent.localUrl || "");
     }
   }, [agent?.id]);
+
+  useEffect(() => {
+    if (activeTab === "control") {
+      fetchConsoleMessages();
+      fetchOwnerIdentity();
+      const interval = setInterval(fetchConsoleMessages, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, agent?.id]);
+
+  useEffect(() => {
+    if (terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [consoleMessages]);
 
   const fetchAgent = async () => {
     try {
@@ -81,6 +107,134 @@ export default function AgentDetailPage() {
     }
   };
 
+  const fetchOwnerIdentity = async () => {
+    try {
+      const response = await fetch(`/api/agents/${id}/bind-owner`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setVirtualUrn(data.virtualUrn);
+        setVirtualEd25519PublicKey(data.virtualEd25519PublicKey);
+        setVirtualX25519PublicKey(data.virtualX25519PublicKey);
+      }
+    } catch (error) {
+      console.error("Failed to fetch owner identity:", error);
+    }
+  };
+
+  const fetchConsoleMessages = async () => {
+    if (!agent) return;
+    try {
+      const response = await fetch(
+        `/api/messages?agentId=${agent.id}&contactUrn=${encodeURIComponent(agent.urn)}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setConsoleMessages(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch console messages:", error);
+    }
+  };
+
+  const handleSendConsole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!consoleInput.trim() || !agent || isSendingConsole) return;
+
+    setIsSendingConsole(true);
+    const content = consoleInput;
+    setConsoleInput("");
+
+    try {
+      const response = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: agent.id,
+          recipientUrn: agent.urn,
+          content,
+        }),
+      });
+
+      if (response.ok) {
+        fetchConsoleMessages();
+      } else {
+        const errData = await response.json();
+        alert(errData.error || "Failed to send command");
+      }
+    } catch (error) {
+      console.error("Failed to send command:", error);
+    } finally {
+      setIsSendingConsole(false);
+    }
+  };
+
+  const handleEstablishTrust = async () => {
+    if (!agent) return;
+    setIsBindingOwner(true);
+    try {
+      // 1. Fetch/generate console identity
+      const identityRes = await fetch(`/api/agents/${id}/bind-owner`, {
+        method: "POST",
+      });
+      if (!identityRes.ok) {
+        throw new Error("Failed to retrieve console virtual identity");
+      }
+      const identity = await identityRes.json();
+      const ownerUrn = identity.virtualUrn;
+      const ownerEdPubKey = identity.virtualEd25519PublicKey;
+      const ownerXPubKey = identity.virtualX25519PublicKey;
+
+      // 2. Call localhost /contacts of local agent via CORS
+      const localContactsUrl = agent.localUrl?.endsWith("/")
+        ? `${agent.localUrl}contacts`
+        : `${agent.localUrl}/contacts`;
+
+      const localRes = await fetch(localContactsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact_urn: ownerUrn,
+          alias: "Owner (Cloud Console)",
+          trust_tier: "self",
+          ed25519_public_key: ownerEdPubKey,
+          x25519_public_key: ownerXPubKey,
+        }),
+      });
+
+      if (!localRes.ok) {
+        throw new Error(`Failed to push contact to local agent: ${localRes.statusText}`);
+      }
+
+      // 3. Register contact in cloud database
+      const cloudRes = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: agent.id,
+          contactUrn: ownerUrn,
+          trustTier: "self",
+          alias: "Owner (Cloud Console)",
+          publicKey: ownerEdPubKey,
+        }),
+      });
+
+      if (cloudRes.ok) {
+        alert("Successfully established mutual trust and bound virtual owner!");
+        fetchAgent(); // reload contacts to update UI
+      } else {
+        const cloudErr = await cloudRes.json();
+        alert(`Trust pushed to local agent, but failed to sync to cloud console database: ${cloudErr.error}`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Trust provisioning failed: ${err.message}`);
+    } finally {
+      setIsBindingOwner(false);
+    }
+  };
+
   const checkLocalConnectivity = async (url: string | null) => {
     if (!url) {
       setLocalConnected("unset");
@@ -91,7 +245,6 @@ export default function AgentDetailPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
 
-      // no-cors mode skips preflight check and is ideal for basic reachability tests
       await fetch(url, {
         method: "GET",
         mode: "no-cors",
@@ -207,6 +360,7 @@ export default function AgentDetailPage() {
   }
 
   const isBoundOnly = agent.encryptedPrivateKey === null;
+  const isOwnerTrusted = agent.contacts.some(c => c.contactUrn === virtualUrn && c.trustTier === "self");
 
   return (
     <div className="space-y-6">
@@ -345,7 +499,6 @@ export default function AgentDetailPage() {
                   </div>
                 )}
 
-                {/* Local connectivity light */}
                 {agent.localUrl && (
                   <div className="flex items-center justify-between text-xs bg-muted/40 p-2.5 rounded-lg border">
                     <div className="flex items-center gap-2">
@@ -395,20 +548,27 @@ export default function AgentDetailPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="contacts" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex items-center justify-between border-b pb-2">
           <TabsList className="border-b-0">
             <TabsTrigger value="contacts">
               Contacts ({agent.contacts.length})
             </TabsTrigger>
+            <TabsTrigger value="control">
+              <Terminal className="mr-1.5 h-4 w-4" />
+              Cloud Control
+            </TabsTrigger>
           </TabsList>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard/agents/contacts">
-              <UserPlus className="mr-2 h-4 w-4" />
-              Manage Contacts
-            </Link>
-          </Button>
+          {activeTab === "contacts" && (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/agents/contacts">
+                <UserPlus className="mr-2 h-4 w-4" />
+                Manage Contacts
+              </Link>
+            </Button>
+          )}
         </div>
+
         <TabsContent value="contacts" className="mt-4">
           {agent.contacts.length === 0 ? (
             <Card>
@@ -446,6 +606,118 @@ export default function AgentDetailPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="control" className="mt-4 space-y-6">
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* Mutual Trust Status card */}
+            <Card className="md:col-span-1">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-md">
+                  <Key className="h-4 w-4 text-primary" />
+                  Mutual Trust Provisioning
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase">Console Owner URN</label>
+                  <div className="mt-1 font-mono text-xs bg-muted p-2 rounded truncate select-all">
+                    {virtualUrn || "Not Generated Yet"}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/20 text-xs">
+                  <div className="flex items-center gap-2">
+                    {isOwnerTrusted ? (
+                      <>
+                        <ShieldCheck className="h-4.5 w-4.5 text-green-600 shrink-0" />
+                        <span className="font-medium text-green-800">Trust Provisioned (&quot;self&quot;)</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert className="h-4.5 w-4.5 text-yellow-600 shrink-0" />
+                        <span className="font-medium text-yellow-800 font-semibold">Trust Not Configured</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    onClick={handleEstablishTrust}
+                    disabled={isBindingOwner || localConnected !== "connected"}
+                    className="w-full text-xs"
+                    variant={isOwnerTrusted ? "outline" : "default"}
+                  >
+                    <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isBindingOwner ? "animate-spin" : ""}`} />
+                    {isOwnerTrusted ? "Re-provision Trust" : "Establish Mutual Trust"}
+                  </Button>
+                  {localConnected !== "connected" && (
+                    <p className="text-[10px] text-red-500 mt-1 text-center">
+                      * Trust additions require Local Agent URL to be online.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Terminal Console Card */}
+            <Card className="md:col-span-2 flex flex-col h-[400px]">
+              <CardHeader className="py-3.5 border-b flex flex-row items-center justify-between">
+                <CardTitle className="text-md flex items-center gap-2">
+                  <Terminal className="h-4 w-4" />
+                  Interactive Console Shell
+                </CardTitle>
+                <Badge variant={localConnected === "connected" ? "success" : "destructive"}>
+                  {localConnected === "connected" ? "Agent Reachable" : "Agent Offline"}
+                </Badge>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col p-0 overflow-hidden bg-zinc-950 font-mono text-zinc-300 text-xs">
+                <div className="flex-1 p-4 overflow-y-auto space-y-3.5 min-h-0">
+                  <div className="text-zinc-500">
+                    {"// Welcome to the Agent-Comm Control Terminal."}<br />
+                    {"// Commands are end-to-end encrypted via ECIES X25519."}<br />
+                    {"// Supported commands: ping, stats, help"}
+                  </div>
+
+                  {consoleMessages.map((msg) => (
+                    <div key={msg.id} className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={msg.isIncoming ? "text-blue-400" : "text-emerald-400 font-bold"}>
+                          {msg.isIncoming ? "◀ [AGENT]" : "▶ [OWNER]"}
+                        </span>
+                        <span className="text-[10px] text-zinc-600">
+                          {formatDateTime(msg.createdAt)}
+                        </span>
+                      </div>
+                      <div className="pl-4 whitespace-pre-wrap select-text selection:bg-zinc-700">
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={terminalEndRef} />
+                </div>
+
+                <form onSubmit={handleSendConsole} className="border-t border-zinc-800 p-2 bg-zinc-900/50 flex gap-2">
+                  <Input
+                    value={consoleInput}
+                    onChange={(e) => setConsoleInput(e.target.value)}
+                    placeholder={isOwnerTrusted ? "Type 'stats' or 'ping' and press Enter..." : "Establish mutual trust above to unlock control console."}
+                    className="flex-1 h-9 bg-zinc-950 border-zinc-800 focus:border-zinc-700 text-zinc-100 placeholder:text-zinc-600 rounded text-xs"
+                    disabled={!isOwnerTrusted || isSendingConsole}
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-9 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                    disabled={!isOwnerTrusted || !consoleInput.trim() || isSendingConsole}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

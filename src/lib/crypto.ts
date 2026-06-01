@@ -80,3 +80,28 @@ export function generateURN(): string {
   const hash = crypto.createHash("sha256").update(randomBytes).digest("hex");
   return `urn:agent:${hash.substring(0, 32)}`;
 }
+
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+export function base58Encode(buffer: Buffer): string {
+  let result = "";
+  let x = BigInt("0x" + buffer.toString("hex"));
+  const zero = BigInt(0);
+  const fiftyEight = BigInt(58);
+  while (x > zero) {
+    const modulus = x % fiftyEight;
+    x = x / fiftyEight;
+    result = BASE58_ALPHABET[Number(modulus)] + result;
+  }
+  for (let i = 0; i < buffer.length && buffer[i] === 0; i++) {
+    result = BASE58_ALPHABET[0] + result;
+  }
+  return result;
+}
+
+export function deriveUrnFromEd25519PubKey(pubKeyHex: string): string {
+  const pubKeyBytes = Buffer.from(pubKeyHex, "hex");
+  const hash = crypto.createHash("sha256").update(pubKeyBytes).digest();
+  const fingerprint = base58Encode(hash.subarray(0, 16));
+  return `urn:hermes:agent:${fingerprint}`;
+}

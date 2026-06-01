@@ -11,15 +11,25 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  agents       Agent[]
-  contacts     Contact[]
-  hitlRequests HITLRequest[]
-  transactions Transaction[]
+  id                         String    @id @default(cuid())
+  email                      String    @unique
+  passwordHash               String
+  
+  // Virtual Agent Identity for E2E Messaging
+  virtualUrn                 String?   @unique
+  virtualEd25519PublicKey    String?
+  virtualEd25519PrivateKey   String?   // Encrypted GCM JSON
+  virtualX25519PublicKey     String?
+  virtualX25519PrivateKey    String?   // Encrypted GCM JSON
+  virtualKeySalt             String?
+  
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+  
+  agents                     Agent[]
+  contacts                   Contact[]
+  hitlRequests               HITLRequest[]
+  transactions               Transaction[]
 }
 
 model Agent {
