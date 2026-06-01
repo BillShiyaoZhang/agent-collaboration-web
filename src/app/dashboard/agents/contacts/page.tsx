@@ -50,8 +50,11 @@ export default function ContactsPage() {
     contactUrn: "",
     trustTier: "stranger",
     alias: "",
+    publicKey: "",
   });
   const [isCreating, setIsCreating] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [resolveSuccess, setResolveSuccess] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -74,6 +77,44 @@ export default function ContactsPage() {
     }
   };
 
+  const handleResolveUrn = async () => {
+    if (!newContact.contactUrn) {
+      setError("Please enter a contact URN first");
+      return;
+    }
+    setResolving(true);
+    setError("");
+    setResolveSuccess("");
+    try {
+      const response = await fetch(`/api/agents/discover?q=${encodeURIComponent(newContact.contactUrn)}`);
+      if (!response.ok) {
+        throw new Error("Failed to resolve URN from platform");
+      }
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const agentData = data[0];
+        // Convert ed25519_pubkey from base64 to hex
+        let pubKeyHex = "";
+        if (agentData.ed25519_pubkey) {
+          const raw = window.atob(agentData.ed25519_pubkey);
+          pubKeyHex = Array.from(raw).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+        }
+        setNewContact(prev => ({
+          ...prev,
+          alias: prev.alias || ("Agent (" + agentData.urn.substring(agentData.urn.length - 6) + ")"),
+          publicKey: pubKeyHex,
+        }));
+        setResolveSuccess(`Resolved: Peer ID is ${agentData.peer_id}`);
+      } else {
+        throw new Error("URN not found on platform registry");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resolve URN from platform");
+    } finally {
+      setResolving(false);
+    }
+  };
+
   const fetchContacts = async () => {
     try {
       const response = await fetch("/api/contacts");
@@ -91,6 +132,7 @@ export default function ContactsPage() {
   const handleCreateContact = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setResolveSuccess("");
     setIsCreating(true);
 
     try {
@@ -113,6 +155,7 @@ export default function ContactsPage() {
         contactUrn: "",
         trustTier: "stranger",
         alias: "",
+        publicKey: "",
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create contact");
@@ -165,7 +208,7 @@ export default function ContactsPage() {
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="agentId">Select Agent</Label>
+                  <Label htmlFor="agentId">Save under your Local Agent (Owner)</Label>
                   <Select
                     value={newContact.agentId}
                     onValueChange={(value) =>
@@ -173,7 +216,7 @@ export default function ContactsPage() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select one of your agents" />
+                      <SelectValue placeholder="Select one of your local agents" />
                     </SelectTrigger>
                     <SelectContent>
                       {myAgents.map((a) => (
@@ -183,18 +226,39 @@ export default function ContactsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Specifies which of your own local agents will communicate with this contact.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="contactUrn">Contact URN</Label>
-                  <Input
-                    id="contactUrn"
-                    value={newContact.contactUrn}
-                    onChange={(e) =>
-                      setNewContact({ ...newContact, contactUrn: e.target.value })
-                    }
-                    placeholder="urn:agent:..."
-                    required
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="contactUrn"
+                      value={newContact.contactUrn}
+                      onChange={(e) =>
+                        setNewContact({ ...newContact, contactUrn: e.target.value })
+                      }
+                      placeholder="urn:hermes:agent:..."
+                      className="flex-1"
+                      required
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleResolveUrn}
+                      disabled={resolving}
+                      className="shrink-0"
+                    >
+                      {resolving ? "Resolving..." : "Resolve"}
+                    </Button>
+                  </div>
+                  {resolveSuccess && (
+                    <p className="text-[11px] text-green-600 font-medium">
+                      ✅ {resolveSuccess}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="trustTier">Trust Tier</Label>

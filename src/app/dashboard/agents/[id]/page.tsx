@@ -395,12 +395,20 @@ export default function AgentDetailPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="contacts">
-        <TabsList>
-          <TabsTrigger value="contacts">
-            Contacts ({agent.contacts.length})
-          </TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="contacts" className="w-full">
+        <div className="flex items-center justify-between border-b pb-2">
+          <TabsList className="border-b-0">
+            <TabsTrigger value="contacts">
+              Contacts ({agent.contacts.length})
+            </TabsTrigger>
+          </TabsList>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/agents/contacts">
+              <UserPlus className="mr-2 h-4 w-4" />
+              Manage Contacts
+            </Link>
+          </Button>
+        </div>
         <TabsContent value="contacts" className="mt-4">
           {agent.contacts.length === 0 ? (
             <Card>

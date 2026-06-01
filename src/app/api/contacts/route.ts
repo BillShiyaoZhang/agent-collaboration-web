@@ -81,14 +81,36 @@ export async function POST(request: Request) {
       );
     }
 
+    let finalPublicKey = publicKey || "";
+
+    // Try to resolve the contact from the platform registry if not provided
+    if (!finalPublicKey) {
+      try {
+        const platformResolveUrl = `${AGENT_PLATFORM_URL}/api/v1/registry/resolve?urn=${encodeURIComponent(contactUrn)}`;
+        const response = await fetch(platformResolveUrl, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.ed25519_pubkey) {
+            finalPublicKey = Buffer.from(data.ed25519_pubkey, "base64").toString("hex");
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to automatically resolve contact from platform in backend:", err);
+      }
+    }
+
     const contact = await prisma.contact.create({
       data: {
         userId: session.user.id,
         agentId,
         contactUrn,
         trustTier,
-        alias,
-        publicKey,
+        alias: alias || undefined,
+        publicKey: finalPublicKey || undefined,
       },
     });
 
