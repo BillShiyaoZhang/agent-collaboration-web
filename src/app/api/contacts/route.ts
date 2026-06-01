@@ -9,7 +9,7 @@ const AGENT_PLATFORM_URL = process.env.AGENT_PLATFORM_URL || "http://localhost:8
 const createContactSchema = z.object({
   agentId: z.string().min(1, "Agent ID is required"),
   contactUrn: z.string().min(1, "Contact URN is required"),
-  trustTier: z.enum(["family", "friend", "stranger"]).default("stranger"),
+  trustTier: z.enum(["family", "friend", "stranger", "self"]).default("stranger"),
   alias: z.string().optional(),
   publicKey: z.string().optional(),
 });

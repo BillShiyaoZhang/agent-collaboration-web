@@ -44,6 +44,7 @@ export default function ContactsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [myAgents, setMyAgents] = useState<any[]>([]);
   const [newContact, setNewContact] = useState({
     agentId: "",
     contactUrn: "",
@@ -55,7 +56,23 @@ export default function ContactsPage() {
 
   useEffect(() => {
     fetchContacts();
+    fetchAgents();
   }, []);
+
+  const fetchAgents = async () => {
+    try {
+      const response = await fetch("/api/agents");
+      if (response.ok) {
+        const data = await response.json();
+        setMyAgents(data);
+        if (data.length > 0) {
+          setNewContact(prev => ({ ...prev, agentId: data[0].id }));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch agents:", error);
+    }
+  };
 
   const fetchContacts = async () => {
     try {
@@ -92,7 +109,7 @@ export default function ContactsPage() {
       setContacts([contact, ...contacts]);
       setIsDialogOpen(false);
       setNewContact({
-        agentId: "",
+        agentId: myAgents.length > 0 ? myAgents[0].id : "",
         contactUrn: "",
         trustTier: "stranger",
         alias: "",
@@ -106,6 +123,8 @@ export default function ContactsPage() {
 
   const getTrustTierBadgeVariant = (tier: string) => {
     switch (tier) {
+      case "self":
+        return "destructive";
       case "family":
         return "success";
       case "friend":
@@ -146,6 +165,26 @@ export default function ContactsPage() {
                   </div>
                 )}
                 <div className="space-y-2">
+                  <Label htmlFor="agentId">Select Agent</Label>
+                  <Select
+                    value={newContact.agentId}
+                    onValueChange={(value) =>
+                      setNewContact({ ...newContact, agentId: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select one of your agents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {myAgents.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name} ({truncateUrn(a.urn)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="contactUrn">Contact URN</Label>
                   <Input
                     id="contactUrn"
@@ -169,6 +208,7 @@ export default function ContactsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="self">Me (Self-control)</SelectItem>
                       <SelectItem value="family">Family</SelectItem>
                       <SelectItem value="friend">Friend</SelectItem>
                       <SelectItem value="stranger">Stranger</SelectItem>
