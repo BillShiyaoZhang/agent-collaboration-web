@@ -51,6 +51,8 @@ export default function AgentsPage() {
   const [createdAgent, setCreatedAgent] = useState<any | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [detectionError, setDetectionError] = useState("");
 
   useEffect(() => {
     fetchAgents();
@@ -67,6 +69,50 @@ export default function AgentsPage() {
       console.error("Failed to fetch agents:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleAutoDetect = async () => {
+    if (!bindLocalUrl) {
+      setDetectionError("Please enter a local endpoint URL first");
+      return;
+    }
+    setIsDetecting(true);
+    setDetectionError("");
+    setError("");
+    try {
+      const url = bindLocalUrl.endsWith("/") ? `${bindLocalUrl}info` : `${bindLocalUrl}/info`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
+      const response = await fetch(url, {
+        method: "GET",
+        mode: "cors",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.urn) {
+        throw new Error("Invalid response format: missing URN");
+      }
+
+      setBindUrn(data.urn);
+      if (data.ed25519_public_key) {
+        setBindPublicKey(data.ed25519_public_key);
+      }
+      if (!newAgentName) {
+        setNewAgentName("Local Agent (" + data.urn.substring(data.urn.length - 6) + ")");
+      }
+    } catch (err) {
+      console.warn("Local agent detection failed:", err);
+      setDetectionError("Detection failed. Make sure the local agent is running and listening.");
+    } finally {
+      setIsDetecting(false);
     }
   };
 
@@ -171,6 +217,8 @@ export default function AgentsPage() {
     setBindPublicKey("");
     setCreatedAgent(null);
     setError("");
+    setDetectionError("");
+    setIsDetecting(false);
   };
 
   return (
@@ -319,15 +367,33 @@ AGENT_PLATFORM_URL=http://localhost:8080`}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="localUrl">Local Endpoint URL</Label>
-                      <Input
-                        id="localUrl"
-                        value={bindLocalUrl}
-                        onChange={(e) => setBindLocalUrl(e.target.value)}
-                        placeholder="http://localhost:8000"
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          id="localUrl"
+                          value={bindLocalUrl}
+                          onChange={(e) => setBindLocalUrl(e.target.value)}
+                          placeholder="http://localhost:8000"
+                          className="flex-1"
+                        />
+                        <Button 
+                          type="button" 
+                          variant="secondary" 
+                          size="sm"
+                          onClick={handleAutoDetect} 
+                          disabled={isDetecting}
+                          className="shrink-0"
+                        >
+                          {isDetecting ? "Detecting..." : "Auto-detect"}
+                        </Button>
+                      </div>
                       <p className="text-[11px] text-muted-foreground">
                         The HTTP URL where the agent runs on your computer.
                       </p>
+                      {detectionError && (
+                        <p className="text-[11px] text-destructive font-medium">
+                          ⚠️ {detectionError}
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="publicKey">Public Key (Optional)</Label>

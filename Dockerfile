@@ -1,5 +1,5 @@
 FROM node:20-alpine AS base
-RUN apk add --no-cache openssl
+RUN sed -i 's/https/http/g' /etc/apk/repositories && apk add --no-cache openssl
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -17,6 +17,9 @@ COPY . .
 # Generate Prisma Client
 RUN npx prisma generate
 
+# Install SWC binary for Alpine Linux (musl)
+RUN npm install @next/swc-linux-x64-musl
+
 # Run npm build
 RUN npm run build
 
@@ -26,7 +29,7 @@ WORKDIR /app
 
 ENV NODE_ENV production
 
-RUN apk add --no-cache openssl && npm install -g prisma@5.22.0
+RUN sed -i 's/https/http/g' /etc/apk/repositories && apk add --no-cache openssl && npm install -g prisma@5.22.0
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
