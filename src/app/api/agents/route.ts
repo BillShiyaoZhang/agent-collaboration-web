@@ -53,10 +53,12 @@ export async function POST(request: Request) {
     const { name, password } = parsed.data;
     const urn = generateURN();
 
-    // Generate Ed25519 key pair (in real implementation, would use proper crypto)
-    // For now, we'll generate a mock key pair
-    const publicKey = crypto.randomBytes(32).toString("hex");
-    const privateKey = crypto.randomBytes(32).toString("hex");
+    // Generate real Ed25519 key pair
+    const { publicKey: pubKeyObj, privateKey: privKeyObj } = crypto.generateKeyPairSync("ed25519");
+    const spkiDer = pubKeyObj.export({ type: "spki", format: "der" });
+    const pkcs8Der = privKeyObj.export({ type: "pkcs8", format: "der" });
+    const publicKey = Buffer.from(spkiDer).subarray(-32).toString("hex");
+    const privateKey = Buffer.from(pkcs8Der).toString("hex");
 
     // Create agent in database
     const agent = await prisma.agent.create({
