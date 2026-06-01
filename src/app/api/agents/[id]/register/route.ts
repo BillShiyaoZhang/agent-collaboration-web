@@ -27,6 +27,46 @@ export async function POST(
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
+    if (!agent.encryptedPrivateKey) {
+      // Sync/Verify status from the platform registry
+      try {
+        const platformResolveUrl = `${AGENT_PLATFORM_URL}/api/v1/registry/resolve?urn=${encodeURIComponent(agent.urn)}`;
+        const response = await fetch(platformResolveUrl, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          let publicKeyUpdate = {};
+          if (data.ed25519_pubkey) {
+            const pubKeyHex = Buffer.from(data.ed25519_pubkey, "base64").toString("hex");
+            publicKeyUpdate = { publicKey: pubKeyHex };
+          }
+          
+          const updatedAgent = await prisma.agent.update({
+            where: { id: agent.id },
+            data: { 
+              platformRegistered: true,
+              ...publicKeyUpdate
+            },
+          });
+          return NextResponse.json(updatedAgent);
+        } else {
+          return NextResponse.json(
+            { error: "Agent is not yet registered on the platform. Please start your local agent to register." },
+            { status: 400 }
+          );
+        }
+      } catch (err) {
+        console.error("Failed to resolve agent from platform:", err);
+        return NextResponse.json(
+          { error: "Failed to connect to the platform registry." },
+          { status: 500 }
+        );
+      }
+    }
+
     // Reconstruct the agent's private key keyobject
     const privateKeyObject = crypto.createPrivateKey({
       key: Buffer.from(agent.encryptedPrivateKey, "hex"),

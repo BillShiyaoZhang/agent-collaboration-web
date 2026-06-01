@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Copy, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Copy, Trash2, UserPlus, Globe, Edit3, Check, RefreshCw, X, Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDateTime } from "@/lib/utils";
-import { truncateUrn } from "@/lib/utils";
+import { formatDateTime, truncateUrn } from "@/lib/utils";
 import Link from "next/link";
 
 interface Agent {
@@ -16,6 +16,8 @@ interface Agent {
   name: string;
   urn: string;
   publicKey: string;
+  localUrl: string | null;
+  encryptedPrivateKey: string | null;
   platformRegistered: boolean;
   createdAt: string;
   lastActiveAt: string | null;
@@ -39,13 +41,29 @@ export default function AgentDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const router = useRouter();
+  
   const [agent, setAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Connectivity and Edit States
+  const [localConnected, setLocalConnected] = useState<"checking" | "connected" | "failed" | "unset">("unset");
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [editingUrl, setEditingUrl] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSavingUrl, setIsSavingUrl] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAgent();
   }, [id]);
+
+  useEffect(() => {
+    if (agent) {
+      checkLocalConnectivity(agent.localUrl);
+      setEditingUrl(agent.localUrl || "");
+    }
+  }, [agent?.id]);
 
   const fetchAgent = async () => {
     try {
@@ -63,8 +81,97 @@ export default function AgentDetailPage() {
     }
   };
 
+  const checkLocalConnectivity = async (url: string | null) => {
+    if (!url) {
+      setLocalConnected("unset");
+      return;
+    }
+    setLocalConnected("checking");
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
+      // no-cors mode skips preflight check and is ideal for basic reachability tests
+      await fetch(url, {
+        method: "GET",
+        mode: "no-cors",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      setLocalConnected("connected");
+    } catch (err) {
+      console.warn("Ping failed:", err);
+      setLocalConnected("failed");
+    }
+  };
+
+  const handleSaveUrl = async () => {
+    if (!agent) return;
+    setIsSavingUrl(true);
+    try {
+      const response = await fetch(`/api/agents/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ localUrl: editingUrl }),
+      });
+      if (response.ok) {
+        const updatedAgent = await response.json();
+        setAgent((prev) => prev ? { ...prev, localUrl: updatedAgent.localUrl } : null);
+        setIsEditingUrl(false);
+        checkLocalConnectivity(updatedAgent.localUrl);
+      }
+    } catch (error) {
+      console.error("Failed to save local URL:", error);
+    } finally {
+      setIsSavingUrl(false);
+    }
+  };
+
+  const handleSyncStatus = async () => {
+    if (!agent) return;
+    setIsSyncing(true);
+    try {
+      const response = await fetch(`/api/agents/${id}/register`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        const updatedAgent = await response.json();
+        setAgent((prev) => prev ? { 
+          ...prev, 
+          platformRegistered: updatedAgent.platformRegistered,
+          publicKey: updatedAgent.publicKey 
+        } : null);
+      } else {
+        const data = await response.json();
+        alert(data.error || "Failed to sync platform registry status");
+      }
+    } catch (error) {
+      console.error("Failed to sync status:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const downloadConfig = () => {
+    if (!agent) return;
+    const config = {
+      urn: agent.urn,
+      public_key: agent.publicKey,
+      private_key: agent.encryptedPrivateKey,
+      local_url: agent.localUrl || "http://localhost:8000",
+      platform_url: typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+    };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `${agent.name.toLowerCase().replace(/\s+/g, "_")}_config.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this agent?")) return;
+    if (!confirm("Are you sure you want to delete this agent? This cannot be undone.")) return;
 
     setIsDeleting(true);
     try {
@@ -81,10 +188,10 @@ export default function AgentDetailPage() {
     }
   };
 
-  const handleCopyUrn = () => {
-    if (agent) {
-      navigator.clipboard.writeText(agent.urn);
-    }
+  const handleCopy = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
   if (isLoading) {
@@ -99,6 +206,8 @@ export default function AgentDetailPage() {
     return null;
   }
 
+  const isBoundOnly = agent.encryptedPrivateKey === null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -111,23 +220,60 @@ export default function AgentDetailPage() {
           <h1 className="text-3xl font-bold tracking-tight">{agent.name}</h1>
           <div className="flex items-center gap-2 mt-1">
             <Badge variant={agent.platformRegistered ? "success" : "warning"}>
-              {agent.platformRegistered ? "Registered" : "Unregistered"}
+              {agent.platformRegistered ? "Platform Registered" : "Platform Unregistered"}
             </Badge>
             <span className="text-sm text-muted-foreground">
               Created {formatDateTime(agent.createdAt)}
             </span>
           </div>
         </div>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={handleDelete}
-          disabled={isDeleting}
-        >
-          <Trash2 className="mr-2 h-4 w-4" />
-          {isDeleting ? "Deleting..." : "Delete"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {!agent.platformRegistered && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncStatus}
+              disabled={isSyncing}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+              Sync Status
+            </Button>
+          )}
+          {!isBoundOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadConfig}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download Config
+            </Button>
+          )}
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDelete}
+            disabled={isDeleting}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            {isDeleting ? "Deleting..." : "Delete"}
+          </Button>
+        </div>
       </div>
+
+      {!agent.platformRegistered && (
+        <Card className="border-yellow-200 bg-yellow-50/50">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-yellow-800 space-y-1">
+              <p className="font-semibold">Agent not registered on the platform</p>
+              <p>
+                To enable routing, make sure your agent program is running locally with these credentials and connects to the central platform registry. Once connected, click <strong>Sync Status</strong> above.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
@@ -136,25 +282,92 @@ export default function AgentDetailPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-muted-foreground">
+              <label className="text-xs font-bold text-muted-foreground uppercase">
                 URN
               </label>
               <div className="flex items-center gap-2 mt-1">
-                <code className="text-xs bg-muted px-2 py-1 rounded flex-1 truncate">
+                <code className="text-xs bg-muted px-2 py-1.5 rounded flex-1 truncate font-mono">
                   {agent.urn}
                 </code>
-                <Button variant="ghost" size="icon" onClick={handleCopyUrn}>
-                  <Copy className="h-4 w-4" />
+                <Button variant="outline" size="sm" onClick={() => handleCopy(agent.urn, "urn")}>
+                  {copiedField === "urn" ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
+
             <div>
-              <label className="text-sm font-medium text-muted-foreground">
+              <label className="text-xs font-bold text-muted-foreground uppercase">
                 Public Key
               </label>
-              <code className="text-xs bg-muted px-2 py-1 rounded block mt-1 truncate">
-                {agent.publicKey}
-              </code>
+              <div className="flex items-center gap-2 mt-1">
+                <code className="text-xs bg-muted px-2 py-1.5 rounded flex-1 truncate font-mono">
+                  {agent.publicKey || "Not resolved yet (check platform status)"}
+                </code>
+                {agent.publicKey && (
+                  <Button variant="outline" size="sm" onClick={() => handleCopy(agent.publicKey, "pub")}>
+                    {copiedField === "pub" ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-muted-foreground uppercase">
+                Agent Local URL & Connection
+              </label>
+              <div className="space-y-2 mt-1">
+                {isEditingUrl ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={editingUrl}
+                      onChange={(e) => setEditingUrl(e.target.value)}
+                      placeholder="http://localhost:8000"
+                      className="text-xs font-mono"
+                    />
+                    <Button size="sm" onClick={handleSaveUrl} disabled={isSavingUrl}>
+                      {isSavingUrl ? "Saving..." : <Check className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setIsEditingUrl(false);
+                      setEditingUrl(agent.localUrl || "");
+                    }}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs bg-muted px-2 py-1.5 rounded flex-1 truncate font-mono">
+                      {agent.localUrl || "No URL configured"}
+                    </code>
+                    <Button variant="outline" size="sm" onClick={() => setIsEditingUrl(true)}>
+                      <Edit3 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Local connectivity light */}
+                {agent.localUrl && (
+                  <div className="flex items-center justify-between text-xs bg-muted/40 p-2.5 rounded-lg border">
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2.5 w-2.5 rounded-full ${
+                        localConnected === "connected" ? "bg-green-500 animate-pulse" :
+                        localConnected === "failed" ? "bg-red-500" :
+                        localConnected === "checking" ? "bg-yellow-500 animate-spin" :
+                        "bg-gray-400"
+                      }`} />
+                      <span className="font-medium text-muted-foreground">
+                        {localConnected === "connected" && "Local Agent Reachable"}
+                        {localConnected === "failed" && "Local Agent Offline"}
+                        {localConnected === "checking" && "Pinging Agent..."}
+                        {localConnected === "unset" && "Not Checked"}
+                      </span>
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 text-[11px]" onClick={() => checkLocalConnectivity(agent.localUrl)}>
+                      Test Connection
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -193,9 +406,11 @@ export default function AgentDetailPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-8">
                 <p className="text-muted-foreground mb-4">No contacts yet</p>
-                <Button>
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Add Contact
+                <Button asChild variant="outline">
+                  <Link href="/dashboard/agents/contacts">
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Manage Contacts
+                  </Link>
                 </Button>
               </CardContent>
             </Card>

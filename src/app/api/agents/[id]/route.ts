@@ -57,7 +57,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { name, alias } = body;
+    const { name, localUrl } = body;
 
     const agent = await prisma.agent.update({
       where: {
@@ -66,6 +66,7 @@ export async function PATCH(
       },
       data: {
         ...(name && { name }),
+        ...(localUrl !== undefined && { localUrl: localUrl || null }),
       },
     });
 

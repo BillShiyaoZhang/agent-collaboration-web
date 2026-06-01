@@ -29,8 +29,9 @@ model Agent {
   name                  String
   urn                   String   @unique
   publicKey             String
-  encryptedPrivateKey  String   // AES-256-GCM encrypted private key
-  keySalt              String   // Salt for key derivation
+  encryptedPrivateKey   String?  // AES-256-GCM encrypted private key
+  keySalt               String?  // Salt for key derivation
+  localUrl              String?  // URL of local agent, e.g. http://localhost:8000
   platformRegistered   Boolean  @default(false)
   lastActiveAt          DateTime?
   createdAt             DateTime @default(now())
