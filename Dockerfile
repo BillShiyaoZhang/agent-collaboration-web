@@ -41,6 +41,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/docker-entrypoint.sh ./
 
 RUN chmod +x docker-entrypoint.sh
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
 EXPOSE 3000
 
