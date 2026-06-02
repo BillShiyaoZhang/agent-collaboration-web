@@ -1,5 +1,7 @@
 FROM node:20-alpine AS base
-RUN sed -i 's/https/http/g' /etc/apk/repositories && apk add --no-cache openssl
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    sed -i 's/https/http/g' /etc/apk/repositories && \
+    apk add --no-cache openssl
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -7,7 +9,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 
 # Rebuild the source code only when needed
 FROM deps AS builder
@@ -15,7 +17,7 @@ WORKDIR /app
 COPY . .
 
 # Generate Prisma Client
-RUN npx prisma generate
+RUN npm config set registry https://registry.npmmirror.com && npx prisma generate
 
 # Install SWC binary for Alpine Linux (musl)
 RUN npm install @next/swc-linux-x64-musl
@@ -29,7 +31,11 @@ WORKDIR /app
 
 ENV NODE_ENV production
 
-RUN sed -i 's/https/http/g' /etc/apk/repositories && apk add --no-cache openssl && npm install -g prisma@5.22.0
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    sed -i 's/https/http/g' /etc/apk/repositories && \
+    apk add --no-cache openssl && \
+    npm config set registry https://registry.npmmirror.com && \
+    npm install -g prisma@5.22.0
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
