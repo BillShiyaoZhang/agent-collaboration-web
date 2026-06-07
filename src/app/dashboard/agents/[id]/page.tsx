@@ -311,7 +311,7 @@ export default function AgentDetailPage() {
       urn: agent.urn,
       public_key: agent.publicKey,
       private_key: agent.encryptedPrivateKey,
-      local_url: agent.localUrl || "http://localhost:8000",
+      local_url: agent.localUrl || "http://localhost:45042",
       platform_url: typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
     };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
@@ -475,7 +475,7 @@ export default function AgentDetailPage() {
                     <Input
                       value={editingUrl}
                       onChange={(e) => setEditingUrl(e.target.value)}
-                      placeholder="http://localhost:8000"
+                      placeholder="http://localhost:45042"
                       className="text-xs font-mono"
                     />
                     <Button size="sm" onClick={handleSaveUrl} disabled={isSavingUrl}>

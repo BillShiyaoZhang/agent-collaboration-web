@@ -42,7 +42,7 @@ export default function AgentsPage() {
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPassword, setNewAgentPassword] = useState("");
   const [bindUrn, setBindUrn] = useState("");
-  const [bindLocalUrl, setBindLocalUrl] = useState("http://localhost:8000");
+  const [bindLocalUrl, setBindLocalUrl] = useState("http://localhost:45042");
   const [bindPublicKey, setBindPublicKey] = useState("");
   
   // Status states
@@ -197,7 +197,7 @@ export default function AgentsPage() {
       urn: agent.urn,
       public_key: agent.publicKey,
       private_key: agent.encryptedPrivateKey,
-      local_url: agent.localUrl || "http://localhost:8000",
+      local_url: agent.localUrl || "http://localhost:45042",
       platform_url: typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
     };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
@@ -213,7 +213,7 @@ export default function AgentsPage() {
     setNewAgentName("");
     setNewAgentPassword("");
     setBindUrn("");
-    setBindLocalUrl("http://localhost:8000");
+    setBindLocalUrl("http://localhost:45042");
     setBindPublicKey("");
     setCreatedAgent(null);
     setError("");
@@ -372,7 +372,7 @@ AGENT_PLATFORM_URL=http://localhost:8080`}
                           id="localUrl"
                           value={bindLocalUrl}
                           onChange={(e) => setBindLocalUrl(e.target.value)}
-                          placeholder="http://localhost:8000"
+                          placeholder="http://localhost:45042"
                           className="flex-1"
                         />
                         <Button 
@@ -426,7 +426,7 @@ AGENT_PLATFORM_URL=http://localhost:8080`}
                         id="localUrl-gen"
                         value={bindLocalUrl}
                         onChange={(e) => setBindLocalUrl(e.target.value)}
-                        placeholder="http://localhost:8000"
+                        placeholder="http://localhost:45042"
                       />
                     </div>
                     <div className="space-y-2">
