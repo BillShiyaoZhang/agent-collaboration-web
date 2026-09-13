@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
 // List of public routes that don't require authentication
 const publicRoutes = ["/login", "/register", "/api/auth"];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check if the route is public
@@ -16,10 +17,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for session token (NextAuth uses a cookie)
-  const sessionCookie = request.cookies.get("next-auth.session-token");
+  // Validate the session, including NextAuth's HTTPS and chunked cookies.
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
 
-  if (!sessionCookie) {
+  if (!token) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
