@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Copy, Trash2, UserPlus, Globe, Edit3, Check, RefreshCw, X, Download, AlertTriangle, Terminal, MessageCircle, Key, ShieldCheck, ShieldAlert, Send } from "lucide-react";
+import { ArrowLeft, Copy, Trash2, UserPlus, Edit3, Check, RefreshCw, X, Download, AlertTriangle, MessageCircle, Key, ShieldCheck, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,18 @@ interface Contact {
   createdAt: string;
 }
 
+interface ConsoleMessage {
+  id: string;
+  content: string;
+  isIncoming: boolean;
+  createdAt: string;
+}
+
+async function responseError(response: Response, fallback: string) {
+  const data = await response.json().catch(() => null);
+  return typeof data?.error === "string" ? data.error : `${fallback} (${response.status})`;
+}
+
 export default function AgentDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -46,8 +58,7 @@ export default function AgentDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   
-  // Connectivity and Edit States
-  const [localConnected, setLocalConnected] = useState<"checking" | "connected" | "failed" | "unset">("unset");
+  // Local URLs are configuration only; browser access cannot prove helper health.
   const [isEditingUrl, setIsEditingUrl] = useState(false);
   const [editingUrl, setEditingUrl] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
@@ -60,30 +71,15 @@ export default function AgentDetailPage() {
   const [virtualEd25519PublicKey, setVirtualEd25519PublicKey] = useState<string | null>(null);
   const [virtualX25519PublicKey, setVirtualX25519PublicKey] = useState<string | null>(null);
   const [isBindingOwner, setIsBindingOwner] = useState(false);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
   const [consoleInput, setConsoleInput] = useState("");
-  const [consoleMessages, setConsoleMessages] = useState<any[]>([]);
+  const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([]);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [isSendingConsole, setIsSendingConsole] = useState(false);
+  const messagePollInFlight = useRef(false);
   const terminalEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetchAgent();
-  }, [id]);
-
-  useEffect(() => {
-    if (agent) {
-      checkLocalConnectivity(agent.localUrl);
-      setEditingUrl(agent.localUrl || "");
-    }
-  }, [agent?.id]);
-
-  useEffect(() => {
-    if (activeTab === "control") {
-      fetchConsoleMessages();
-      fetchOwnerIdentity();
-      const interval = setInterval(fetchConsoleMessages, 3000);
-      return () => clearInterval(interval);
-    }
-  }, [activeTab, agent?.id]);
 
   useEffect(() => {
     if (terminalEndRef.current) {
@@ -91,12 +87,13 @@ export default function AgentDetailPage() {
     }
   }, [consoleMessages]);
 
-  const fetchAgent = async () => {
+  const fetchAgent = useCallback(async () => {
     try {
       const response = await fetch(`/api/agents/${id}`);
       if (response.ok) {
         const data = await response.json();
         setAgent(data);
+        setEditingUrl(data.localUrl || "");
       } else if (response.status === 404) {
         router.push("/dashboard/agents");
       }
@@ -105,46 +102,88 @@ export default function AgentDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id, router]);
 
-  const fetchOwnerIdentity = async () => {
+  useEffect(() => {
+    void fetchAgent();
+  }, [fetchAgent]);
+
+  const fetchOwnerIdentity = useCallback(async (method: "GET" | "POST" = "GET", signal?: AbortSignal) => {
+    setIsBindingOwner(true);
+    setOwnerError(null);
     try {
       const response = await fetch(`/api/agents/${id}/bind-owner`, {
-        method: "POST"
+        method,
+        signal,
       });
-      if (response.ok) {
-        const data = await response.json();
-        setVirtualUrn(data.virtualUrn);
-        setVirtualEd25519PublicKey(data.virtualEd25519PublicKey);
-        setVirtualX25519PublicKey(data.virtualX25519PublicKey);
+      if (!response.ok) {
+        throw new Error(await responseError(response, "Failed to load console identity"));
       }
+      const data = await response.json();
+      if (signal?.aborted) return;
+      setVirtualUrn(data.virtualUrn);
+      setVirtualEd25519PublicKey(data.virtualEd25519PublicKey);
+      setVirtualX25519PublicKey(data.virtualX25519PublicKey);
     } catch (error) {
-      console.error("Failed to fetch owner identity:", error);
+      if (!signal?.aborted) {
+        setOwnerError(error instanceof Error ? error.message : "Failed to load console identity");
+      }
+    } finally {
+      if (!signal?.aborted) setIsBindingOwner(false);
     }
-  };
+  }, [id]);
 
-  const fetchConsoleMessages = async () => {
-    if (!agent) return;
+  const agentId = agent?.id;
+  const agentUrn = agent?.urn;
+  const fetchConsoleMessages = useCallback(async (signal?: AbortSignal) => {
+    if (!agentId || !agentUrn || messagePollInFlight.current) return;
+    messagePollInFlight.current = true;
     try {
       const response = await fetch(
-        `/api/messages?agentId=${agent.id}&contactUrn=${encodeURIComponent(agent.urn)}`
+        `/api/messages?agentId=${agentId}&contactUrn=${encodeURIComponent(agentUrn)}`,
+        { signal }
       );
-      if (response.ok) {
-        const data = await response.json();
-        setConsoleMessages(data);
+      if (!response.ok) {
+        throw new Error(await responseError(response, "Failed to receive messages"));
       }
+      const data = await response.json();
+      if (signal?.aborted) return;
+      if (!Array.isArray(data)) throw new Error("Invalid message response");
+      setConsoleMessages(data);
+      setPollError(null);
     } catch (error) {
-      console.error("Failed to fetch console messages:", error);
+      if (!signal?.aborted) {
+        setPollError(error instanceof Error ? error.message : "Failed to receive messages");
+      }
+    } finally {
+      messagePollInFlight.current = false;
     }
-  };
+  }, [agentId, agentUrn]);
+
+  useEffect(() => {
+    if (activeTab !== "control" || !agentId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    void fetchOwnerIdentity("GET", controller.signal);
+    const poll = async () => {
+      await fetchConsoleMessages(controller.signal);
+      if (!controller.signal.aborted) timer = setTimeout(poll, 3000);
+    };
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [activeTab, agentId, fetchOwnerIdentity, fetchConsoleMessages]);
 
   const handleSendConsole = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!consoleInput.trim() || !agent || isSendingConsole) return;
+    if (!consoleInput.trim() || !agent || !virtualUrn || !agent.platformRegistered || isSendingConsole) return;
 
     setIsSendingConsole(true);
+    setSendError(null);
+    setSendStatus(null);
     const content = consoleInput;
-    setConsoleInput("");
 
     try {
       const response = await fetch("/api/messages", {
@@ -158,103 +197,16 @@ export default function AgentDetailPage() {
       });
 
       if (response.ok) {
-        fetchConsoleMessages();
+        setConsoleInput("");
+        setSendStatus("Message accepted by the platform.");
+        await fetchConsoleMessages();
       } else {
-        const errData = await response.json();
-        alert(errData.error || "Failed to send command");
+        throw new Error(await responseError(response, "Failed to send message"));
       }
     } catch (error) {
-      console.error("Failed to send command:", error);
+      setSendError(error instanceof Error ? error.message : "Failed to send message");
     } finally {
       setIsSendingConsole(false);
-    }
-  };
-
-  const handleEstablishTrust = async () => {
-    if (!agent) return;
-    setIsBindingOwner(true);
-    try {
-      // 1. Fetch/generate console identity
-      const identityRes = await fetch(`/api/agents/${id}/bind-owner`, {
-        method: "POST",
-      });
-      if (!identityRes.ok) {
-        throw new Error("Failed to retrieve console virtual identity");
-      }
-      const identity = await identityRes.json();
-      const ownerUrn = identity.virtualUrn;
-      const ownerEdPubKey = identity.virtualEd25519PublicKey;
-      const ownerXPubKey = identity.virtualX25519PublicKey;
-
-      // 2. Call localhost /contacts of local agent via CORS
-      const localContactsUrl = agent.localUrl?.endsWith("/")
-        ? `${agent.localUrl}contacts`
-        : `${agent.localUrl}/contacts`;
-
-      const localRes = await fetch(localContactsUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contact_urn: ownerUrn,
-          alias: "Owner (Cloud Console)",
-          trust_tier: "self",
-          ed25519_public_key: ownerEdPubKey,
-          x25519_public_key: ownerXPubKey,
-        }),
-      });
-
-      if (!localRes.ok) {
-        throw new Error(`Failed to push contact to local agent: ${localRes.statusText}`);
-      }
-
-      // 3. Register contact in cloud database
-      const cloudRes = await fetch("/api/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId: agent.id,
-          contactUrn: ownerUrn,
-          trustTier: "self",
-          alias: "Owner (Cloud Console)",
-          publicKey: ownerEdPubKey,
-        }),
-      });
-
-      if (cloudRes.ok) {
-        alert("Successfully established mutual trust and bound virtual owner!");
-        fetchAgent(); // reload contacts to update UI
-      } else {
-        const cloudErr = await cloudRes.json();
-        alert(`Trust pushed to local agent, but failed to sync to cloud console database: ${cloudErr.error}`);
-      }
-    } catch (err: any) {
-      console.error(err);
-      alert(`Trust provisioning failed: ${err.message}`);
-    } finally {
-      setIsBindingOwner(false);
-    }
-  };
-
-  const checkLocalConnectivity = async (url: string | null) => {
-    if (!url) {
-      setLocalConnected("unset");
-      return;
-    }
-    setLocalConnected("checking");
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
-
-      await fetch(url, {
-        method: "GET",
-        mode: "no-cors",
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      setLocalConnected("connected");
-    } catch (err) {
-      console.warn("Ping failed:", err);
-      setLocalConnected("failed");
     }
   };
 
@@ -271,7 +223,6 @@ export default function AgentDetailPage() {
         const updatedAgent = await response.json();
         setAgent((prev) => prev ? { ...prev, localUrl: updatedAgent.localUrl } : null);
         setIsEditingUrl(false);
-        checkLocalConnectivity(updatedAgent.localUrl);
       }
     } catch (error) {
       console.error("Failed to save local URL:", error);
@@ -360,7 +311,15 @@ export default function AgentDetailPage() {
   }
 
   const isBoundOnly = agent.encryptedPrivateKey === null;
-  const isOwnerTrusted = agent.contacts.some(c => c.contactUrn === virtualUrn && c.trustTier === "self");
+  const hasOwnerIdentity = Boolean(virtualUrn && virtualEd25519PublicKey && virtualX25519PublicKey);
+  const canSendConsole = hasOwnerIdentity && agent.platformRegistered;
+  const ownerContact = JSON.stringify({
+    contact_urn: virtualUrn,
+    alias: "Owner (Cloud Console)",
+    trust_tier: "self",
+    ed25519_public_key: virtualEd25519PublicKey,
+    x25519_public_key: virtualX25519PublicKey,
+  }, null, 2);
 
   return (
     <div className="space-y-6">
@@ -467,7 +426,7 @@ export default function AgentDetailPage() {
 
             <div>
               <label className="text-xs font-bold text-muted-foreground uppercase">
-                Agent Local URL & Connection
+                Agent Local URL
               </label>
               <div className="space-y-2 mt-1">
                 {isEditingUrl ? (
@@ -499,27 +458,10 @@ export default function AgentDetailPage() {
                   </div>
                 )}
 
-                {agent.localUrl && (
-                  <div className="flex items-center justify-between text-xs bg-muted/40 p-2.5 rounded-lg border">
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2.5 w-2.5 rounded-full ${
-                        localConnected === "connected" ? "bg-green-500 animate-pulse" :
-                        localConnected === "failed" ? "bg-red-500" :
-                        localConnected === "checking" ? "bg-yellow-500 animate-spin" :
-                        "bg-gray-400"
-                      }`} />
-                      <span className="font-medium text-muted-foreground">
-                        {localConnected === "connected" && "Local Agent Reachable"}
-                        {localConnected === "failed" && "Local Agent Offline"}
-                        {localConnected === "checking" && "Pinging Agent..."}
-                        {localConnected === "unset" && "Not Checked"}
-                      </span>
-                    </div>
-                    <Button variant="ghost" size="sm" className="h-7 text-[11px]" onClick={() => checkLocalConnectivity(agent.localUrl)}>
-                      Test Connection
-                    </Button>
-                  </div>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  Used for setup on the agent&apos;s computer. Messages travel through the platform;
+                  this page cannot verify whether the local helper or Hermes is running.
+                </p>
               </div>
             </div>
           </CardContent>
@@ -610,69 +552,79 @@ export default function AgentDetailPage() {
 
         <TabsContent value="control" className="mt-4 space-y-6">
           <div className="grid gap-6 md:grid-cols-3">
-            {/* Mutual Trust Status card */}
-            <Card className="md:col-span-1">
+            {/* Public console identity for local configuration */}
+            <Card className="md:col-span-1 min-w-0">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-md">
                   <Key className="h-4 w-4 text-primary" />
-                  Mutual Trust Provisioning
+                  Console Identity
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
-                <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase">Console Owner URN</label>
-                  <div className="mt-1 font-mono text-xs bg-muted p-2 rounded truncate select-all">
-                    {virtualUrn || "Not Generated Yet"}
+                <p className="text-xs text-muted-foreground">
+                  This is your web account&apos;s messaging identity. Configure it on the
+                  agent&apos;s computer to allow messages and enable replies.
+                </p>
+                {[
+                  { label: "Console Owner URN", value: virtualUrn, field: "owner-urn" },
+                  { label: "Ed25519 Public Key", value: virtualEd25519PublicKey, field: "owner-ed25519" },
+                  { label: "X25519 Public Key", value: virtualX25519PublicKey, field: "owner-x25519" },
+                ].map(({ label, value, field }) => (
+                  <div key={field}>
+                    <label className="text-xs font-bold text-muted-foreground uppercase">{label}</label>
+                    <div className="flex items-start gap-2 mt-1">
+                      <code className="min-w-0 flex-1 break-all whitespace-pre-wrap font-mono text-xs bg-muted p-2 rounded select-all">
+                        {value || "Not initialized"}
+                      </code>
+                      {value && (
+                        <Button variant="outline" size="sm" aria-label={`Copy ${label}`} onClick={() => handleCopy(value, field)}>
+                          {copiedField === field ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/20 text-xs">
-                  <div className="flex items-center gap-2">
-                    {isOwnerTrusted ? (
-                      <>
-                        <ShieldCheck className="h-4.5 w-4.5 text-green-600 shrink-0" />
-                        <span className="font-medium text-green-800">Trust Provisioned (&quot;self&quot;)</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldAlert className="h-4.5 w-4.5 text-yellow-600 shrink-0" />
-                        <span className="font-medium text-yellow-800 font-semibold">Trust Not Configured</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-2">
+                ))}
+                {ownerError && <p role="alert" className="text-xs text-destructive break-words">{ownerError}</p>}
+                {!hasOwnerIdentity && (
                   <Button
-                    onClick={handleEstablishTrust}
-                    disabled={isBindingOwner || localConnected !== "connected"}
+                    onClick={() => void fetchOwnerIdentity("POST")}
+                    disabled={isBindingOwner}
                     className="w-full text-xs"
-                    variant={isOwnerTrusted ? "outline" : "default"}
                   >
                     <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isBindingOwner ? "animate-spin" : ""}`} />
-                    {isOwnerTrusted ? "Re-provision Trust" : "Establish Mutual Trust"}
+                    {isBindingOwner ? "Loading Identity..." : "Initialize Console Identity"}
                   </Button>
-                  {localConnected !== "connected" && (
-                    <p className="text-[10px] text-red-500 mt-1 text-center">
-                      * Trust additions require Local Agent URL to be online.
+                )}
+                {hasOwnerIdentity && (
+                  <details className="rounded-lg border p-3 text-xs space-y-3">
+                    <summary className="cursor-pointer font-medium">Configure Hermes on your computer</summary>
+                    <ol className="list-decimal pl-4 space-y-2 text-muted-foreground">
+                      <li>Send the contact JSON below to your local helper&apos;s <code>/contacts</code> endpoint from a terminal.</li>
+                      <li>Add the Console Owner URN to <code>platforms.agent_comm.extra.allow_from</code> in the active Hermes profile, then restart Gateway.</li>
+                    </ol>
+                    <p className="text-muted-foreground">
+                      The contact supplies keys for replies. Hermes separately checks permission
+                      to process incoming messages. This page cannot confirm local authorization.
                     </p>
-                  )}
-                </div>
+                    <pre className="whitespace-pre-wrap break-all bg-muted p-2 rounded">{ownerContact}</pre>
+                    <Button variant="outline" size="sm" className="w-full" onClick={() => handleCopy(ownerContact, "owner-contact")}>
+                      {copiedField === "owner-contact" ? <Check className="mr-2 h-3.5 w-3.5" /> : <Copy className="mr-2 h-3.5 w-3.5" />}
+                      Copy Contact JSON
+                    </Button>
+                  </details>
+                )}
               </CardContent>
             </Card>
 
             {/* Chat Console Card */}
-            <Card className="md:col-span-2 flex flex-col h-[480px] overflow-hidden shadow-lg">
+            <Card className="md:col-span-2 min-w-0 flex flex-col h-[480px] overflow-hidden shadow-lg">
               {/* Chat Header */}
-              <div className="px-5 py-3.5 border-b bg-gradient-to-r from-white to-gray-50/80 dark:from-zinc-900 dark:to-zinc-800/80 flex items-center justify-between">
+              <div className="px-5 py-3.5 border-b bg-gradient-to-r from-white to-gray-50/80 dark:from-zinc-900 dark:to-zinc-800/80 flex flex-wrap gap-3 items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm shadow-md">
                       🤖
                     </div>
-                    <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-900 ${
-                      localConnected === "connected" ? "bg-green-500" : "bg-zinc-400"
-                    }`} />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold leading-tight">{agent.name}</h3>
@@ -682,8 +634,8 @@ export default function AgentDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={localConnected === "connected" ? "success" : "destructive"} className="text-[10px] px-2 py-0.5">
-                    {localConnected === "connected" ? "Online" : "Offline"}
+                  <Badge variant={agent.platformRegistered ? "outline" : "warning"} className="text-[10px] px-2 py-0.5">
+                    {agent.platformRegistered ? "Platform Registered" : "Registration Required"}
                   </Badge>
                   <Badge variant="outline" className="text-[10px] px-2 py-0.5 gap-1">
                     <ShieldCheck className="h-3 w-3" />
@@ -751,39 +703,41 @@ export default function AgentDetailPage() {
                   );
                 })}
 
-                {/* Typing indicator */}
+                {/* Request status, not an assertion that Hermes is typing. */}
                 {isSendingConsole && (
-                  <div className="flex items-end gap-2 justify-start">
-                    <div className="h-7 w-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-zinc-700 dark:to-zinc-600 flex items-center justify-center text-xs shrink-0 shadow-sm">
-                      🤖
-                    </div>
-                    <div className="bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
-                      <div className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-gray-400 dark:bg-zinc-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1.2s" }} />
-                        <span className="h-2 w-2 rounded-full bg-gray-400 dark:bg-zinc-500 animate-bounce" style={{ animationDelay: "200ms", animationDuration: "1.2s" }} />
-                        <span className="h-2 w-2 rounded-full bg-gray-400 dark:bg-zinc-500 animate-bounce" style={{ animationDelay: "400ms", animationDuration: "1.2s" }} />
-                      </div>
-                    </div>
-                  </div>
+                  <p role="status" className="text-xs text-muted-foreground">Sending to the platform...</p>
                 )}
 
                 <div ref={terminalEndRef} />
               </div>
 
+              {(sendError || pollError) && (
+                <div role="alert" className="border-t bg-destructive/5 px-4 py-2 text-xs text-destructive break-words">
+                  {sendError && <p>Send failed: {sendError}</p>}
+                  {pollError && <p>Replies could not be refreshed: {pollError}. Retrying automatically.</p>}
+                </div>
+              )}
+              {sendStatus && !sendError && <p role="status" className="px-4 py-2 text-xs text-muted-foreground">{sendStatus}</p>}
+              {!canSendConsole && (
+                <p className="px-4 py-2 text-xs text-muted-foreground">
+                  {!hasOwnerIdentity ? "Initialize your console identity to send messages." : "Sync the agent's platform registration to send messages."}
+                </p>
+              )}
               {/* Chat Input Area */}
               <form onSubmit={handleSendConsole} className="border-t bg-white dark:bg-zinc-900 p-3 flex items-center gap-2">
                 <Input
                   value={consoleInput}
                   onChange={(e) => setConsoleInput(e.target.value)}
-                  placeholder={isOwnerTrusted ? "发送消息..." : "请先建立信任关系以启用聊天"}
+                  placeholder="发送消息..."
                   className="flex-1 h-10 rounded-full border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 px-4 text-sm placeholder:text-muted-foreground/50 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-0 transition-colors"
-                  disabled={!isOwnerTrusted || isSendingConsole}
+                  disabled={!canSendConsole || isSendingConsole}
                 />
                 <Button
                   type="submit"
                   size="icon"
                   className="h-10 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-40 disabled:shadow-none shrink-0"
-                  disabled={!isOwnerTrusted || !consoleInput.trim() || isSendingConsole}
+                  disabled={!canSendConsole || !consoleInput.trim() || isSendingConsole}
+                  aria-label="Send message"
                 >
                   <Send className="h-4 w-4" />
                 </Button>

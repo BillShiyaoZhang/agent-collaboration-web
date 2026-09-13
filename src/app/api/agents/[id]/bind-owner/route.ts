@@ -5,6 +5,41 @@ import { authOptions } from "@/lib/auth";
 import crypto from "crypto";
 import { encryptPrivateKey, deriveUrnFromEd25519PubKey } from "@/lib/crypto";
 
+// Expose only this signed-in owner's public identity; reading never creates keys.
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const agent = await prisma.agent.findFirst({
+      where: { id: params.id, userId: session.user.id },
+      select: { id: true },
+    });
+    if (!agent) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+    const identity = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        virtualUrn: true,
+        virtualEd25519PublicKey: true,
+        virtualX25519PublicKey: true,
+      },
+    });
+    if (!identity) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    return NextResponse.json(identity, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    console.error("Error reading console identity:", error);
+    return NextResponse.json({ error: "Failed to load console identity" }, { status: 500 });
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
