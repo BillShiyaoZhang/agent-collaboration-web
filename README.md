@@ -92,6 +92,7 @@ Web 会把已经获准读取的对话、联系人、事项和收件内容保存�
 普通用户无需启动这个源码项目。需要开发或自行部署时，请看：
 
 - [技术参考：架构、接入命令、权限与验证](docs/TECHNICAL_REFERENCE.md)
+- [官网静态页面：内容维护与独立发布](site/README.md)
 - [多端共享模块：客户端接口、历史分页与跨端重试](packages/client-contract/README.md)
 - [云端部署与数据库迁移](CLOUD_DEPLOYMENT.md)
 - [完整部署项目](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)
