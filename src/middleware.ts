@@ -22,6 +22,12 @@ export async function middleware(request: NextRequest) {
   });
 
   if (!token) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, {
+        status: 401,
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);

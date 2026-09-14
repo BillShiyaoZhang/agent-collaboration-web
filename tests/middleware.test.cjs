@@ -49,6 +49,15 @@ function assertLoginRedirect(response, origin, pathname) {
   assert.equal(response.headers.get("x-middleware-next"), null);
 }
 
+async function assertUnauthorizedJson(response) {
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get("location"), null);
+  assert.equal(response.headers.get("x-middleware-next"), null);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.match(response.headers.get("content-type"), /application\/json/);
+  assert.deepEqual(await response.json(), { error: "Unauthorized" });
+}
+
 test("authentication middleware", { concurrency: false }, async (t) => {
   // NextAuth chooses its default cookie name from NEXTAUTH_URL. Keep all cases
   // serial and restore the caller's environment, including initially unset keys.
@@ -128,10 +137,24 @@ test("authentication middleware", { concurrency: false }, async (t) => {
       }
     });
 
-    await t.test("retired demo and private APIs are not public routes", async () => {
-      for (const pathname of ["/demo", "/demo/private", "/demography", "/api/messages", "/api/contacts", "/login-extra", "/api/auth-extra"]) {
+    await t.test("retired demo and similarly named pages are not public routes", async () => {
+      for (const pathname of ["/demo", "/demo/private", "/demography", "/login-extra"]) {
         assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
       }
+    });
+
+    await t.test("private APIs return uncached JSON instead of redirecting to login", async () => {
+      for (const pathname of ["/api/messages", "/api/contacts", "/api/auth-extra", "/api/workspace", "/api/workspace/sync", "/api/agents/agent-one/workspace"]) {
+        await assertUnauthorizedJson(await middleware(request(productionOrigin, pathname)));
+      }
+    });
+
+    await t.test("expired workspace sessions remain recognizable as 401 by background clients", async () => {
+      const token = await encode({ secret, token: { sub: "regression-user" }, maxAge: -120 });
+      for (const pathname of ["/api/workspace", "/api/agents/agent-one/workspace"]) {
+        await assertUnauthorizedJson(await middleware(request(productionOrigin, pathname, `${secureCookie}=${token}`)));
+      }
+      assertAllowed(await middleware(request(productionOrigin, "/api/workspace", `${secureCookie}=${validToken}`)));
     });
 
     await t.test("allows the shared footer asset without exposing similarly named routes", async () => {
