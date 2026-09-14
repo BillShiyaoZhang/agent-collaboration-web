@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { controlCallSchema, requireSameOrigin } from "@/lib/control-protocol";
 import { ControlError } from "@/lib/control-transport";
 import { createControlCall, pollControlResponses, controlCallResult } from "@/lib/control-service";
+import { recordWorkspaceResponse } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -47,6 +48,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
     if (!row.responseEnvelope && row.deadline.getTime() > Date.now()) await pollControlResponses(user);
     const latest = await prisma.controlRequest.findUnique({ where: { id: row.id } });
     if (!latest) return json({ error: "请求缓存已过期。" }, 410);
-    return json(controlCallResult(user, agent, latest));
+    const result = controlCallResult(user, agent, latest);
+    if ("response" in result && result.response) await recordWorkspaceResponse(user, agent, latest, result.response);
+    return json(result);
   } catch (error) { return failure(error); }
 }

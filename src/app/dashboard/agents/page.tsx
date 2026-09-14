@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Bot, Check, CheckCheck, ChevronRight, CircleAlert, Fingerprint, Inbox, Loader2, MessageSquare, Plus, RefreshCw, Search, ShieldCheck, Users, X } from "lucide-react";
@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
-type Agent = { id: string; name: string; urn: string };
+import { useWorkspace } from "@/components/workspace-provider";
+import { syncLabel } from "@/lib/workspace-client";
+import { displayTime } from "@/lib/workbench-client";
 
 function responseError(data: unknown, fallback: string, status: number) {
   if (status === 401) return "登录已过期，请重新登录后再试。";
@@ -45,9 +47,7 @@ function ConnectionSkeleton() {
 
 export default function AgentsPage() {
   const router = useRouter();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const { connections: agents, loading, error: loadError, refresh: load, requestSync } = useWorkspace();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -57,41 +57,15 @@ export default function AgentsPage() {
   const [success, setSuccess] = useState("");
   const mounted = useRef(false);
   const submitting = useRef(false);
-  const loadRequest = useRef<AbortController | null>(null);
   const connectRequest = useRef<AbortController | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const dialogOpener = useRef<HTMLElement | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
-    loadRequest.current?.abort();
-    const controller = new AbortController();
-    loadRequest.current = controller;
-    setLoading(true);
-    setLoadError("");
-    try {
-      const response = await fetch("/api/agents", { cache: "no-store", signal: controller.signal });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(responseError(data, "暂时无法加载连接，请重试。", response.status));
-      if (!Array.isArray(data)) throw new Error("暂时无法加载连接，请重试。");
-      if (mounted.current && !controller.signal.aborted) setAgents(data);
-    } catch (error) {
-      if (mounted.current && !controller.signal.aborted) setLoadError(requestError(error, "暂时无法加载连接，请重试。"));
-    } finally {
-      if (mounted.current && !controller.signal.aborted) setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     mounted.current = true;
-    void load();
-    return () => {
-      mounted.current = false;
-      loadRequest.current?.abort();
-      connectRequest.current?.abort();
-    };
-  }, [load]);
-
+    return () => { mounted.current = false; connectRequest.current?.abort(); };
+  }, []);
   function changeOpen(nextOpen: boolean) {
     if (submitting.current) return;
     if (nextOpen) {
@@ -124,10 +98,8 @@ export default function AgentsPage() {
       if (!response.ok) throw new Error(responseError(data, "无法保存连接，请稍后重试。", response.status));
       if (!data?.id) throw new Error("无法读取连接信息，请刷新连接列表。");
       if (!mounted.current || controller.signal.aborted) return;
-      loadRequest.current?.abort();
-      setAgents((previous) => [data, ...previous.filter((agent) => agent.id !== data.id)]);
-      setLoading(false);
-      setLoadError("");
+      void load();
+      void requestSync(data.id);
       setQuery("");
       setSuccess(`已保存「${data.name}」，正在进入工作台…`);
       setName("");
@@ -155,7 +127,7 @@ export default function AgentsPage() {
               <h1 className="text-3xl font-semibold tracking-tight sm:text-[2rem]">我的连接</h1>
               {!loading && !loadError && <span className="rounded-lg border bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums text-muted-foreground" aria-label={`${agents.length} 个连接`}>{agents.length}</span>}
             </div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">随时回到你的 agent，接着把事情做好。</p>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">连接、消息和联系人会保存在你的账号中，并自动更新。</p>
           </div>
           <DialogTrigger asChild>
             <Button ref={addButton} className="gap-2 rounded-xl shadow-sm sm:mt-6"><Plus className="h-4 w-4" aria-hidden="true" />添加连接</Button>
@@ -168,7 +140,7 @@ export default function AgentsPage() {
           <div role="alert" className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-destructive/20 bg-destructive/5 p-5">
             <div className="flex items-start gap-3">
               <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
-              <div><p className="text-sm font-medium">连接暂时没有加载出来</p><p className="mt-1 text-sm text-muted-foreground">{loadError}</p></div>
+              <div><p className="text-sm font-medium">暂时无法更新连接</p><p className="mt-1 text-sm text-muted-foreground">{loadError}</p></div>
             </div>
             <Button variant="outline" className="gap-2 rounded-xl" onClick={() => void load()} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />重试</Button>
           </div>
@@ -201,7 +173,7 @@ export default function AgentsPage() {
                       <span className="inline-flex items-center gap-1.5"><CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />事项</span>
                       <span className="inline-flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />对话</span>
                     </div>
-                    <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs"><span className="text-muted-foreground">远程工作台</span><span className="flex items-center gap-1 font-medium text-primary">打开<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span></div>
+                    <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs"><span className="min-w-0 pr-2 text-muted-foreground"><span className="block">{syncLabel(agent.sync, !!agent.sync.lastSuccessAt)}</span>{agent.sync.lastSuccessAt && <span className="mt-1 block text-[10px]">最近同步 {displayTime(agent.sync.lastSuccessAt / 1000)}</span>}</span><span className="flex items-center gap-1 font-medium text-primary">打开<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span></div>
                   </Link>
                 ))}
               </div>
@@ -213,7 +185,7 @@ export default function AgentsPage() {
                 <Button variant="outline" className="mt-5 rounded-xl" onClick={() => { setQuery(""); searchInput.current?.focus(); }}>清空搜索</Button>
               </div>
             )}
-            <p className="flex items-start gap-2 px-1 pt-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />可用功能以 agent 授权为准，进入工作台后可查看配对与授权状态。</p>
+            <p className="flex items-start gap-2 px-1 pt-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />所有连接都在后台自动同步。Agent 暂时离线时，仍可查看已保存的内容。</p>
           </section>
         )}
 
@@ -268,3 +240,4 @@ export default function AgentsPage() {
     </Dialog>
   );
 }
+

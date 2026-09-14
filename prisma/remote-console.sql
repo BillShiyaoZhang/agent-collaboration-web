@@ -30,3 +30,41 @@ CREATE TABLE IF NOT EXISTS "ControlRequest" (
 );
 CREATE INDEX IF NOT EXISTS "ControlRequest_agentId_idx" ON "ControlRequest"("agentId");
 CREATE INDEX IF NOT EXISTS "ControlRequest_expiresAt_idx" ON "ControlRequest"("expiresAt");
+
+-- Account workspace. Payloads, conversation titles and pending text are encrypted
+-- by the application; indexes contain only identifiers and scheduling metadata.
+CREATE TABLE IF NOT EXISTS "WorkspaceState" (
+ "agentId" TEXT NOT NULL PRIMARY KEY, "activeConversationId" TEXT NOT NULL DEFAULT '',
+ "activeSelectedAt" REAL NOT NULL DEFAULT 0, "status" TEXT NOT NULL DEFAULT 'waiting',
+ "lastAttemptAt" REAL, "lastSuccessAt" REAL, "nextSyncAt" REAL NOT NULL DEFAULT 0,
+ "error" TEXT, "failures" INTEGER NOT NULL DEFAULT 0, "requestId" TEXT,
+ "plan" TEXT, "leaseToken" TEXT, "leaseUntil" REAL, "lastWakeAt" REAL NOT NULL DEFAULT 0,
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WorkspaceState_nextSyncAt_idx" ON "WorkspaceState"("nextSyncAt");
+CREATE TABLE IF NOT EXISTS "WorkspaceSnapshot" (
+ "agentId" TEXT NOT NULL, "method" TEXT NOT NULL, "recordKey" TEXT NOT NULL DEFAULT '',
+ "payload" TEXT NOT NULL, "sourceAt" REAL NOT NULL, "savedAt" REAL NOT NULL, "requestId" TEXT NOT NULL,
+ PRIMARY KEY("agentId", "method", "recordKey"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "WorkspaceItem" (
+ "agentId" TEXT NOT NULL, "kind" TEXT NOT NULL, "itemId" TEXT NOT NULL,
+ "conversationId" TEXT NOT NULL DEFAULT '', "payload" TEXT NOT NULL,
+ "sourceAt" REAL NOT NULL, "sortTime" REAL NOT NULL, "status" TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY("agentId", "kind", "itemId"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WorkspaceItem_conversation_idx" ON "WorkspaceItem"("agentId", "kind", "conversationId", "sortTime", "itemId");
+CREATE TABLE IF NOT EXISTS "WorkspaceConversation" (
+ "agentId" TEXT NOT NULL, "conversationId" TEXT NOT NULL, "payload" TEXT NOT NULL,
+ "sourceAt" REAL NOT NULL, "updatedAt" REAL NOT NULL,
+ PRIMARY KEY("agentId", "conversationId"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WorkspaceConversation_updatedAt_idx" ON "WorkspaceConversation"("agentId", "updatedAt");
+CREATE TABLE IF NOT EXISTS "WorkspaceSubmission" (
+ "agentId" TEXT NOT NULL PRIMARY KEY, "requestId" TEXT NOT NULL, "payload" TEXT NOT NULL,
+ "createdAt" REAL NOT NULL, "phase" TEXT NOT NULL DEFAULT 'sending',
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);

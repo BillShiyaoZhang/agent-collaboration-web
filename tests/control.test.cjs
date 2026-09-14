@@ -51,6 +51,7 @@ test("the actual RPC route enforces session, saved connection and origin before 
     "next-auth":{getServerSession:async()=>session},"@/lib/auth":{authOptions:{}},
     "@/lib/db":{prisma:{agent:{findFirst:async({where})=>where.id===agent.id&&where.userId===agent.userId?agent:null},user:{findUnique:async()=>user}}},
     "@/lib/control-protocol":protocol,"@/lib/control-transport":transport,
+    "@/lib/workspace-store":{recordWorkspaceResponse:async()=>{}},
     "@/lib/control-service":{createControlCall:async(_user,target,call)=>{called++;assert.equal(target.urn,agent.urn);return {request_id:call.request_id,status:"pending"};}},
   });
   const body={request_id:crypto.randomUUID(),method:"capabilities",params:{}};
@@ -109,29 +110,55 @@ test("actual signed/encrypted control transport interoperates and rejects forged
 });
 
 function serviceFixture() {
-  const rows=new Map(),sent=[],acked=[];let mailbox=[],failSend=false,failWrite=false;
+  const rows=new Map(),sent=[],acked=[],projected=[];let mailbox=[],failSend=false,failWrite=false,failProjection=false,retrievals=0;
   const user={id:"owner",virtualUrn:"console"},agent={id:"agent",urn:"agent-urn",userId:user.id};
   const prisma={controlRequest:{
     deleteMany:async({where})=>{for(const [id,row] of rows)if(row.expiresAt<=where.expiresAt.lte)rows.delete(id);},
     count:async()=>rows.size,findUnique:async({where})=>rows.get(where.id)||null,
     findFirst:async({where})=>{const row=rows.get(where.id);return row&&where.agent.userId===user.id&&row.consoleUrn===where.consoleUrn?{...row,agent}:null;},
     create:async({data})=>{const row={status:"pending",responseEnvelope:null,...data};rows.set(row.id,row);return row;},
-    updateMany:async({where,data})=>{if(failWrite)throw new Error("disk failure");const row=rows.get(where.id);if(row.responseEnvelope===where.responseEnvelope)Object.assign(row,data);},
+    updateMany:async({where,data})=>{if(failWrite)throw new Error("disk failure");const row=rows.get(where.id);if(row.responseEnvelope===where.responseEnvelope){Object.assign(row,data);return {count:1};}return {count:0};},
   }};
   const fake={ControlError:transport.ControlError,consoleKeys:()=>({}),encodeControl:async(_user,r)=>JSON.stringify(r),
     submitEnvelope:async(_user,wire)=>{sent.push(wire);if(failSend)throw new Error("uncertain send");},
     verifyConsoleEnvelope:(_user,wire)=>{const decoded=JSON.parse(wire);if(decoded.invalidSignature)throw new Error("Invalid signature");return decoded.envelope;},
-    decodeControl:(_user,wire)=>{const decoded=JSON.parse(wire);if(decoded.ordinaryChat)throw new Error("Not control");return decoded;},retrieveEnvelopes:async()=>mailbox.slice(0,100),
+    decodeControl:(_user,wire)=>{const decoded=JSON.parse(wire);if(decoded.ordinaryChat)throw new Error("Not control");return decoded;},retrieveEnvelopes:async()=>{retrievals++;return mailbox.slice(0,100);},
     acknowledgeEnvelopes:async(_user,ids)=>{acked.push(...ids);mailbox=mailbox.filter(item=>!ids.includes(item.message_id));}};
-  const service=load("../src/lib/control-service.ts",{"./db":{prisma},"./control-protocol":protocol,"./control-transport":fake});
+  const store={reserveWorkspaceSubmission:async()=>{},markWorkspaceSubmissionUncertain:async()=>{},clearWorkspaceSubmission:async()=>{},
+    recordWorkspaceResponse:async(_user,_agent,row,result)=>{if(failProjection)throw new Error("projection disk failure");projected.push({id:row.id,result});}};
+  const service=load("../src/lib/control-service.ts",{"./db":{prisma},"./control-protocol":protocol,"./control-transport":fake,"./workspace-store":store});
   const call={request_id:crypto.randomUUID(),method:"contacts.list",params:{}};
   function reply(id=call.request_id,changes={}) {
     const row=rows.get(id),r=JSON.parse(row.requestEnvelope);
     const decoded={envelope:{senderUrn:agent.urn,messageId:"reply-"+id},chat:{inReplyTo:id,deadline:r.deadline},response:response(r),...changes};
     return {message_id:decoded.envelope.messageId,payload_proto:JSON.stringify(decoded)};
   }
-  return {service,rows,sent,acked,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value};
+  return {service,rows,sent,acked,projected,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,retrievals:()=>retrievals};
 }
+
+test("durable account projection must finish before ACK, including retry after a wire-only save",async()=>{
+  const f=serviceFixture();await f.service.createControlCall(f.user,f.agent,f.call);
+  f.setMailbox([f.reply()]);f.setFailProjection(true);
+  await assert.rejects(f.service.pollControlResponses(f.user),/projection disk failure/);
+  assert.equal(f.rows.get(f.call.request_id).status,"complete");assert.equal(f.acked.length,0);
+  f.setFailProjection(false);await f.service.pollControlResponses(f.user);
+  assert.equal(f.projected.length,1);assert.equal(f.acked.length,1);
+});
+
+test("concurrent browser and worker mailbox reads share one authenticated retrieval",async()=>{
+  const f=serviceFixture();await f.service.createControlCall(f.user,f.agent,f.call);f.setMailbox([f.reply()]);
+  await Promise.all([f.service.pollControlResponses(f.user),f.service.pollControlResponses(f.user),f.service.pollControlResponses(f.user)]);
+  assert.equal(f.retrievals(),1);assert.equal(f.projected.length,1);assert.equal(f.acked.length,1);
+});
+
+test("concurrent retries of the same write enqueue once and reject a competing payload",async()=>{
+  const f=serviceFixture(),call={...f.call,method:'conversation.send',params:{text:'one durable message'}};
+  const first=f.service.createControlCall(f.user,f.agent,call);
+  const second=f.service.createControlCall(f.user,f.agent,call);
+  await assert.rejects(f.service.createControlCall(f.user,f.agent,{...call,params:{text:'changed'}}),/请求 ID/);
+  const replies=await Promise.all([first,second]);
+  assert.equal(f.sent.length,1);assert.deepEqual(replies[0],replies[1]);
+});
 
 test("an uncertain send retries the identical persisted ciphertext and never claims agent success",async()=>{
   const f=serviceFixture();f.setFailSend(true);
@@ -192,7 +219,7 @@ test("late responses cannot resurrect expired calls and cache expires independen
   row.expiresAt=new Date(Date.now()-1000);await f.service.cleanupControlCache();assert.equal(f.rows.size,0);
 });
 
-test("the active Web schema and routes contain no independent business stores",()=>{
+test("legacy business tables remain untouched and their retired write routes stay closed",()=>{
   const schema=fs.readFileSync(path.resolve(__dirname,"../prisma/schema.prisma"),"utf8");
   for(const model of ["Contact","Message","HITLRequest","Transaction"])assert.doesNotMatch(schema,new RegExp("model\\s+"+model+"\\b"));
   const migration=fs.readFileSync(path.resolve(__dirname,"../prisma/remote-console.sql"),"utf8");

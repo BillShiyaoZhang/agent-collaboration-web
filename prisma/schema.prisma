@@ -6,7 +6,7 @@ datasource db {
   provider = "sqlite"
   url = env("DATABASE_URL")
 }
-// Only authentication and a console identity live on the Web.
+// Account identity and encrypted workspace records are retained on the Web.
 model User {
   id String @id @default(cuid())
   email String @unique
@@ -34,6 +34,11 @@ model Agent {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   requests ControlRequest[]
+  workspaceState WorkspaceState?
+  workspaceSnapshots WorkspaceSnapshot[]
+  workspaceItems WorkspaceItem[]
+  workspaceConversations WorkspaceConversation[]
+  workspaceSubmission WorkspaceSubmission?
   @@index([userId])
   @@unique([userId, urn])
 }
@@ -53,4 +58,67 @@ model ControlRequest {
   createdAt DateTime @default(now())
   @@index([agentId])
   @@index([expiresAt])
+}
+
+// Raw parameterized SQL keeps additive upgrades compatible with existing images.
+// Payload fields below use authenticated encryption bound to account and record.
+model WorkspaceState {
+  agentId String @id
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activeConversationId String @default("")
+  activeSelectedAt Float @default(0)
+  status String @default("waiting")
+  lastAttemptAt Float?
+  lastSuccessAt Float?
+  nextSyncAt Float @default(0)
+  error String?
+  failures Int @default(0)
+  requestId String?
+  plan String?
+  leaseToken String?
+  leaseUntil Float?
+  lastWakeAt Float @default(0)
+  @@index([nextSyncAt])
+}
+model WorkspaceSnapshot {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  method String
+  recordKey String @default("")
+  payload String
+  sourceAt Float
+  savedAt Float
+  requestId String
+  @@id([agentId, method, recordKey])
+}
+model WorkspaceItem {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  kind String
+  itemId String
+  conversationId String @default("")
+  payload String
+  sourceAt Float
+  sortTime Float
+  status String @default("")
+  @@id([agentId, kind, itemId])
+  @@index([agentId, kind, conversationId, sortTime, itemId], map: "WorkspaceItem_conversation_idx")
+}
+model WorkspaceConversation {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversationId String
+  payload String
+  sourceAt Float
+  updatedAt Float
+  @@id([agentId, conversationId])
+  @@index([agentId, updatedAt])
+}
+model WorkspaceSubmission {
+  agentId String @id
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  requestId String
+  payload String
+  createdAt Float
+  phase String @default("sending")
 }

@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { authOptions } from "@/lib/auth";
 import { resolveIdentity, ControlError } from "@/lib/control-transport";
 import { requireSameOrigin } from "@/lib/control-protocol";
+import { scheduleWorkspaceSync } from "@/lib/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace-sync";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -20,6 +22,8 @@ export async function POST(request: Request) {
     if (!parsed.success) return NextResponse.json({error:"请填写连接名称与 agent 的完整 URN。"}, {status:400});
     const identity = await resolveIdentity(parsed.data.urn);
     const agent = await prisma.agent.create({data:{userId:session.user.id,name:parsed.data.name,urn:parsed.data.urn,publicKey:Buffer.from(identity.ed25519_pubkey,"base64").toString("hex"),platformRegistered:true}});
+    await scheduleWorkspaceSync(session.user.id, agent.id);
+    startWorkspaceSync();
     return NextResponse.json(agent,{status:201});
   } catch(error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") return NextResponse.json({error:"该 agent 已保存连接。"}, {status:409});

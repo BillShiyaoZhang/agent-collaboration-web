@@ -6,6 +6,8 @@ import crypto from "crypto";
 import { encryptPrivateKey, deriveUrnFromEd25519PubKey } from "@/lib/crypto";
 import { registerConsole, ControlError } from "@/lib/control-transport";
 import { requireSameOrigin } from "@/lib/control-protocol";
+import { scheduleWorkspaceSync } from "@/lib/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace-sync";
 
 function publicIdentity(user: {virtualUrn:string|null;virtualEd25519PublicKey:string|null;virtualX25519PublicKey:string|null}) {
   return {virtualUrn:user.virtualUrn,virtualEd25519PublicKey:user.virtualEd25519PublicKey,virtualX25519PublicKey:user.virtualX25519PublicKey};
@@ -43,6 +45,8 @@ export async function POST(request:Request,{params}:{params:{id:string}}) {
     }
     // Registration is retried for an existing identity too; a partial network failure never rotates its keys.
     await registerConsole(user);
+    await scheduleWorkspaceSync(user.id);
+    startWorkspaceSync();
     return NextResponse.json({...publicIdentity(user),registered:true,
       note:"控制台身份已注册。请在 agent 本机配对该 URN，并将其加入 allow_from；保存 Web 连接本身不授予访问权。"});
   } catch(error){return failed(error);}

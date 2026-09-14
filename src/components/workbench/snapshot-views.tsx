@@ -29,7 +29,7 @@ export function StatusBadge({ value }: { value: unknown }) {
 export function EmptySnapshot({ kind, filtered = false }: { kind: "contacts" | "tasks" | "inbox"; filtered?: boolean }) {
   const Icon = kind === "contacts" ? Users : kind === "tasks" ? ClipboardList : Inbox;
   const descriptions = {
-    contacts: ["联系人会出现在这里", "在 agent 的原生对话中确认联系人后，刷新即可查看。"],
+    contacts: ["联系人会出现在这里", "在 agent 的原生对话中确认联系人后，会自动同步到这里。"],
     tasks: ["暂时没有协作事项", "交给 agent 的协作事项和待确认请求，会在这里汇集。"],
     inbox: ["收件箱很安静", "来自已确认联系人的消息，会在这里显示。"],
   };
@@ -43,12 +43,12 @@ export function RawSnapshot({ data }: { data: unknown }) {
 export function ContactsSnapshot({ data }: { data: RemoteRecord }) {
   const [query, setQuery] = useState("");
   const contacts = records(data.contacts);
-  const visible = contacts.filter(contact => [string(contact.contact_id), string(contact.urn), ...strings(contact.aliases)].join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const visible = contacts.filter(contact => [string(contact.contact_id), string(contact.urn), string(contact.alias), ...strings(contact.aliases)].join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   return <>
     {!!contacts.length && <div className="px-5 pb-4"><div className="relative max-w-sm"><Search aria-hidden className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input aria-label="搜索联系人" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索姓名、别名或 URN" className="rounded-xl bg-muted/40 pl-9" /></div></div>}
     {!visible.length ? <EmptySnapshot kind="contacts" filtered={!!query} /> : <div className="grid gap-3 px-5 pb-5 md:grid-cols-2">{visible.map((contact, index) => {
-      const aliases = strings(contact.aliases), name = aliases[0] || string(contact.contact_id, "未命名联系人"), urn = string(contact.urn);
-      return <article key={string(contact.contact_id, String(index))} className="flex min-w-0 items-start gap-3 rounded-2xl border p-4 transition-colors hover:bg-muted/25"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="truncate font-medium">{name}</h3>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}<p className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground">{urn}</p></div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
+      const aliases = Array.from(new Set([string(contact.alias), ...strings(contact.aliases)].filter(Boolean))), name = aliases[0] || string(contact.contact_id, "未命名联系人"), urn = string(contact.urn);
+      return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 items-start gap-3 rounded-2xl border p-4 transition-colors hover:bg-muted/25"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="truncate font-medium">{name}</h3>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}<p className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground">{urn}</p></div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
     })}</div>}
     <RawSnapshot data={data} />
   </>;
@@ -88,3 +88,4 @@ export function InboxSnapshot({ data }: { data: RemoteRecord }) {
     <RawSnapshot data={data} />
   </>;
 }
+
