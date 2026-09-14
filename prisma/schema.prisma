@@ -1,131 +1,56 @@
-// This is your Prisma schema file
-
 generator client {
-  provider      = "prisma-client-js"
+  provider = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
-
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url = env("DATABASE_URL")
 }
-
+// Only authentication and a console identity live on the Web.
 model User {
-  id                         String    @id @default(cuid())
-  email                      String    @unique
-  passwordHash               String
-  
-  // Virtual Agent Identity for E2E Messaging
-  virtualUrn                 String?   @unique
-  virtualEd25519PublicKey    String?
-  virtualEd25519PrivateKey   String?   // Encrypted GCM JSON
-  virtualX25519PublicKey     String?
-  virtualX25519PrivateKey    String?   // Encrypted GCM JSON
-  virtualKeySalt             String?
-  
-  createdAt                  DateTime  @default(now())
-  updatedAt                  DateTime  @updatedAt
-  
-  agents                     Agent[]
-  contacts                   Contact[]
-  hitlRequests               HITLRequest[]
-  transactions               Transaction[]
+  id String @id @default(cuid())
+  email String @unique
+  passwordHash String
+  virtualUrn String? @unique
+  virtualEd25519PublicKey String?
+  virtualEd25519PrivateKey String?
+  virtualX25519PublicKey String?
+  virtualX25519PrivateKey String?
+  virtualKeySalt String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  agents Agent[]
 }
-
+// A connection record is not ownership; the agent must pair the console locally.
 model Agent {
-  id                    String   @id @default(cuid())
-  userId                String
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name                  String
-  urn                   String   @unique
-  publicKey             String
-  encryptedPrivateKey   String?  // AES-256-GCM encrypted private key
-  keySalt               String?  // Salt for key derivation
-  localUrl              String?  // URL of local agent, e.g. http://localhost:8000
-  platformRegistered   Boolean  @default(false)
-  lastActiveAt          DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  contacts              Contact[]
-  messages              Message[]
-  hitlRequests          HITLRequest[]
-  transactions          Transaction[]
-
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  urn String
+  publicKey String
+  platformRegistered Boolean @default(false)
+  lastActiveAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  requests ControlRequest[]
   @@index([userId])
-  @@index([urn])
+  @@unique([userId, urn])
 }
-
-model Contact {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agentId      String
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  contactUrn   String
-  trustTier    String   @default("stranger") // family, friend, stranger
-  alias        String?
-  publicKey    String?
-  lastMessageAt DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([agentId, contactUrn])
-  @@index([userId])
+// Bounded delivery cache only: encrypted wire bytes, maximum ten-minute retention.
+model ControlRequest {
+  id String @id
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  consoleUrn String
+  method String
+  fingerprint String
+  requestEnvelope String
+  responseEnvelope String?
+  status String @default("pending")
+  deadline DateTime
+  expiresAt DateTime
+  createdAt DateTime @default(now())
   @@index([agentId])
-}
-
-model Message {
-  id           String   @id @default(cuid())
-  userId       String
-  agentId      String
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  senderUrn    String
-  recipientUrn String
-  content      String   // Encrypted content
-  isIncoming   Boolean  @default(true)
-  isRead       Boolean  @default(false)
-  createdAt    DateTime @default(now())
-
-  @@index([agentId])
-  @@index([userId])
-  @@index([senderUrn, recipientUrn])
-}
-
-model HITLRequest {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agentId      String
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  requestType  String   // message, service_call, transaction
-  payload      String   // JSON payload
-  status       String   @default("pending") // pending, approved, rejected
-  resolvedAt   DateTime?
-  createdAt    DateTime @default(now())
-
-  @@index([userId])
-  @@index([agentId])
-  @@index([status])
-}
-
-model Transaction {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agentId      String
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  fromUrn      String
-  toUrn        String
-  amount       String   // Using String for decimal precision
-  currency     String   @default("TOKEN")
-  status       String   @default("pending") // pending, confirmed, failed
-  txHash       String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([userId])
-  @@index([agentId])
-  @@index([fromUrn])
-  @@index([toUrn])
+  @@index([expiresAt])
 }

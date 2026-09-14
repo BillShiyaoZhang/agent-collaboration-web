@@ -127,6 +127,18 @@ test("authentication middleware", { concurrency: false }, async (t) => {
         assertAllowed(await middleware(request(productionOrigin, pathname)));
       }
     });
+
+    await t.test("retired demo and private APIs are not public routes", async () => {
+      for (const pathname of ["/demo", "/demo/private", "/demography", "/api/messages", "/api/contacts", "/login-extra", "/api/auth-extra"]) {
+        assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
+      }
+    });
+
+    await t.test("allows the shared footer asset without exposing similarly named routes", async () => {
+      assertAllowed(await middleware(request(productionOrigin, "/beian-icon.png")));
+      const pathname = "/beian-icon.png/private";
+      assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
+    });
   } finally {
     for (const key of envKeys) {
       if (originalEnv[key] === undefined) delete process.env[key];

@@ -1,2 +1,0 @@
-1. 我想将网站部署在云端，然后通过 docker 部署的时候配置一个 ip 和 端口号 来访问 agent-comm-platform
-2. 网页只和 agent-comm-platform 连接，之后当 agent 通过 agent-comm skill 注册到平台后，网站后端可以通过 platform 找到访问 agent 的方式（因为 agent 可能没有公网 ip）。agent-comm, agent-oncall 都是部署在 agent 侧的。

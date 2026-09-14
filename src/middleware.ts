@@ -9,11 +9,9 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check if the route is public
-  const isPublicRoute = publicRoutes.some((route) =>
-    pathname.startsWith(route)
-  );
+  const isPublicRoute = publicRoutes.some((route) => pathname === route || (route === "/api/auth" && pathname.startsWith(route + "/")));
 
-  if (isPublicRoute) {
+  if (isPublicRoute || pathname === "/beian-icon.png") {
     return NextResponse.next();
   }
 

@@ -1,191 +1,112 @@
-# Agent Collaboration Web
+# Agent Comm 远程工作台
 
-A responsive web application for human-in-the-loop (HITL) management of AI agent collaboration. Built with Next.js 14, TypeScript, and Tailwind CSS.
+这个 Web 应用用于远程连接用户自己的 agent。联系人、任务、授权、收件箱和对话由 agent 侧提供，Web 不再维护独立的业务数据。
 
-## Overview
+当前实现日期：2026-09-14。生产部署状态请查看根项目交接文档；本文件描述此目录代码。
 
-This platform enables users to manage their agents' collaboration activities:
+## 数据和组件边界
 
-- **Agent Management**: Register and manage multiple agents
-- **Discovery**: Find and connect with other agents on the network
-- **Messaging**: Real-time communication between agents
-- **HITL Approval**: Review and approve agent actions that require human authorization
-- **Service Calls**: Invoke services provided by other agents
-- **Transactions**: Transfer tokens between agents
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    User's Browser                        │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │         agent-collaboration-web (Next.js SPA)     │    │
-│  │  - Dashboard                                      │    │
-│  │  - Agent Management                               │    │
-│  │  - Message Center                                 │    │
-│  │  - HITL Approval Queue                            │    │
-│  │  - Service Discovery & Invocation                │    │
-│  │  - Transaction Management                         │    │
-│  └─────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│              Next.js API Routes (Backend)                │
-│  - /api/auth/*       Authentication                      │
-│  - /api/agents/*     Agent management & discovery        │
-│  - /api/contacts/*   Contact management                  │
-│  - /api/messages/*   Message handling                    │
-│  - /api/hitl/*       HITL approval workflow              │
-│  - /api/oncall/*     Service call invocation             │
-│  - /api/transactions/* Token transfers                   │
-└─────────────────────────────────────────────────────────┘
-                            │
-          ┌─────────────────┼─────────────────┐
-          ▼                 ▼                 ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│agent-comm-platform│ │  agent-comm    │ │  agent-oncall   │
-│  (Go Backend)    │ │   (Go SDK)      │ │   (Python)      │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
+```mermaid
+flowchart LR
+    U["用户浏览器"] --> W["Next.js 远程工作台"]
+    W --> DB[("账户、控制台身份、连接记录<br/>短期加密 RPC 投递缓存")]
+    W <-->|"签名加密控制消息"| P["Registry / MQ"]
+    P <-->|"签名加密控制消息"| H["用户设备上的 helper"]
+    H <--> R["agent-comm runtime / RemoteBridge"]
+    R <--> S[("agent 本地联系人、委托、收件箱")]
+    R <--> A["已适配的 agent 对话入口"]
 ```
 
-### Agent Connection Flow
+Web 的持久模型只有 `User`、`Agent`、`ControlRequest`：
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                          Cloud Server                           │
-│  ┌──────────────────────┐         ┌──────────────────────────┐ │
-│  │  agent-collaboration- │◄────────│  agent-comm-platform     │ │
-│  │       web (Next.js)   │         │  (Registry & Routing)    │ │
-│  └──────────────────────┘         └──────────────────────────┘ │
-│                                             ▲                  │
-└──────────────────────────────────────────────┼──────────────────┘
-                                               │
-                                  ┌────────────┴────────────┐
-                                  │      Agents Side        │
-                                  │  (may lack public IP)   │
-                                  │  ┌──────────────────┐   │
-                                  │  │ agent-comm        │   │
-                                  │  │ agent-oncall      │   │
-                                  │  └──────────────────┘   │
-                                  └───────────────────────────┘
-```
+- `User`：登录资料与服务端加密保存的控制台私钥。控制台私钥不是用户 agent 的私钥。
+- `Agent`：此账户保存的远程连接，按 `(userId, urn)` 唯一。保存连接不授予远程权限，也不占用其他账户的同一 URN。
+- `ControlRequest`：确切请求/响应的加密信封、关联字段和状态。请求期限 120 秒，缓存逻辑有效期 10 分钟，访问时清理过期记录；空闲期间不保证物理擦除。每账户上限 64 条待清理记录。它不是聊天历史或业务对象缓存。
 
-- **Website** 只与 platform 通信，不直接连接 agents
-- **Agents** 通过 agent-comm skill 注册到 platform
-- **Agents** 不需要公网 IP，只需能访问 platform 的端口即可
-- **Platform** 负责路由转发，实现双向通信
+客户端页面仅在内存显示本次返回的快照，没有 localStorage 业务副本。刷新后重新从 agent 读取。云服务能通过其控制台身份解密已获准的远程响应，因此 agent 侧配对决定此控制台能够读取哪些内容。
 
-## Environment Variables
+## 初次接入
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DATABASE_URL` | SQLite database path (relative to `/app/prisma`) | `file:./prod.db` |
-| `NEXTAUTH_URL` | **Public URL** of this web app (used for OAuth callbacks) | `http://1.2.3.4:3000` |
-| `NEXTAUTH_SECRET` | Secret key for NextAuth session encryption | `your-secret-key-change-in-production` |
-| `AGENT_PLATFORM_URL` | URL of agent-comm-platform service | `http://platform:8080` (docker) or `http://1.2.3.4:8080` |
-| `WEB_PORT` | Host port to bind (optional, default: 3000) | `3000` |
+1. 在运行 agent 的设备安装新版 agent-comm runtime、对应 host connector 和 helper，并保持在线。使用根项目交付的试用包；不要假设旧公开 wheel 已包含远程能力。
+2. 登录 Web，进入“我的连接”，填写 agent 的完整 URN。Web 验证 Registry 签名后保存连接。
+3. 打开工作台，点击“创建控制台身份”。复制页面显示的控制台 URN。
+4. 在 agent 本机通过本地管理员 CLI 配对它；Web 没有自助提升权限的配对 API。例如：
+   ```text
+   python -m agent_comm_runtime.daemon remote pair --hermes-profile YOUR_HERMES_PROFILE --console-urn YOUR_CONSOLE_URN --allow capabilities --allow contacts.list --allow collaboration.state --allow inbox.list --allow conversation.send --allow conversation.get --expires 2026-10-14T00:00:00Z
+   ```
+   替换 profile、控制台 URN 和有效期。只列出允许的具体方法。使用运行 Hermes 的 Python 环境。
+5. Hermes connector 配置的 `extra.remote_enabled` 设为 `true`，`extra.allow_from` 显式包含同一控制台 URN。配对与 allowlist 是两项独立条件。helper 地址是本机 loopback 地址，不是云端平台网址。
+6. 重启对应 connector/网关，回到工作台点击“读取 agent 能力”。
 
-### NEXTAUTH_URL 配置说明
+需要结束访问时，在 agent 本机撤销该控制台配对。Web 保存连接或登录成功均不表示 agent 已授权。
 
-**本地开发**: `http://localhost:3000`
+## 远程能力
 
-**云端部署**: 必须设置为公网可访问的地址，如 `http://<公网IP>:3000` 或 `https://your-domain.com`
+| 方法 | 来源与含义 |
+| --- | --- |
+| `capabilities` | agent 根据实际适配器和本地配对返回方法列表 |
+| `contacts.list` | agent 本地 Store 的联系人 |
+| `collaboration.state` | agent 本地 Store 的委托、待办和状态 |
+| `inbox.list` | agent 本地已接收的消息 |
+| `conversation.send` | 适配器实际受理一个远程会话回合 |
+| `conversation.get` | 查询 agent 保存的回合状态与真实答复 |
 
-> ⚠️ 如果部署在云服务器上，请确保 `NEXTAUTH_URL` 与实际访问地址一致，否则 OAuth 登录会失败。
+未提供的方法隐藏，显式不支持的方法展示原因。发送对话的 `submitted` 仅表示受理；`conversation.get` 中的最终回合状态和答复来自 agent。Web 不提供远程审批确认；需要原生主人确认的动作仍通过适配的原生渠道执行。
 
-## Prerequisites
+## RPC 契约与验证
 
-- Node.js 20+
-- npm or yarn
-- SQLite (included via Prisma)
-- Docker & Docker Compose (for containerized deployment)
+`POST /api/agents/:id/control` 只接受 `request_id`、`method`、`params`。服务端由登录会话和保存连接确定双方身份，不接受浏览器覆盖目标 URN。变更请求须来自配置的同一 Origin。
 
-## Getting Started
+加密的请求正文：
 
-### 1. Install Dependencies
-
-```bash
-npm install
+```json
+{
+  "protocol": "agent-comm-control/v1",
+  "type": "request",
+  "request_id": "a-valid-uuid",
+  "agent_urn": "urn:hermes:agent:TARGET",
+  "console_urn": "urn:hermes:agent:CONSOLE",
+  "deadline": "2026-09-14T08:02:00.000Z",
+  "method": "capabilities",
+  "params": {}
+}
 ```
 
-### 2. Setup Database
+外层加密 ChatMessage 元数据：`kind=control.request`、`conversation_id=control:<request_id>`、相同 deadline；签名信封 `message_id=request_id`。响应使用 `control.response`、`in_reply_to=request_id` 和相同 deadline，正文绑定全部关联字段且只能包含 result 或 error，不回显 params。
 
-```bash
-# Generate Prisma client
-npx prisma generate
+Web 在验签、解密、双方 URN / request ID / method / deadline 核对后，先持久保存响应密文再 ACK。无效签名和外层消息 ID 冲突不 ACK。专用控制台信箱内已认证但无关的旧聊天、未知请求或错误关联响应会消费丢弃，以免阻塞后续 RPC；不会将其记为业务消息。
 
-# Create database tables
-npx prisma db push
-```
+网络不确定时使用原请求 ID 重试，发送完全相同的已保存密文。过期回复不能把超时请求变成成功；发送成功、平台入队和 agent 返回结果是不同状态。只读快照不能证明 agent 当前仍然在线。
 
-### 3. Configure Environment
+## 开发与验证
 
-Create a `.env` file:
+Node.js 20+、npm，配置 `.env` 后：
 
-```env
-DATABASE_URL="file:./prod.db"
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="your-secret-key-change-in-production"
-AGENT_PLATFORM_URL="http://localhost:8080"
-```
-
-### 4. Run Development Server
-
-```bash
+```sh
+npm ci
+npm run db:generate
+npm run db:migrate
+npm test
+npm run build
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+`NEXTAUTH_SECRET` 必须设置，不能使用示例值，也不能随意轮换已有环境的值；它同时用于现有控制台私钥解密。没有默认后备密钥。维护已有数据库时先看 [迁移和部署说明](CLOUD_DEPLOYMENT.md)。
 
-## Deployment
+测试覆盖实际签名加密信封、跨语言 Go 协议向量、会话和 Origin、关联绑定、过期、稳定重试、先持久化再 ACK、信箱前缀阻塞以及真实 SQLite 非破坏迁移。模型运行和线上 agent 安装验证由根项目的端到端测试与部署记录说明。
 
-### Docker (Recommended)
+2026-09-14 本地验证：54 项 Node 测试、TypeScript、生产构建通过。
 
-#### 本地开发环境
+完整本地组合验证使用实际构建后的 Next.js、Go platform、Go helper 和 Python RemoteBridge：
 
-```bash
-docker-compose up --build
+```text
+python tests/full_stack_smoke.py --helper PATH_TO_HELPER --platform PATH_TO_PLATFORM --node PATH_TO_NODE
 ```
 
-#### 云端部署
+先执行 `npm run build`。脚本使用全新的本地端口、SQLite、Web 测试账户及密钥，完成真实登录、控制台身份注册、本机配对、capabilities / contacts 往返与撤销验证，最终关闭测试进程。报告保存在 `build/full-stack-smoke`。2026-09-14 已通过；没有调用模型或给公网用户发信。
 
-```bash
-# 设置环境变量
-export NEXTAUTH_URL=http://你的公网IP:3000
-export AGENT_PLATFORM_URL=http://你的公网IP:8080
-export NEXTAUTH_SECRET=你的随机密钥
+## 已退役内容
 
-# 启动服务
-docker-compose up -d
-```
+独立联系人 CRUD、云端聊天业务历史、HITL 业务表与审批页面、服务调用和交易占位页、浏览器演示均已从运行代码移除。旧数据库的相关表保留供管理员离线归档，应用不再读取它们。退役源码在本次工作区的 `build/retired-web-source-20260914` 留有逐文件 SHA256 校验备份；构建与 Docker context 均排除该目录。
 
-访问 `http://你的公网IP:3000` 验证部署。
-
-### 手动部署
-
-```bash
-npm run build
-npm start
-```
-
-The application uses `output: "standalone"` mode for optimized Docker deployments.
-
-## Related Projects
-
-- [agent-comm-platform](https://github.com/BillShiyaoZhang/agent-comm-platform) - Public IP service platform for agent registration and discovery
-- [agent-comm](https://github.com/BillShiyaoZhang/agent-comm) - Go SDK for agent-side communication
-- [agent-oncall](https://github.com/BillShiyaoZhang/agent-oncall) - Python service for agent service requests
-
-## Tech Stack
-
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS + shadcn/ui
-- **Database**: SQLite via Prisma ORM
-- **Authentication**: NextAuth.js
-- **UI Components**: Radix UI primitives
-
-## License
-
-MIT
+[开发接入契约](../docs/ARCHITECTURE_AND_EXTENSION_PORTS.md) 包含宿主、记忆和交互扩展接口。
