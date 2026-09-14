@@ -3,8 +3,8 @@ import "./globals.css";
 import { Footer } from "@/components/layout/footer";
 
 export const metadata: Metadata = {
-  title: "Agent Collaboration",
-  description: "Human-In-The-Loop Agent Collaboration Platform",
+  title: { default: "Agent Comm · 我的工作空间", template: "%s · Agent Comm" },
+  description: "连接自己的 agent，在一个工作空间里对话、查看联系人与协作事项。",
 };
 
 export default function RootLayout({
@@ -13,10 +13,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body className="antialiased">
-        <div className="flex min-h-screen flex-col">
-          <div className="flex-1">{children}</div>
+        <div className="flex h-dvh flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
           <Footer />
         </div>
       </body>

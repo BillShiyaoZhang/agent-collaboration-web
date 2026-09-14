@@ -1,0 +1,3 @@
+export default function DashboardLoading() {
+  return <div role="status" aria-label="正在打开工作空间" className="space-y-8"><div className="space-y-3"><div className="skeleton h-4 w-20" /><div className="skeleton h-9 w-48" /><div className="skeleton h-4 w-64 max-w-full" /></div><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2].map(index => <div key={index} className="surface space-y-5 p-6"><div className="skeleton h-12 w-12 rounded-2xl" /><div className="skeleton h-5 w-32" /><div className="skeleton h-4 w-full" /><div className="skeleton h-10 w-full" /></div>)}</div><span className="sr-only">正在加载…</span></div>;
+}

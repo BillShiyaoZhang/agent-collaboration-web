@@ -1,98 +1,51 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+
+import { useEffect, useState } from "react";
+import { Bot, ClipboardList, Inbox, MessageCircle, RefreshCw, Settings2, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { displayTime, RpcMethod } from "@/lib/workbench-client";
+import { ContactsSnapshot, InboxSnapshot, TasksSnapshot } from "@/components/workbench/snapshot-views";
+import { PairingPanel, RequestFeedback } from "@/components/workbench/pairing-panel";
+import { ConversationPanel } from "@/components/workbench/conversation-panel";
+import { Connection, useWorkbench } from "@/components/workbench/use-workbench";
 
-type Connection = { id: string; name: string; urn: string };
-type Method = { name: string; available: boolean; reason?: string };
-type Identity = { virtualUrn: string | null; virtualEd25519PublicKey: string | null };
-type PendingCall = {request_id:string;method:string;params:Record<string,unknown>};
+type Tab = "conversation" | "contacts" | "tasks" | "inbox";
+const tabItems = [
+  { id: "conversation" as const, label: "对话", icon: MessageCircle, methods: ["conversation.send", "conversation.get"] },
+  { id: "contacts" as const, label: "联系人", icon: Users, methods: ["contacts.list"] },
+  { id: "tasks" as const, label: "事项", icon: ClipboardList, methods: ["collaboration.state"] },
+  { id: "inbox" as const, label: "收件箱", icon: Inbox, methods: ["inbox.list"] },
+];
+const readMethods: Record<Exclude<Tab, "conversation">, RpcMethod> = { contacts: "contacts.list", tasks: "collaboration.state", inbox: "inbox.list" };
+const descriptions: Record<string, string> = { contacts: "熟悉的人，以及他们的 agent。", tasks: "协作的进展、授权范围和待确认请求。", inbox: "查看来自其他 agent 的消息与提议。" };
 
-export function RemoteWorkbench({ agent }: {agent: Connection}) {
-  const [identity, setIdentity] = useState<Identity | null>(null);
-  const [methods, setMethods] = useState<Method[]>([]);
-  const [busy, setBusy] = useState("");
-  const [message, setMessage] = useState("连接已保存。请先在 agent 本机配对控制台，再读取能力。");
-  const [error, setError] = useState("");
-  const [data, setData] = useState<Record<string, unknown>>({});
-  const [text, setText] = useState("");
-  const [conversationId, setConversationId] = useState("");
-  const calls = useRef(new Map<string, PendingCall>());
-  const mounted = useRef(true);
+export function RemoteWorkbench({ agent }: { agent: Connection }) {
+  return <AgentWorkbench key={agent.id} agent={agent} />;
+}
+
+function AgentWorkbench({ agent }: { agent: Connection }) {
+  const w = useWorkbench(agent);
+  const [activeTab, setActiveTab] = useState<Tab>("conversation");
+  const tabs = tabItems.filter(tab => tab.methods.some(w.available));
+  const visibleTab = tabs.some(tab => tab.id === activeTab) ? activeTab : tabs[0]?.id;
+  const snapshotMethod = visibleTab && visibleTab !== "conversation" ? readMethods[visibleTab] : null;
+  const snapshot = snapshotMethod ? w.snapshots[snapshotMethod] : undefined;
+  const { snapshots, busy, errors, invoke } = w;
   useEffect(() => {
-    mounted.current = true;
-    const controller = new AbortController();
-    fetch(`/api/agents/${agent.id}/bind-owner`, {cache:"no-store",signal:controller.signal}).then(async response => {
-      const body = await response.json(); if (response.ok) setIdentity(body);
-    }).catch(()=>{});
-    return () => { mounted.current = false; controller.abort(); };
-  }, [agent.id]);
+    if (!snapshotMethod) return;
+    if (!snapshots[snapshotMethod] && !busy[snapshotMethod] && !errors[snapshotMethod]) void invoke(snapshotMethod);
+  }, [snapshotMethod, snapshots, busy, errors, invoke]);
 
-  async function createIdentity() {
-    setBusy("identity"); setError("");
-    try {
-      const response = await fetch(`/api/agents/${agent.id}/bind-owner`, {method:"POST"});
-      const body = await response.json();
-      if(!response.ok) throw new Error(body.error);
-      setIdentity(body);setMessage(body.note);
-    } catch(error) { setError(error instanceof Error ? error.message : "请求失败。"); }
-    finally {setBusy("");}
-  }
-
-  async function rpc(method: string, params: Record<string, unknown> = {}) {
-    setBusy(method);setError("");
-    const key = JSON.stringify([method,params]);
-    const call = calls.current.get(key) || {request_id:crypto.randomUUID(),method,params};
-    calls.current.set(key,call);
-    try {
-      let response = await fetch(`/api/agents/${agent.id}/control`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(call)});
-      let body = await response.json();
-      if(!response.ok) {if(response.status===410 || response.status===404) calls.current.delete(key); throw new Error(body.error);}
-      setMessage("请求已入队，正在等待 agent 的认证响应。请保持 agent 和 helper 在线。");
-      for(let attempt=0; body.status==="pending" && attempt<65; attempt++) {
-        await new Promise(resolve=>setTimeout(resolve,2000));
-        if(!mounted.current) return;
-        response=await fetch(`/api/agents/${agent.id}/control?request_id=${encodeURIComponent(call.request_id)}`,{cache:"no-store"});
-        body=await response.json();
-        if(!response.ok) throw new Error(body.error);
-      }
-      if(!mounted.current) return;
-      if(body.status!=="complete") {calls.current.delete(key);throw new Error("尚未收到有效响应。重新操作前请检查 agent 端状态，已提交动作可能仍在处理。");}
-      calls.current.delete(key);
-      if(body.response.error) throw new Error(`${body.response.error.code}: ${body.response.error.message}`);
-      const result=body.response.result;
-      setData(previous=>({...previous,[method]:result}));
-      if(method==="capabilities") setMethods(Array.isArray(result?.methods)?result.methods.filter((entry:Method)=>typeof entry.name==="string" && typeof entry.available==="boolean"):[]);
-      if(method==="conversation.send" && typeof result?.conversation_id==="string") setConversationId(result.conversation_id);
-      setMessage(method==="conversation.send" ? "Agent 已受理这一回合。点击读取对话查看处理结果。" : "已收到 agent 的认证响应。页面展示本次读取的快照。");
-    } catch(error) { if(mounted.current) setError(error instanceof Error ? error.message : "请求失败；可用同一按钮重试原请求。"); }
-    finally { if(mounted.current) setBusy(""); }
-  }
-  const available = (name:string) => methods.some(method=>method.name===name && method.available);
-  const labels:Record<string,string>={"contacts.list":"联系人","collaboration.state":"事项与授权状态","inbox.list":"收件箱"};
-
-  return <div className="space-y-6">
-    <div><p className="text-sm text-muted-foreground">远程工作台</p><h1 className="mt-1 text-3xl font-semibold">{agent.name}</h1><p className="mt-2 break-all font-mono text-sm text-muted-foreground">{agent.urn}</p></div>
-    <section className="rounded-xl border bg-card p-6">
-      <h2 className="text-lg font-medium">控制台配对</h2>
-      <p className="mt-2 text-sm text-muted-foreground">在 agent 本机授权这个控制台的 URN，并将其加入 connector 的 allow_from。联系人、事项和对话保存在 agent 侧。</p>
-      {identity?.virtualUrn && <div className="my-4 space-y-2 rounded-lg bg-muted p-3"><p className="break-all font-mono text-sm">{identity.virtualUrn}</p><p className="break-all text-xs text-muted-foreground">Ed25519: {identity.virtualEd25519PublicKey}</p></div>}
-      <div className="mt-4 flex flex-wrap gap-3"><Button variant="outline" disabled={!!busy} onClick={createIdentity}>{identity?.virtualUrn?"确认身份注册":"创建控制台身份"}</Button><Button disabled={!!busy || !identity?.virtualUrn} onClick={()=>rpc("capabilities")}>读取 agent 能力</Button></div>
-    </section>
-    <div role="status" className="rounded-lg bg-muted px-4 py-3 text-sm">{busy && <span className="mr-2">处理中…</span>}{message}</div>
-    {error && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
-    {!!methods.length && <section className="rounded-xl border p-6"><h2 className="text-lg font-medium">来自 agent 的功能</h2>
-      <div className="mt-4 flex flex-wrap gap-3">{Object.entries(labels).filter(([method])=>available(method)).map(([method,label])=><Button key={method} variant="outline" disabled={!!busy} onClick={()=>rpc(method)}>{label}</Button>)}</div>
-      {methods.filter(method=>!method.available).map(method=><p key={method.name} className="mt-3 text-sm text-muted-foreground">{method.name}：{method.reason||"当前 agent 未提供"}</p>)}
+  return <div className="mx-auto max-w-6xl space-y-6 pb-6">
+    <header className="flex flex-wrap items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3.5"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Bot className="h-7 w-7" strokeWidth={1.6} /></div><div className="min-w-0"><div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground"><span>远程工作台</span><span>·</span><span>{w.capabilitySnapshot ? "已读取能力" : "待验证连接"}</span></div><h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{agent.name}</h1></div></div><Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" onClick={() => w.setPairingOpen(previous => !previous)} aria-expanded={w.pairingOpen} aria-controls="pairing-panel"><Settings2 className="h-4 w-4" />连接设置</Button></header>
+    <PairingPanel agent={agent} workbench={w} featureCount={tabs.length} />
+    {!w.capabilitySnapshot && <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-10 text-center"><span className="mb-4 rounded-2xl bg-muted p-3"><Sparkles className="h-6 w-6 text-muted-foreground" strokeWidth={1.5} /></span><h2 className="font-medium">工作台准备就绪，等待你的 agent</h2><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">验证连接后，agent 开放的对话、联系人和协作事项会在这里出现。</p></div>}
+    {w.capabilitySnapshot && !tabs.length && <div className="rounded-2xl border bg-card p-8 text-center"><h2 className="font-medium">已验证身份，暂未开放工作台功能</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">请检查 agent 适配器与本机授权范围，再重新检查连接。</p></div>}
+    {!!tabs.length && <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <div role="tablist" aria-label="工作台功能" className="flex overflow-x-auto border-b bg-muted/20 px-2 pt-2 sm:px-5">{tabs.map((tab, index) => <button type="button" role="tab" id={`tab-${tab.id}`} aria-controls={`panel-${tab.id}`} aria-selected={visibleTab === tab.id} tabIndex={visibleTab === tab.id ? 0 : -1} key={tab.id} onClick={() => setActiveTab(tab.id)} onKeyDown={event => { let next = index; if (event.key === "ArrowRight") next = (index + 1) % tabs.length; else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = tabs.length - 1; else return; event.preventDefault(); setActiveTab(tabs[next].id); document.getElementById(`tab-${tabs[next].id}`)?.focus(); }} className={cn("relative flex min-h-12 min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-t-xl px-2 text-xs sm:flex-none sm:gap-2 sm:px-4 sm:text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", visibleTab === tab.id ? "bg-card font-semibold text-primary after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground")}><tab.icon className="h-4 w-4" strokeWidth={1.8} />{tab.label}</button>)}</div>
+      {visibleTab === "conversation" ? <ConversationPanel workbench={w} agentName={agent.name} /> : visibleTab && snapshotMethod ? <div role="tabpanel" id={`panel-${visibleTab}`} aria-labelledby={`tab-${visibleTab}`}><div className="flex items-start justify-between gap-3 p-5"><div><h2 className="font-medium">{tabs.find(tab => tab.id === visibleTab)?.label}</h2><p className="mt-1.5 text-xs leading-5 text-muted-foreground">{descriptions[visibleTab]}</p>{snapshot && <p className="mt-2 text-[11px] text-muted-foreground">最近读取 {displayTime(snapshot.time / 1000)} · agent 侧快照</p>}</div><Button variant="outline" size="sm" className="gap-1.5 rounded-xl" disabled={!!w.busy[snapshotMethod]} onClick={() => void w.invoke(snapshotMethod)}><RefreshCw className={cn("h-3.5 w-3.5", w.busy[snapshotMethod] && "animate-spin")} />刷新</Button></div>{(w.busy[snapshotMethod] || w.errors[snapshotMethod]) && <div className="px-5 pb-4"><RequestFeedback busy={w.busy[snapshotMethod]} error={w.errors[snapshotMethod]} onRetry={() => void w.invoke(snapshotMethod)} /></div>}{!snapshot && w.busy[snapshotMethod] && <div aria-hidden className="space-y-3 px-5 pb-6">{[1, 2, 3].map(key => <div key={key} className="h-24 animate-pulse rounded-2xl bg-muted/60" />)}</div>}{snapshot && (visibleTab === "contacts" ? <ContactsSnapshot data={snapshot.data} /> : visibleTab === "tasks" ? <TasksSnapshot data={snapshot.data} /> : <InboxSnapshot data={snapshot.data} />)}</div> : null}
     </section>}
-    {(available("conversation.send") || available("conversation.get")) && <section className="space-y-4 rounded-xl border p-6"><h2 className="text-lg font-medium">与这个 agent 对话</h2>
-      <p className="text-sm text-muted-foreground">使用 agent 的独立远程会话。需主人确认的协作操作仍通过已适配的原生渠道处理。</p>
-      <Input aria-label="对话 ID" placeholder="对话 ID；首次发送可留空" value={conversationId} onChange={event=>setConversationId(event.target.value)}/>
-      {available("conversation.send") && <Textarea aria-label="给 agent 的消息" maxLength={8000} value={text} onChange={event=>setText(event.target.value)} placeholder="告诉自己的 agent 你想做什么…"/>}
-      <div className="flex gap-3">{available("conversation.send") && <Button disabled={!!busy || !text.trim()} onClick={()=>rpc("conversation.send",{text,...(conversationId?{conversation_id:conversationId}:{})})}>发送给 agent</Button>}{available("conversation.get") && <Button variant="outline" disabled={!!busy || !conversationId} onClick={()=>rpc("conversation.get",{conversation_id:conversationId})}>读取对话</Button>}</div>
-    </section>}
-    {Object.entries(data).filter(([method])=>method!=="capabilities").map(([method,value])=><section key={method} className="rounded-xl border p-6"><h2 className="mb-3 font-medium">{labels[method]||method}</h2><pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-4 text-sm">{JSON.stringify(value,null,2)}</pre></section>)}
-    <p className="text-xs text-muted-foreground">页面不保存业务历史。刷新后重新向 agent 读取；离线、未配对或不支持的能力不会显示为成功。</p>
+    <p className="flex items-start justify-center gap-1.5 px-2 text-center text-[11px] leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />业务数据保存在 agent 侧。此页展示本次读取的快照，刷新页面后需重新读取。</p>
   </div>;
 }
