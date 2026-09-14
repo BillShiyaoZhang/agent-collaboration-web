@@ -4,7 +4,8 @@ import { startWorkspaceSync } from "@/lib/workspace-sync";
 import { workspaceBody, workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace-http";
 
 export const dynamic = "force-dynamic";
-const idSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
+import { STABLE_ID_PATTERN } from "@agent-comm/client-contract";
+const idSchema = z.string().regex(new RegExp(STABLE_ID_PATTERN));
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {

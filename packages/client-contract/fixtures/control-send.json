@@ -1,0 +1,8 @@
+{
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "method": "conversation.send",
+  "params": {
+    "conversation_id": "chat-1",
+    "text": "请整理今天的协作进展。"
+  }
+}

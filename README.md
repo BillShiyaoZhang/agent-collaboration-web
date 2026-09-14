@@ -149,3 +149,11 @@ python tests/full_stack_smoke.py --helper PATH_TO_HELPER --platform PATH_TO_PLAT
 旧的独立联系人 CRUD、云端聊天业务模型、HITL 业务表与审批页面、服务调用和交易占位页、浏览器演示均已从运行代码移除。本轮账户副本由认证读取结果建立，不重新启用旧业务模型。旧数据库的相关表保留供管理员离线归档，应用不再读取它们。退役源码在本次工作区的 `build/retired-web-source-20260914` 留有逐文件 SHA256 校验备份；构建与 Docker context 均排除该目录。
 
 [开发接入契约](../docs/ARCHITECTURE_AND_EXTENSION_PORTS.md) 包含宿主、记忆和交互扩展接口。
+
+## 多端共享契约
+
+工作台的协议类型、稳定请求 ID 与轮询客户端、快照/回合合并、能力与配对校验、只读同步计划已拆到独立 npm workspace [@agent-comm/client-contract](packages/client-contract/README.md)。Web UI、API 校验和后台同步使用同一模块；模块无需 React、Next.js、Prisma 或 Node crypto，也可单独打包给其他 JavaScript 客户端。Swift/Kotlin 等客户端使用相邻 JSON Schema 和跨语言 fixtures 对齐字段、时间单位、分页及不确定发送语义。
+
+新增 npm workspace 后应执行 `npm ci`。Docker 的依赖阶段已包含本地包。`npm test` 同时运行共享包 conformance 测试；`npm run test:contract` 可单独检查。身份认证、数据库加密、信封验签/传输仍保留在对应平台实现中。
+
+跨端重试现在使用规范化 JSON 比较，同时兼容已存在的 10 分钟投递缓存中两种有效会话参数顺序，保留原密文与请求期限。该服务端兼容修复需要重新构建并发布 Web 服务后才会在线生效；不需要清库或更换身份密钥。详细上线边界见[共享模块的重试与发布说明](packages/client-contract/README.md#cross-client-retries-and-rollout)。

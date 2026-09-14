@@ -1,0 +1,225 @@
+{
+  "agent": {
+    "id": "agent-a",
+    "name": "工作助理",
+    "urn": "urn:hermes:agent:TARGET",
+    "platformRegistered": true,
+    "lastActiveAt": null,
+    "createdAt": "2026-09-14T08:00:00.000Z",
+    "sync": {
+      "status": "ready",
+      "lastAttemptAt": 1789372800000,
+      "lastSuccessAt": 1789372800000,
+      "nextSyncAt": 1789372830000,
+      "error": null
+    }
+  },
+  "identity": {
+    "virtualUrn": "urn:hermes:agent:CONSOLE",
+    "virtualEd25519PublicKey": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "sync": {
+    "status": "ready",
+    "lastAttemptAt": 1789372800000,
+    "lastSuccessAt": 1789372800000,
+    "nextSyncAt": 1789372830000,
+    "error": null
+  },
+  "snapshots": {
+    "capabilities": {
+      "data": {
+        "protocol": "agent-comm-control/v1",
+        "methods": [
+          {
+            "name": "capabilities",
+            "available": true
+          },
+          {
+            "name": "contacts.list",
+            "available": true
+          },
+          {
+            "name": "collaboration.state",
+            "available": true
+          },
+          {
+            "name": "inbox.list",
+            "available": true
+          },
+          {
+            "name": "conversation.send",
+            "available": true
+          },
+          {
+            "name": "conversation.get",
+            "available": true
+          },
+          {
+            "name": "approval.respond",
+            "available": false,
+            "reason": "Native trusted interaction is required; remote approval is unsupported"
+          }
+        ],
+        "pairing": {
+          "expires_at": "2026-09-15T08:00:00.000Z"
+        }
+      },
+      "time": 1789372800000,
+      "requestId": "00000000-0000-4000-8000-000000000001"
+    },
+    "collaboration.state": {
+      "data": {
+        "tasks": [
+          {
+            "task_id": "task-1",
+            "title": "设计评审",
+            "status": "active"
+          }
+        ],
+        "operations": [
+          {
+            "operation_id": "operation-1",
+            "task_id": "task-1",
+            "status": "awaiting_approval"
+          }
+        ],
+        "pending_confirmations": [
+          {
+            "approval_id": "approval-1",
+            "status": "pending",
+            "kind": "operation",
+            "subject_id": "operation-1"
+          }
+        ],
+        "contacts": [
+          {
+            "contact_id": "alice",
+            "aliases": [
+              "Alice",
+              "设计伙伴"
+            ],
+            "urn": "urn:hermes:agent:ALICE",
+            "notes": "产品设计"
+          }
+        ],
+        "inbox": [
+          {
+            "message_id": "message-1",
+            "sender_urn": "urn:hermes:agent:ALICE",
+            "text": "设计稿已准备好。",
+            "created_at": 1789372800.0
+          }
+        ],
+        "proposals": [],
+        "next_actions": [
+          "confirm_specific_pending_request"
+        ]
+      },
+      "time": 1789372800000
+    },
+    "contacts.list": {
+      "data": {
+        "contacts": [
+          {
+            "contact_id": "alice",
+            "aliases": [
+              "Alice",
+              "设计伙伴"
+            ],
+            "urn": "urn:hermes:agent:ALICE",
+            "notes": "产品设计"
+          }
+        ]
+      },
+      "time": 1789372800000
+    },
+    "inbox.list": {
+      "data": {
+        "messages": [
+          {
+            "message_id": "message-1",
+            "sender_urn": "urn:hermes:agent:ALICE",
+            "text": "设计稿已准备好。",
+            "created_at": 1789372800.0
+          }
+        ]
+      },
+      "time": 1789372800000
+    },
+    "conversation.get": {
+      "data": {
+        "conversation_id": "chat-1",
+        "turns": [
+          {
+            "turn_id": "turn-1",
+            "status": "completed",
+            "text": "今天有哪些进展？",
+            "response": "设计已确认，等待本机主人确认下一项操作。",
+            "error": null,
+            "created_at": 1789372740.0,
+            "updated_at": 1789372800.0
+          },
+          {
+            "turn_id": "turn-2",
+            "status": "running",
+            "text": "请整理今天的协作进展。",
+            "response": null,
+            "error": null,
+            "created_at": 1789372800.0,
+            "updated_at": 1789372800.0
+          }
+        ]
+      },
+      "time": 1789372800000
+    }
+  },
+  "conversations": [
+    {
+      "id": "chat-1",
+      "title": "协作进展",
+      "updatedAt": 1789372800000,
+      "pending": true,
+      "turnCount": 2
+    }
+  ],
+  "activeConversationId": "chat-1",
+  "conversation": {
+    "conversation_id": "chat-1",
+    "turns": [
+      {
+        "turn_id": "turn-1",
+        "status": "completed",
+        "text": "今天有哪些进展？",
+        "response": "设计已确认，等待本机主人确认下一项操作。",
+        "error": null,
+        "created_at": 1789372740.0,
+        "updated_at": 1789372800.0
+      },
+      {
+        "turn_id": "turn-2",
+        "status": "running",
+        "text": "请整理今天的协作进展。",
+        "response": null,
+        "error": null,
+        "created_at": 1789372800.0,
+        "updated_at": 1789372800.0
+      }
+    ]
+  },
+  "hasEarlierTurns": true,
+  "submission": {
+    "call": {
+      "request_id": "00000000-0000-4000-8000-000000000001",
+      "method": "conversation.send",
+      "params": {
+        "conversation_id": "chat-1",
+        "text": "请整理今天的协作进展。"
+      }
+    },
+    "text": "请整理今天的协作进展。",
+    "conversationId": "chat-1",
+    "turnId": "turn-2",
+    "phase": "uncertain",
+    "retryable": true
+  }
+}

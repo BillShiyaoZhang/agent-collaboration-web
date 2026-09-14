@@ -1,0 +1,21 @@
+{
+  "name": "@agent-comm/client-contract",
+  "version": "0.1.0",
+  "description": "Framework-independent agent control client, workspace reconciliation, synchronization policy and cross-language contract fixtures",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "contract.schema.json",
+    "fixtures",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false
+}

@@ -1,0 +1,103 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const api = require('..');
+const workspace = require('../fixtures/workspace-agent.json');
+const call = require('../fixtures/control-send.json');
+const complete = require('../fixtures/control-complete.json');
+const pending = require('../fixtures/control-pending.json');
+const rejected = require('../fixtures/control-pairing-error.json');
+const policy = require('../fixtures/policy-cases.json');
+const schema = require('../contract.schema.json');
+
+test('package works in plain Node without the web app, React, Prisma or browser storage', () => {
+  const run = spawnSync(process.execPath, ['-e', `const c=require(${JSON.stringify(path.resolve(__dirname, '..'))}); if(c.CONTROL_PROTOCOL!=='agent-comm-control/v1')process.exit(1)`], { cwd: require('node:os').tmpdir(), encoding: 'utf8', env: { ...process.env, NODE_PATH: '' } });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(Object.keys(require('../package.json').dependencies || {}).length, 0);
+});
+
+test('language-neutral schema and fixtures share the supported methods and field shapes', () => {
+  assert.deepEqual(schema.$defs.rpcMethod.enum, api.RPC_METHODS);
+  assert.equal(schema.$defs.stableId.pattern, api.STABLE_ID_PATTERN);
+  assert.equal(policy.contractVersion, api.CONTRACT_VERSION);
+  for (const name of schema.$defs.workspaceAgent.required) assert.ok(Object.hasOwn(workspace, name), name);
+  for (const name of schema.$defs.pendingCall.required) assert.ok(Object.hasOwn(call, name), name);
+  assert.equal(api.remoteTimestamp(workspace.conversation.turns[0].updated_at), workspace.snapshots['conversation.get'].time);
+  assert.equal(workspace.conversation.turns[1].response, null);
+  assert.equal(workspace.submission.call.request_id, call.request_id);
+  assert.equal(workspace.submission.text, call.params.text);
+});
+
+test('canonical complete response binds every identity and correlation field', () => {
+  const response = complete.response;
+  assert.deepEqual(api.validateControlResponse(response, response), response);
+  for (const name of ['request_id', 'agent_urn', 'console_urn', 'deadline', 'method']) {
+    assert.throws(() => api.validateControlResponse({ ...response, [name]: 'other' }, response), /does not match/, name);
+  }
+  assert.throws(() => api.validateControlResponse({ ...response, error: { code: 'rejected', message: 'no' } }, response), /exactly one/);
+  assert.throws(() => api.validateControlResponse({ ...response, params: {} }, response), /protocol/);
+  assert.throws(() => api.validateControlResponse({ ...rejected.response, error: null }, rejected.response), /Invalid control error/);
+});
+
+test('canonical polling returns only authenticated completion, then still tracks the queued turn', async () => {
+  const requests = [];
+  const client = new api.WorkbenchClient('agent-a', async (url, init) => {
+    requests.push({ url, ...init });
+    return Response.json(requests.length === 1 ? pending : complete, { status: requests.length === 1 ? 202 : 200 });
+  }, async ms => assert.equal(ms, api.CONTROL_POLL_MS), () => call.request_id);
+  assert.deepEqual(await client.execute(client.prepare(call.method, call.params), new AbortController().signal), complete.response.result);
+  assert.equal(requests[0].body, JSON.stringify(call));
+  assert.match(requests[1].url, new RegExp(`request_id=${call.request_id}`));
+  assert.equal(api.conversationSettled(workspace.conversation, ['turn-2']), false, 'queue acknowledgement is not a completed answer');
+});
+
+test('ambiguous transport failure retries exact ID and payload, terminal pairing error permits a new intent', async () => {
+  let attempts = 0;
+  const sent = [];
+  const client = new api.WorkbenchClient('agent-a', async (_url, init) => {
+    sent.push(init.body);
+    if (++attempts === 1) throw new Error('lost after enqueue');
+    return Response.json(rejected);
+  }, async () => {}, () => call.request_id);
+  const prepared = client.prepare(call.method, call.params);
+  await assert.rejects(client.execute(prepared, new AbortController().signal), error => error.uncertain && error.retryable);
+  assert.strictEqual(client.prepare(call.method, call.params), prepared);
+  await assert.rejects(client.execute(prepared, new AbortController().signal), error => !error.uncertain && !error.retryable);
+  assert.equal(sent[0], sent[1]);
+  assert.notStrictEqual(client.prepare(call.method, call.params), prepared);
+});
+
+test('pairing policy vectors normalize seconds, milliseconds, ISO dates and invalid expiry consistently', () => {
+  for (const example of policy.pairing) assert.equal(api.pairingAllowsSend({ pairing: { expires_at: example.expiresAt } }, workspace.sync, example.now), example.allowed, JSON.stringify(example));
+  assert.equal(api.pairingAllowsSend({}, { ...workspace.sync, status: 'needs_pairing' }), false);
+  for (const code of api.PAIRING_ERROR_CODES) assert.equal(api.isPairingError(code), true);
+  assert.equal(api.isPairingError('queue_full'), false);
+  for (const example of policy.backoff) assert.equal(api.syncBackoff(example.failures), example.milliseconds);
+});
+
+test('advertised extensions and writes cannot enter the fixed automatic read plan', () => {
+  const state = structuredClone(workspace);
+  state.snapshots.capabilities.data.methods.push({ name: 'approval.respond', available: true }, { name: 'custom.write', available: true });
+  const methods = api.availableMethods(state.snapshots.capabilities.data);
+  assert.ok(!methods.includes('approval.respond'));
+  assert.ok(!methods.includes('custom.write'));
+  const plan = api.syncReadPlan(state, ['chat-1', 'bad/id', 'chat-1'], state.snapshots.capabilities.time + 30000);
+  assert.deepEqual(plan.map(item => item.method), ['collaboration.state', 'conversation.get']);
+  assert.deepEqual(plan[1].params, { conversation_id: 'chat-1' });
+});
+
+test('saved content and terminal turns survive stale refresh while authenticated late results can recover local uncertainty', () => {
+  const current = workspace.snapshots;
+  assert.strictEqual(api.mergeSnapshots(current, { capabilities: { data: {}, time: 1 } }).capabilities, current.capabilities);
+  for (const status of policy.terminalTurns) assert.equal(api.mergeTurns([{ turn_id: 'turn', status }], [{ turn_id: 'turn', status: 'running' }])[0].status, status);
+  assert.equal(api.mergeTurns([{ turn_id: 'turn', status: 'interrupted', locally_unconfirmed: true }], [{ turn_id: 'turn', status: 'completed', response: '真实结果' }])[0].response, '真实结果');
+});
+
+test('canonical JSON ignores object order while preserving array order, values and scope', () => {
+  assert.equal(api.canonicalJSON({ params: { text: '原消息', conversation_id: 'chat' }, id: 'one' }), api.canonicalJSON({ id: 'one', params: { conversation_id: 'chat', text: '原消息' } }));
+  assert.notEqual(api.canonicalJSON({ params: ['a', 'b'] }), api.canonicalJSON({ params: ['b', 'a'] }));
+  assert.notEqual(api.canonicalJSON({ a: null }), api.canonicalJSON({}));
+  const client = new api.WorkbenchClient('agent', async () => { throw new Error('unused'); });
+  assert.strictEqual(client.prepare('conversation.send', { text: 'go', conversation_id: 'chat' }), client.prepare('conversation.send', { conversation_id: 'chat', text: 'go' }));
+});

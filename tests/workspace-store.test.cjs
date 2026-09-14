@@ -263,3 +263,18 @@ test("additive reruns preserve legacy data and deleting a connection cascades wo
   assert.ok(await store.getWorkspaceAgent(other.id, otherAgent.id));
   assert.equal((await db.$queryRawUnsafe('SELECT * FROM "LegacyContact"'))[0].text, "preserved");
 }));
+
+test("persisted Web submission can be resumed with native key ordering without replacing its intent", () => fixture(async ({ user, agent, store, makeStore }) => {
+  const original = { request_id: "web-native-retry", method: "conversation.send", params: { text: "保留原始消息", conversation_id: "chat-a" } };
+  await store.reserveWorkspaceSubmission(user, agent, original);
+  await store.markWorkspaceSubmissionUncertain(agent.id, original.request_id);
+  const retry = { params: { conversation_id: "chat-a", text: "保留原始消息" }, method: "conversation.send", request_id: original.request_id };
+  await makeStore().reserveWorkspaceSubmission(user, agent, retry);
+  const saved = (await store.getWorkspaceAgent(user.id, agent.id)).submission;
+  assert.deepEqual(saved.call, original);
+  assert.equal(saved.phase, "uncertain");
+  for (const changed of [{ ...retry, request_id: "different-id" }, { ...retry, params: { ...retry.params, text: "不同指令" } }, { ...retry, params: { ...retry.params, conversation_id: "another-chat" } }]) {
+    await assert.rejects(store.reserveWorkspaceSubmission(user, agent, changed), { status: 409 });
+  }
+  assert.deepEqual((await store.getWorkspaceAgent(user.id, agent.id)).submission.call, original);
+}));

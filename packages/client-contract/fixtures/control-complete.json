@@ -1,0 +1,19 @@
+{
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "status": "complete",
+  "response": {
+    "protocol": "agent-comm-control/v1",
+    "type": "response",
+    "request_id": "00000000-0000-4000-8000-000000000001",
+    "agent_urn": "urn:hermes:agent:TARGET",
+    "console_urn": "urn:hermes:agent:CONSOLE",
+    "deadline": "2026-09-14T08:02:00.000Z",
+    "method": "conversation.send",
+    "result": {
+      "status": "submitted",
+      "conversation_id": "chat-1",
+      "turn_id": "turn-2"
+    }
+  },
+  "expires_at": "2026-09-14T08:10:00.000Z"
+}

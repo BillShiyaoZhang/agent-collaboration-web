@@ -1,0 +1,69 @@
+{
+  "contractVersion": 1,
+  "pairing": [
+    {
+      "expiresAt": 1789372800.0,
+      "now": 1789372800000,
+      "allowed": false
+    },
+    {
+      "expiresAt": 1789372800000,
+      "now": 1789372800000,
+      "allowed": false
+    },
+    {
+      "expiresAt": 1789372801000,
+      "now": 1789372800000,
+      "allowed": true
+    },
+    {
+      "expiresAt": "invalid",
+      "now": 1789372800000,
+      "allowed": false
+    },
+    {
+      "expiresAt": "2026-09-14T08:00:00.000Z",
+      "now": 1789372800000,
+      "allowed": false
+    }
+  ],
+  "terminalTurns": [
+    "completed",
+    "failed",
+    "interrupted"
+  ],
+  "pendingTurns": [
+    "submitted",
+    "running"
+  ],
+  "backoff": [
+    {
+      "failures": 0,
+      "milliseconds": 30000
+    },
+    {
+      "failures": 1,
+      "milliseconds": 30000
+    },
+    {
+      "failures": 2,
+      "milliseconds": 60000
+    },
+    {
+      "failures": 3,
+      "milliseconds": 120000
+    },
+    {
+      "failures": 4,
+      "milliseconds": 240000
+    },
+    {
+      "failures": 5,
+      "milliseconds": 300000
+    },
+    {
+      "failures": 99,
+      "milliseconds": 300000
+    }
+  ]
+}

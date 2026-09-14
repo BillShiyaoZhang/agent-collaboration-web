@@ -1,0 +1,19 @@
+{
+  "connections": [
+    {
+      "id": "agent-a",
+      "name": "工作助理",
+      "urn": "urn:hermes:agent:TARGET",
+      "platformRegistered": true,
+      "lastActiveAt": null,
+      "createdAt": "2026-09-14T08:00:00.000Z",
+      "sync": {
+        "status": "ready",
+        "lastAttemptAt": 1789372800000,
+        "lastSuccessAt": 1789372800000,
+        "nextSyncAt": 1789372830000,
+        "error": null
+      }
+    }
+  ]
+}

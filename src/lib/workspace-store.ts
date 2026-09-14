@@ -12,7 +12,8 @@ type StateRow = { agentId: string; activeConversationId: string; activeSelectedA
 type SnapshotRow = { method: RpcMethod; recordKey: string; payload: string; sourceAt: number; savedAt: number; requestId: string };
 type ItemRow = { itemId: string; payload: string; sourceAt: number; sortTime: number; status: string };
 type SubmissionRow = { requestId: string; payload: string; phase: "sending" | "uncertain"; createdAt: number };
-export type SyncPlanItem = { method: string; params: Record<string, unknown> };
+import { canonicalJSON, type SyncPlanItem } from "@agent-comm/client-contract";
+export type { SyncPlanItem } from "@agent-comm/client-contract";
 export type SyncJob = Omit<StateRow, "activeConversationId" | "activeSelectedAt" | "plan"> & { plan: SyncPlanItem[] };
 
 // Domain-separated key and authenticated record identity prevent ciphertext being
@@ -262,7 +263,7 @@ export async function reserveWorkspaceSubmission(user: User, agent: Agent, call:
   await prisma.$executeRaw`INSERT OR IGNORE INTO "WorkspaceSubmission" ("agentId","requestId","payload","createdAt") VALUES (${agent.id},${call.request_id},${payload},${Date.now()})`;
   const row = (await prisma.$queryRaw<SubmissionRow[]>`SELECT * FROM "WorkspaceSubmission" WHERE "agentId" = ${agent.id}`)[0];
   const existing = decodeSubmission(user.id, agent.id, row);
-  if (!row || row.requestId !== call.request_id || JSON.stringify(existing?.call) !== JSON.stringify(value.call))
+  if (!row || row.requestId !== call.request_id || (!existing || canonicalJSON(existing.call) !== canonicalJSON(value.call)))
     throw new ControlError("上一条消息的结果尚未确认，请先等待自动核实。", 409);
   if (row.createdAt + 120000 <= Date.now()) throw new ControlError("原消息投递期限已结束，正在自动核实处理结果。", 410);
 }

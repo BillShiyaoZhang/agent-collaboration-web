@@ -9,6 +9,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json* ./
+COPY packages/client-contract ./packages/client-contract
 RUN npm config set registry https://registry.npmmirror.com && npm ci
 
 # Rebuild the source code only when needed

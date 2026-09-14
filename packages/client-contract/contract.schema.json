@@ -1,0 +1,511 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-comm:client-contract:v1",
+  "title": "Agent collaboration client contract v1",
+  "description": "BFF JSON contract; raw remote records retain extension fields. See README for authentication and units.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/workspaceOverview"
+    },
+    {
+      "$ref": "#/$defs/workspaceAgent"
+    },
+    {
+      "$ref": "#/$defs/pendingCall"
+    },
+    {
+      "$ref": "#/$defs/controlComplete"
+    },
+    {
+      "$ref": "#/$defs/controlPending"
+    },
+    {
+      "$ref": "#/$defs/workspaceAction"
+    }
+  ],
+  "$defs": {
+    "rpcMethod": {
+      "enum": [
+        "capabilities",
+        "contacts.list",
+        "collaboration.state",
+        "inbox.list",
+        "conversation.send",
+        "conversation.get"
+      ]
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    },
+    "pendingCall": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "method": {
+          "$ref": "#/$defs/rpcMethod"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "request_id",
+        "method",
+        "params"
+      ],
+      "additionalProperties": false
+    },
+    "sync": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "waiting",
+            "syncing",
+            "ready",
+            "offline",
+            "needs_pairing"
+          ]
+        },
+        "lastAttemptAt": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Unix milliseconds or null"
+        },
+        "lastSuccessAt": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Unix milliseconds or null"
+        },
+        "nextSyncAt": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Unix milliseconds or null"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "lastAttemptAt",
+        "lastSuccessAt",
+        "nextSyncAt",
+        "error"
+      ]
+    },
+    "connection": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "urn": {
+          "type": "string"
+        },
+        "platformRegistered": {
+          "type": "boolean"
+        },
+        "lastActiveAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sync": {
+          "$ref": "#/$defs/sync"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "urn",
+        "platformRegistered",
+        "lastActiveAt",
+        "createdAt",
+        "sync"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object"
+        },
+        "time": {
+          "type": "number",
+          "description": "Unix milliseconds"
+        },
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "time"
+      ]
+    },
+    "conversationSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Unix milliseconds"
+        },
+        "pending": {
+          "type": "boolean"
+        },
+        "turnCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "updatedAt",
+        "pending",
+        "turnCount"
+      ]
+    },
+    "submission": {
+      "type": "object",
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/pendingCall"
+        },
+        "text": {
+          "type": "string"
+        },
+        "conversationId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "turnId": {
+          "$ref": "#/$defs/stableId"
+        },
+        "phase": {
+          "enum": [
+            "sending",
+            "uncertain"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "call",
+        "text",
+        "conversationId",
+        "turnId",
+        "phase",
+        "retryable"
+      ]
+    },
+    "workspaceOverview": {
+      "type": "object",
+      "properties": {
+        "connections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/connection"
+          }
+        }
+      },
+      "required": [
+        "connections"
+      ]
+    },
+    "workspaceAgent": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/connection"
+        },
+        "identity": {
+          "type": "object",
+          "properties": {
+            "virtualUrn": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "virtualEd25519PublicKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "virtualUrn",
+            "virtualEd25519PublicKey"
+          ]
+        },
+        "sync": {
+          "$ref": "#/$defs/sync"
+        },
+        "snapshots": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/snapshot"
+          }
+        },
+        "conversations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conversationSummary"
+          }
+        },
+        "activeConversationId": {
+          "type": "string"
+        },
+        "conversation": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "hasEarlierTurns": {
+          "type": "boolean"
+        },
+        "submission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/submission"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "agent",
+        "identity",
+        "sync",
+        "snapshots",
+        "conversations",
+        "activeConversationId",
+        "conversation",
+        "hasEarlierTurns",
+        "submission"
+      ]
+    },
+    "controlResponse": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "agent-comm-control/v1"
+        },
+        "type": {
+          "const": "response"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "agent_urn": {
+          "type": "string"
+        },
+        "console_urn": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "method": {
+          "$ref": "#/$defs/rpcMethod"
+        },
+        "result": {
+          "type": "object"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "type",
+        "request_id",
+        "agent_urn",
+        "console_urn",
+        "deadline",
+        "method"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "result"
+          ],
+          "not": {
+            "required": [
+              "error"
+            ]
+          }
+        },
+        {
+          "required": [
+            "error"
+          ],
+          "not": {
+            "required": [
+              "result"
+            ]
+          }
+        }
+      ]
+    },
+    "controlComplete": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "const": "complete"
+        },
+        "response": {
+          "$ref": "#/$defs/controlResponse"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "request_id",
+        "status",
+        "response",
+        "expires_at"
+      ]
+    },
+    "controlPending": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "expired"
+          ]
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "status",
+        "deadline",
+        "message"
+      ]
+    },
+    "workspaceAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "const": "select_conversation"
+            },
+            "conversationId": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/stableId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "action",
+            "conversationId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "const": "dismiss_submission"
+            },
+            "requestId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "action",
+            "requestId"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "syncRequest": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

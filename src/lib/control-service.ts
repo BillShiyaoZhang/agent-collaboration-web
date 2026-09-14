@@ -5,8 +5,7 @@ import { CONTROL_PROTOCOL, validateControlResponse } from "./control-protocol";
 import { ControlError, consoleKeys, encodeControl, decodeControl, verifyConsoleEnvelope, submitEnvelope, retrieveEnvelopes, acknowledgeEnvelopes } from "./control-transport";
 import { reserveWorkspaceSubmission, markWorkspaceSubmissionUncertain, clearWorkspaceSubmission, recordWorkspaceResponse } from "./workspace-store";
 
-const RETENTION_MS = 10 * 60 * 1000;
-const REQUEST_MS = 120 * 1000;
+import { CONTROL_RETENTION_MS as RETENTION_MS, CONTROL_REQUEST_MS as REQUEST_MS, canonicalJSON } from "@agent-comm/client-contract";
 
 export async function cleanupControlCache() {
   await prisma.controlRequest.deleteMany({ where: { expiresAt: { lte: new Date() } } });
@@ -17,12 +16,32 @@ function expected(row: ControlRequest, agent: Agent) {
 }
 
 type Call = { request_id: string; method: string; params: Record<string, unknown> };
+/** During the ten-minute cache transition, accept either original valid send key order.
+ * Never re-encode ciphertext, extend deadlines, or omit an identity/content binding. */
+function requestFingerprints(agent: Agent, consoleUrn: string, call: Call) {
+  const values = [agent.id, consoleUrn, call.method, call.params];
+  const digest = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
+  const fingerprint = digest(canonicalJSON(values));
+  const compatible = new Set([fingerprint, digest(JSON.stringify(values))]);
+  const params = call.params;
+  if (call.method === "conversation.send" && Object.keys(params).length === 2 &&
+      typeof params.text === "string" && typeof params.conversation_id === "string") {
+    for (const ordered of [{ text: params.text, conversation_id: params.conversation_id },
+      { conversation_id: params.conversation_id, text: params.text }]) {
+      compatible.add(digest(JSON.stringify([agent.id, consoleUrn, call.method, ordered])));
+    }
+  }
+  const matches = (row: ControlRequest) => row.id === call.request_id && row.agentId === agent.id &&
+    row.consoleUrn === consoleUrn && row.method === call.method && compatible.has(row.fingerprint);
+  return { fingerprint, matches };
+}
+
 async function createControlCallOnce(user: User, agent: Agent, call: Call) {
   await cleanupControlCache();
   if (!user.virtualUrn) throw new ControlError("请先创建控制台身份，并在 agent 本机完成配对。", 409);
-  const fingerprint = crypto.createHash("sha256").update(JSON.stringify([agent.id, user.virtualUrn, call.method, call.params])).digest("hex");
+  const { fingerprint, matches } = requestFingerprints(agent, user.virtualUrn, call);
   let row = await prisma.controlRequest.findUnique({ where: { id: call.request_id } });
-  if (row && (row.agentId !== agent.id || row.consoleUrn !== user.virtualUrn || row.fingerprint !== fingerprint)) throw new ControlError("请求 ID 已绑定其他内容，请使用原请求重试。", 409);
+  if (row && !matches(row)) throw new ControlError("请求 ID 已绑定其他内容，请使用原请求重试。", 409);
   const reserve = call.method === "conversation.send" && !row?.responseEnvelope;
   if (reserve) await reserveWorkspaceSubmission(user, agent, call);
   let enqueueAttempted = false;
@@ -37,7 +56,7 @@ async function createControlCallOnce(user: User, agent: Agent, call: Call) {
       } catch (error) {
         if (!(error && typeof error === "object" && "code" in error && error.code === "P2002")) throw error;
         row = await prisma.controlRequest.findUnique({ where: { id: call.request_id } });
-        if (!row || row.agentId !== agent.id || row.consoleUrn !== user.virtualUrn || row.fingerprint !== fingerprint) throw new ControlError("请求 ID 冲突。", 409);
+        if (!row || !matches(row)) throw new ControlError("请求 ID 冲突。", 409);
       }
     }
     if (row.status !== "complete") {
@@ -66,7 +85,7 @@ const callGlobal = globalThis as typeof globalThis & { __agentControlSubmissions
 export async function createControlCall(user: User, agent: Agent, call: Call) {
   const calls = callGlobal.__agentControlSubmissions ||= new Map();
   const key = JSON.stringify([user.id, agent.id, call.request_id]);
-  const fingerprint = JSON.stringify([user.virtualUrn, call.method, call.params]);
+  const fingerprint = canonicalJSON([user.virtualUrn, call.method, call.params]);
   const previous = calls.get(key);
   if (previous) {
     if (previous.fingerprint !== fingerprint) throw new ControlError("请求 ID 已绑定其他内容，请使用原请求重试。", 409);
