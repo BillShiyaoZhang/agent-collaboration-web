@@ -29,8 +29,9 @@ async function finishResponse(user: User, agent: Agent, job: SyncJob, token: str
   await recordWorkspaceResponse(user, agent, row, result.response);
   const failure = syncError(result.response);
   const now = Date.now();
+  let advanced: boolean;
   if (failure?.pairing || (failure && row.method === "capabilities")) {
-    await updateSyncJob(agent.id, { requestId: null, plan: [], status: failure.pairing ? "needs_pairing" : "offline",
+    advanced = await updateSyncJob(agent.id, { requestId: null, plan: [], status: failure.pairing ? "needs_pairing" : "offline",
       error: failure.message, failures: job.failures + 1, nextSyncAt: now + syncBackoff(job.failures + 1), leaseToken: null, leaseUntil: null }, token);
   } else {
     let plan = job.plan.slice(1);
@@ -42,10 +43,13 @@ async function finishResponse(user: User, agent: Agent, job: SyncJob, token: str
       plan = syncReadPlan(workspace, await getTrackedConversationIds(user.id, agent.id), now);
       plan = plan.filter(item => item.method !== "capabilities");
     }
-    await updateSyncJob(agent.id, { requestId: null, plan, status: plan.length ? "syncing" : "ready",
+    advanced = await updateSyncJob(agent.id, { requestId: null, plan, status: plan.length ? "syncing" : "ready",
       ...(failure ? {} : { lastSuccessAt: now, failures: 0 }), error: failure?.message || null,
       nextSyncAt: plan.length ? now : now + nextCycleDelay(workspace), leaseToken: null, leaseUntil: null }, token);
   }
+  // The durable projection may outlast our lease. Its successor still references
+  // this exact request until it advances the plan, so only the CAS winner retires it.
+  if (!advanced) return true;
   // This ID belongs exclusively to the automatic job and is never issued to a browser.
   // Its authenticated result is durable now; releasing it avoids the 64-request cache limit.
   await prisma.controlRequest.deleteMany({ where: { id: row.id, agentId: agent.id, status: "complete" } });
@@ -110,10 +114,13 @@ export async function runAgentSyncStep(agentId: string): Promise<void> {
     await updateSyncJob(agentId, { nextSyncAt: Date.now() + 2_000, leaseToken: null, leaseUntil: null }, token);
   } catch (error) {
     if (!job) return;
-    // A network failure after enqueueing is ambiguous. Poll that ID rather than enqueue again.
+    // Poll ambiguous submissions by ID; an accepted response can keep retrying its
+    // durable projection until cache expiry even after the original request deadline.
     const row = job.requestId ? await prisma.controlRequest.findFirst({ where: { id: job.requestId, agentId } }) : null;
-    if (row && row.deadline.getTime() > Date.now()) {
-      await updateSyncJob(agentId, { nextSyncAt: Date.now() + 5_000, error: "连接暂时不稳定，正在等待本次同步结果。", leaseToken: null, leaseUntil: null }, token);
+    if (row && (row.responseEnvelope ? row.expiresAt : row.deadline).getTime() > Date.now()) {
+      await updateSyncJob(agentId, { nextSyncAt: Date.now() + 5_000,
+        error: row.responseEnvelope ? "已收到同步结果，正在重试保存。" : "连接暂时不稳定，正在等待本次同步结果。",
+        leaseToken: null, leaseUntil: null }, token);
     } else {
       const failures = job.failures + 1;
       await updateSyncJob(agentId, { status: error instanceof ControlError && error.status === 409 ? "needs_pairing" : "offline",

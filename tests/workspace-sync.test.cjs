@@ -35,7 +35,7 @@ function matches(row, where = {}) {
 
 function fixture() {
   const realNow = Date.now, previousWorker = global.__agentWorkspaceSync;
-  let now = realNow(), createBehavior = "pending", recordFailure = false, gate = null;
+  let now = realNow(), createBehavior = "pending", recordFailure = false, gate = null, recordGate = null;
   let immediateResponse = () => ({ result: methods("capabilities") });
   const agents = new Map(), jobs = new Map(), workspaces = new Map(), rows = new Map();
   const calls = [], events = [], polls = [], discoveries = [];
@@ -97,6 +97,7 @@ function fixture() {
     },
     getTrackedConversationIds: async (_userId, id) => workspaces.get(id).tracked || [],
     recordWorkspaceResponse: async (_user, agent, row, response) => {
+      if (recordGate) await recordGate;
       if (recordFailure) throw new Error("durable workspace unavailable");
       events.push(["persist", row.id]);
       if (!response.error) {
@@ -136,6 +137,7 @@ function fixture() {
     now: () => now, advance: ms => { now += ms; }, due: id => { jobs.get(id).nextSyncAt = now; },
     setBehavior: value => { createBehavior = value; }, setResponse: value => { immediateResponse = value; },
     setRecordFailure: value => { recordFailure = value; }, setGate: value => { gate = value; },
+    setRecordGate: value => { recordGate = value; },
     restore: () => { Date.now = realNow; if (previousWorker === undefined) delete global.__agentWorkspaceSync; else global.__agentWorkspaceSync = previousWorker; } };
 }
 
@@ -249,6 +251,50 @@ test("persisted jobs cannot turn an advertised write into an automatic enqueue",
     f.jobs.get("agent").plan = [{ method: "conversation.send", params: { text: "must not send" } }];
     await f.sync.runAgentSyncStep("agent");
     assert.equal(f.calls.length, 0); assert.deepEqual(f.jobs.get("agent").plan, []);
+  } finally { f.restore(); }
+});
+
+test("a worker that lost its lease cannot delete the accepted response needed by its successor", async () => {
+  for (const response of [{ result: { contacts: [] } }, { error: { code: "not_paired", message: "revoked" } }]) {
+    const f = fixture(); let release;
+    try {
+      f.add("agent"); f.ready("agent", methods("contacts.list"));
+      f.setBehavior("complete"); f.setResponse(() => response);
+      f.setRecordGate(new Promise(resolve => { release = resolve; }));
+      const first = f.sync.runAgentSyncStep("agent");
+      while (!f.calls.length) await new Promise(resolve => setImmediate(resolve));
+      const id = f.calls[0].request_id;
+      f.advance(policy.SYNC_LEASE_MS + 1);
+      Object.assign(f.jobs.get("agent"), { leaseToken: "successor", leaseUntil: f.now() + policy.SYNC_LEASE_MS });
+      release(); await first;
+      assert.ok(f.rows.has(id), "the successor still owns this request and must be able to project its accepted response");
+      assert.equal(f.jobs.get("agent").requestId, id);
+      assert.equal(f.jobs.get("agent").leaseToken, "successor");
+      assert.equal(f.events.filter(event => event[0] === "delete").length, 0);
+      f.setRecordGate(null); f.advance(policy.SYNC_LEASE_MS + 1);
+      await f.reload().runAgentSyncStep("agent");
+      assert.equal(f.calls.length, 1, "recovery must consume the accepted response without creating a new read");
+      assert.equal(f.jobs.get("agent").requestId, null);
+      assert.equal(f.rows.has(id), false);
+    } finally { release?.(); f.restore(); }
+  }
+});
+
+test("accepted responses keep retrying durable projection after the request deadline until cache expiry", async () => {
+  const f = fixture();
+  try {
+    f.add("agent"); f.ready("agent", methods("contacts.list"));
+    f.setBehavior("complete"); f.setResponse(() => ({ result: { contacts: [{ contact_id: "saved-after-outage" }] } }));
+    f.setRecordFailure(true); await f.sync.runAgentSyncStep("agent");
+    const id = f.calls[0].request_id;
+    f.advance(125_000); await f.reload().runAgentSyncStep("agent");
+    assert.equal(f.jobs.get("agent").requestId, id, "a deadline applies to awaiting the response, not projecting an already accepted one");
+    assert.ok(f.rows.has(id));
+    f.setRecordFailure(false); f.advance(5_000); await f.reload().runAgentSyncStep("agent");
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.rows.has(id), false);
+    assert.equal(f.jobs.get("agent").requestId, null);
+    assert.equal(f.workspaces.get("agent").snapshots["contacts.list"].data.contacts[0].contact_id, "saved-after-outage");
   } finally { f.restore(); }
 });
 

@@ -170,10 +170,26 @@ async function saveConversation(db: DB, userId: string, agentId: string, id: str
     WHERE excluded."sourceAt" >= "WorkspaceConversation"."sourceAt"`;
 }
 
+async function retryProjectionTransaction(write: () => Promise<void>) {
+  const delays = [40, 120, 300];
+  for (let attempt = 0; ; attempt++) {
+    try { return await write(); }
+    catch (error) {
+      const details = record(error), metadata = record(details.meta);
+      const busy = details.code === "SQLITE_BUSY" || details.code === "P2010" &&
+        (metadata.code === "5" || metadata.code === 5 || metadata.code === "SQLITE_BUSY");
+      if (!busy || attempt >= delays.length) throw error;
+      // Retry only this rolled-back local transaction. Network delivery and
+      // mailbox ACK remain outside, and every attempt reads current rows afresh.
+      await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+    }
+  }
+}
+
 /** Only call after envelope signature, sender, recipient and RPC correlation checks. */
 export async function recordWorkspaceResponse(user: User, agent: Agent, row: ControlRequest, response: Record<string, unknown>) {
   if (agent.userId !== user.id || row.agentId !== agent.id || !await owned(user.id, agent.id)) throw new ControlError("连接不存在。", 404);
-  await prisma.$transaction(async tx => {
+  await retryProjectionTransaction(() => prisma.$transaction(async tx => {
     await state(tx, agent.id);
     const pendingRow = (await tx.$queryRaw<SubmissionRow[]>`SELECT * FROM "WorkspaceSubmission" WHERE "agentId" = ${agent.id}`)[0];
     const pending = decodeSubmission(user.id, agent.id, pendingRow);
@@ -246,7 +262,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
       await tx.$executeRaw`UPDATE "WorkspaceState" SET "activeConversationId" = ${convId} WHERE "agentId" = ${agent.id} AND "activeSelectedAt" <= ${sourceAt}`;
       await tx.$executeRaw`DELETE FROM "WorkspaceSubmission" WHERE "agentId" = ${agent.id} AND "requestId" = ${row.id}`;
     }
-  }, { timeout: 20000 });
+  }, { timeout: 20000 }));
 }
 
 export async function reserveWorkspaceSubmission(user: User, agent: Agent, call: { request_id: string; method: string; params: Record<string, unknown> }) {

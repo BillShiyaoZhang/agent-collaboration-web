@@ -278,3 +278,106 @@ test("persisted Web submission can be resumed with native key ordering without r
   }
   assert.deepEqual((await store.getWorkspaceAgent(user.id, agent.id)).submission.call, original);
 }));
+
+test("projection retries explicit SQLite busy errors by rolling back and rerunning the whole transaction", async () => {
+  for (const fields of [{ code: "P2010", meta: { code: "5" } }, { code: "P2010", meta: { code: 5 } },
+    { code: "SQLITE_BUSY" }, { code: "P2010", meta: { code: "SQLITE_BUSY" } }]) {
+    await fixture(async ({ db, user, agent, store, save }) => {
+      const transaction = db.$transaction.bind(db), busy = Object.assign(new Error("database is locked"), fields);
+      let attempts = 0;
+      db.$transaction = async (work, options) => {
+        const attempt = ++attempts;
+        try {
+          return await transaction(async tx => {
+            await work(tx);
+            if (attempt === 1) throw busy;
+          }, options);
+        } catch (error) {
+          assert.equal(Number((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceItem"'))[0].n), 0,
+            "all writes from the failed attempt must roll back before retry");
+          throw error;
+        }
+      };
+      await save("conversation.get", { conversation_id: "busy-chat", turns: [
+        { turn_id: "busy-turn", text: "Original question", response: "Authenticated answer", status: "completed" },
+      ] }, Date.now(), "stable-read-request");
+      assert.equal(attempts, 2);
+      const result = await store.getWorkspaceAgent(user.id, agent.id, "busy-chat");
+      assert.equal(result.snapshots["conversation.get"].requestId, "stable-read-request");
+      assert.equal(result.conversation.turns.length, 1);
+      assert.equal(result.conversation.turns[0].response, "Authenticated answer");
+    });
+  }
+});
+
+test("projection retries are bounded and ordinary database failures are not retried", async () => {
+  const cases = [
+    [Object.assign(new Error("busy"), { code: "P2010", meta: { code: "5" } }), 4],
+    [new Error("database is locked"), 1],
+    [Object.assign(new Error("constraint"), { code: "P2010", meta: { code: "19" } }), 1],
+    [Object.assign(new Error("timeout"), { code: "P1008" }), 1],
+  ];
+  for (const [failure, expectedAttempts] of cases) {
+    await fixture(async ({ db, user, agent, store, save }) => {
+      const data = { conversation_id: "existing", turns: [{ turn_id: "kept", response: "Saved answer", status: "completed" }] };
+      await save("conversation.get", data, Date.now(), "original-result");
+      const before = await store.getWorkspaceAgent(user.id, agent.id, "existing");
+      const transaction = db.$transaction.bind(db);
+      let attempts = 0;
+      db.$transaction = (work, options) => transaction(async tx => {
+        attempts++;
+        await work(tx);
+        throw failure;
+      }, options);
+      await assert.rejects(save("conversation.get", { ...data, turns: [{ turn_id: "uncommitted", status: "running" }] },
+        Date.now() + 1, "failed-result"), error => error === failure);
+      assert.equal(attempts, expectedAttempts);
+      assert.deepEqual(await store.getWorkspaceAgent(user.id, agent.id, "existing"), before,
+        "failure exhaustion cannot erase or partially replace the saved result");
+    });
+  }
+});
+
+test("real SQLite transaction-start contention remains a recoverable P1008 failure without automatic replay", () => fixture(async ({ db, filename, user, agent, store, row }) => {
+  await store.ensureWorkspaceState(agent.id);
+  const other = new PrismaClient({ datasources: { db: { url: "file:" + filename.replaceAll("\\", "/") } } });
+  const otherStore = load("../src/lib/workspace-store.ts", { "./db": { prisma: other }, "./control-transport": { ControlError }, "./workbench-client": client });
+  let release, acquired, lockedWrite;
+  const held = new Promise(resolve => { release = resolve; });
+  const locked = new Promise(resolve => { acquired = resolve; });
+  const failures = [];
+  let attempts = 0;
+  try {
+    await other.$queryRawUnsafe("PRAGMA busy_timeout = 1");
+    const transaction = other.$transaction.bind(other);
+    other.$transaction = async (work, options) => {
+      attempts++;
+      try { return await transaction(work, options); }
+      catch (error) { failures.push(error); release(); throw error; }
+    };
+    lockedWrite = db.$transaction(async tx => {
+      await tx.$executeRaw`UPDATE "WorkspaceState" SET "lastAttemptAt" = ${123456} WHERE "agentId" = ${agent.id}`;
+      acquired();
+      await held;
+    }, { timeout: 10000 });
+    await locked;
+    const request = row("conversation.get"), response = {
+      result: { conversation_id: "concurrent", turns: [{ turn_id: "concurrent-turn", response: "Actual result", status: "completed" }] },
+    };
+    await assert.rejects(otherStore.recordWorkspaceResponse(user, agent, request, response), { code: "P1008" });
+    await lockedWrite;
+    assert.equal(failures.length, 1, "a generic timeout cannot be classified as explicit SQLITE_BUSY");
+    assert.equal(attempts, 1);
+    assert.equal((await store.getWorkspaceAgent(user.id, agent.id, "concurrent")).conversation.turns.length, 0);
+    await otherStore.recordWorkspaceResponse(user, agent, request, response);
+    assert.equal(attempts, 2, "the same authenticated response can be saved after the caller retries");
+    const result = await store.getWorkspaceAgent(user.id, agent.id, "concurrent");
+    assert.equal(result.conversation.turns[0].response, "Actual result");
+    assert.equal(result.sync.lastAttemptAt, 123456);
+    assert.equal(result.conversation.turns.length, 1);
+  } finally {
+    release();
+    await lockedWrite;
+    await other.$disconnect();
+  }
+}));
