@@ -83,3 +83,30 @@ test('notification endpoints require account and origin, bind exact read version
     const claim=await route.POST(request({...body,action:'claim',deviceId:'11111111-1111-4111-8111-111111111111'}));assert.deepEqual(await claim.json(),{claimed:false});
   }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
 });
+
+test('push subscription, display and test routes derive account from the session and reject arbitrary destinations or actions',async()=>{
+  const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
+  let session=null,started=0;const events=[];
+  class ControlError extends Error { constructor(message,status){super(message);this.status=status;} }
+  const protocol=load('../../src/lib/control/control-protocol.ts');
+  const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
+  const store={};for(const name of ['getPushSettings','queuePushTest','recordPushReceipt','resolvePushDisplay','revokePushSubscription','savePushSubscription','updatePushPresence'])store[name]=async(...args)=>{events.push([name,...args]);return {available:true};};
+  const route=load('../../src/app/api/notifications/push/route.ts',{'@/lib/workspace/workspace-http':http,'@/lib/control/control-transport':{ControlError},'@/lib/notifications/push-store':store,'@/lib/notifications/push-policy':load('../../src/lib/notifications/push-policy.ts'),'@/lib/notifications/push-worker':{startPushWorker:()=>started++}});
+  const deviceId='11111111-1111-4111-8111-111111111111';
+  const request=(body,origin='https://console.example')=>new Request('https://console.example/api/notifications/push',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  try{
+    assert.equal((await route.GET(new Request('https://console.example/api/notifications/push?deviceId='+deviceId))).status,401);
+    assert.equal((await route.POST(request({action:'test',deviceId}))).status,401);assert.equal(started,0);
+    session={user:{id:'owner'}};
+    assert.equal((await route.POST(request({action:'test',deviceId},'https://attacker.invalid'))).status,403);
+    assert.equal((await route.POST(request({action:'test',deviceId,userId:'other'}))).status,400);
+    assert.equal((await route.POST(request({action:'approve',deviceId}))).status,400);
+    assert.equal((await route.POST(request({action:'subscribe',deviceId,subscription:{endpoint:'https://127.0.0.1/admin',keys:{p256dh:'A'.repeat(87),auth:'A'.repeat(22)}}}))).status,400);
+    assert.equal((await route.POST(request({action:'test',deviceId}))).status,200);assert.deepEqual(events.at(-1),['queuePushTest','owner',deviceId]);
+    const identity={deliveryId:'a'.repeat(32),binding:'b'.repeat(32)};
+    assert.equal((await route.POST(request({action:'resolve',...identity}))).status,200);assert.deepEqual(events.at(-1),['resolvePushDisplay','owner',identity.deliveryId,identity.binding]);
+    assert.equal((await route.POST(request({action:'receipt',...identity,status:'approved'}))).status,400);
+    assert.equal((await route.POST(request({action:'receipt',...identity,status:'displayed'}))).status,200);assert.deepEqual(events.at(-1),['recordPushReceipt','owner',identity.deliveryId,identity.binding,'displayed']);
+    const response=await route.GET(new Request('https://console.example/api/notifications/push?deviceId='+deviceId));assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/private.*no-store/);
+  }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
+});

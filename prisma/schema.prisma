@@ -20,6 +20,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   agents Agent[]
+  pushSubscriptions WebPushSubscription[]
 }
 // A connection record is not ownership; the agent must pair the console locally.
 model Agent {
@@ -162,4 +163,48 @@ model WorkspaceNotificationDelivery {
   claimedAt Float
   notification WorkspaceNotification @relation(fields: [agentId, notificationId], references: [agentId, id], onDelete: Cascade)
   @@id([agentId, notificationId, revision, deviceId])
+}
+
+// Browser endpoints and VAPID private material are encrypted at rest.
+model WebPushConfig {
+  id String @id
+  payload String
+  createdAt Float
+}
+model WebPushSubscription {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId String
+  endpointHash String @unique
+  binding String
+  payload String
+  enabledAt Float
+  expiresAt Float
+  visibleUntil Float @default(0)
+  active Int @default(1)
+  lastTestAt Float @default(0)
+  lastError String?
+  deliveries WebPushDelivery[]
+  @@unique([userId, deviceId])
+}
+model WebPushDelivery {
+  id String @id
+  subscriptionId String
+  subscription WebPushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  agentId String
+  notificationId String
+  revision Int
+  kind String @default("notification")
+  status String @default("pending")
+  attempts Int @default(0)
+  claimed Int @default(0)
+  nextAttemptAt Float
+  expiresAt Float
+  leaseToken String?
+  leaseUntil Float?
+  updatedAt Float
+  lastError String?
+  @@unique([subscriptionId, agentId, notificationId, revision])
+  @@index([status, nextAttemptAt], map: "WebPushDelivery_due_idx")
 }

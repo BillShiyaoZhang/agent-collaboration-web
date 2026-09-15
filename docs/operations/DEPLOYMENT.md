@@ -10,8 +10,12 @@
 | NEXTAUTH_URL | 用户实际访问的 HTTPS Origin；同源校验使用此值 |
 | NEXTAUTH_SECRET | 登录会话、控制台私钥及工作台内容的保护密钥，须保留旧值 |
 | AGENT_PLATFORM_URL | 服务端访问 Registry/MQ 的地址，如 http://platform:8080 |
+| WEB_PUSH_SUBJECT | 可选，浏览器推送的发送方 HTTPS 或 mailto 地址；默认 NEXTAUTH_URL |
+| WEB_PUSH_DISABLED | 设为 1 停止后台推送；不影响站内提醒 |
 
 浏览器只访问 Web；Web 经 Registry/MQ 与 agent 通信。agent 无需暴露公网 HTTP 端口。
+
+浏览器后台推送还需要到固定厂商推送端点的 HTTPS 出站连接，详见[后台推送部署与验收](WEB_PUSH.md)。它使用现有读取范围中的提醒，不增加 agent 权限。
 
 根部署项目使用其自身 docker-compose.yml 和 deploy/nginx/nginx.conf。当前目录的 Compose 仅用于独立开发；容器里的 platform 地址必须使用服务名而非 localhost。
 
@@ -43,6 +47,7 @@ npm run db:migrate
 - 将 Agent 全局 URN 唯一索引替换为 (userId, urn) 联合唯一索引。不同获准账户可以保存同一公共 agent URN。
 - 不删除旧 Contact、Message、HITLRequest、Transaction 表，也不删除旧 Agent 私钥列等历史列。新 Prisma 模型和 API 完全不访问这些旧业务字段。
 - 旧表不会自动导入 agent 联系人/任务，避免误把旧 UI 记录当成当前 agent 授权。需要迁移的历史内容应单独审核，选择性导入 agent 侧接口。
+- 浏览器后台推送追加 WebPushConfig、WebPushSubscription、WebPushDelivery，分别保存加密 VAPID、账户设备订阅和有限期投递；回滚保留这些表及原 NEXTAUTH_SECRET。
 
 迁移验证应在临时真实 SQLite 上重放，校验原密码、旧联系人行、旧凭据列保存，两账户同 URN 不冲突，同账户重复连接被拒绝；同时检查新增副本的静态加密、账户隔离及删除连接后的级联清理。历史验收证据见部署仓库的 verification 目录。
 

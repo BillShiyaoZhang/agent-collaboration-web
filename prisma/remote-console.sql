@@ -92,3 +92,26 @@ CREATE TABLE IF NOT EXISTS "WorkspaceNotificationDelivery" (
  PRIMARY KEY("agentId", "notificationId", "revision", "deviceId"),
  FOREIGN KEY("agentId", "notificationId") REFERENCES "WorkspaceNotification"("agentId", "id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+-- Additive Web Push storage: queue recovery survives process and image replacement.
+CREATE TABLE IF NOT EXISTS "WebPushConfig" (
+ "id" TEXT PRIMARY KEY, "payload" TEXT NOT NULL, "createdAt" REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "WebPushSubscription" (
+ "id" TEXT PRIMARY KEY, "userId" TEXT NOT NULL, "deviceId" TEXT NOT NULL,
+ "endpointHash" TEXT NOT NULL UNIQUE, "binding" TEXT NOT NULL, "payload" TEXT NOT NULL,
+ "enabledAt" REAL NOT NULL, "expiresAt" REAL NOT NULL, "visibleUntil" REAL NOT NULL DEFAULT 0,
+ "active" INTEGER NOT NULL DEFAULT 1, "lastTestAt" REAL NOT NULL DEFAULT 0, "lastError" TEXT,
+ UNIQUE("userId", "deviceId"),
+ FOREIGN KEY("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "WebPushDelivery" (
+ "id" TEXT PRIMARY KEY, "subscriptionId" TEXT NOT NULL, "agentId" TEXT NOT NULL,
+ "notificationId" TEXT NOT NULL, "revision" INTEGER NOT NULL, "kind" TEXT NOT NULL DEFAULT 'notification',
+ "status" TEXT NOT NULL DEFAULT 'pending', "attempts" INTEGER NOT NULL DEFAULT 0,
+ "claimed" INTEGER NOT NULL DEFAULT 0, "nextAttemptAt" REAL NOT NULL, "expiresAt" REAL NOT NULL,
+ "leaseToken" TEXT, "leaseUntil" REAL, "updatedAt" REAL NOT NULL, "lastError" TEXT,
+ UNIQUE("subscriptionId", "agentId", "notificationId", "revision"),
+ FOREIGN KEY("subscriptionId") REFERENCES "WebPushSubscription"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WebPushDelivery_due_idx" ON "WebPushDelivery"("status", "nextAttemptAt");

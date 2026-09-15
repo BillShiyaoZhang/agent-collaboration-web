@@ -13,13 +13,13 @@ import { DashboardNavigation } from "./dashboard-sidebar";
 
 export function DashboardHeader({ user }: { user: { name?: string | null; email?: string | null } }) {
   const pathname = usePathname();
-  const { page: notifications } = useNotifications();
+  const { page: notifications, disableSystem } = useNotifications();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
   async function logout() {
     setSigningOut(true); setError("");
-    try { await signOut({ callbackUrl: "/login" }); }
+    try { await disableSystem(); await signOut({ callbackUrl: "/login" }); }
     catch { setError("退出失败，请重试。"); setSigningOut(false); }
   }
   return <header className="relative z-20 flex h-16 shrink-0 items-center gap-3 border-b bg-card/75 px-4 backdrop-blur-xl sm:px-8">
