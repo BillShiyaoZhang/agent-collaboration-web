@@ -104,7 +104,7 @@ export async function resolvePushDisplay(userId: string, deliveryId: string, bin
   await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status" = 'received', "updatedAt" = ${Date.now()} WHERE "id" = ${row.id} AND "status" IN ('sending','sent','received','deferred')`;
   return { valid: true, accountId: userId, binding, deliveryId: row.id, expiresAt: row.expiresAt,
     title: row.kind === "test" ? "Agent Comm 测试提醒" : "Agent Comm 协作提醒",
-    body: row.kind === "test" ? "后台推送已到达此浏览器。点击可返回提醒中心查看诊断。" : "有新的协作进展。打开提醒中心核对当前状态，需要决定时在原生对话中处理。",
+    body: row.kind === "test" ? "后台推送已到达此浏览器。点击可返回提醒中心查看诊断。" : "有新的协作进展。请打开事项核对请求，在已开放确认的网页中点击同意或拒绝，或在 agent 原生渠道回应。",
     tag: `agent-comm-push:${sub.id}:${row.kind === "test" ? "test" : row.notificationId}`, test: row.kind === "test" };
 }
 export async function recordPushReceipt(userId: string, deliveryId: string, binding: string, status: "displayed" | "suppressed" | "display_error" | "deferred") {

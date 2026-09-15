@@ -12,7 +12,7 @@ export function CollaborationSnapshot({ data }: { data: RemoteRecord }) {
   if (!collaborations.length && !invitations.length) return null;
   return <section className="space-y-3 px-5 pb-5" aria-label="双方协作">
     <div><h3 className="text-sm font-semibold">双方协作</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">本阶段协调双方约定，尚未创建日历事件。对方的授权依据为其 agent 声明。</p></div>
-    {invitations.map((invitation, index) => <article key={string(invitation.message_id, String(index))} id={`subject-${string(invitation.message_id)}`} className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">收到协作邀请 · 对端声明</p><h4 className="mt-2 font-medium">{string(invitation.topic, "协作邀请")}</h4><p className="mt-2 break-all text-xs text-muted-foreground">{string(invitation.sender_urn)}</p><p className="mt-2 text-xs">请在 agent 原生渠道核对联系人和授权范围后处理。</p></article>)}
+    {invitations.map((invitation, index) => <article key={string(invitation.message_id, String(index))} id={`subject-${string(invitation.message_id)}`} className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">收到协作邀请 · 对端声明</p><h4 className="mt-2 font-medium">{string(invitation.topic, "协作邀请")}</h4><p className="mt-2 break-all text-xs text-muted-foreground">{string(invitation.sender_urn)}</p><p className="mt-2 text-xs">请先核对联系人和授权范围。若有待确认请求，可在网页中点击同意或拒绝，或在 agent 原生渠道回应。</p></article>)}
     {collaborations.map((collaboration, index) => {
       const id = string(collaboration.collaboration_id, String(index)), terms = record(collaboration.terms), agreement = record(collaboration.agreement);
       const acceptanceEntries = Object.entries(record(collaboration.acceptances));
