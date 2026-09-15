@@ -37,7 +37,8 @@ function isPairingError(code) {
 function availableMethods(capabilities) {
     return records(record(capabilities).methods).filter(item => item.available === true && exports.RPC_METHODS.includes(string(item.name))).map(item => item.name);
 }
-exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list"];
+exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond"];
+const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond"]);
 function record(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -70,6 +71,8 @@ const remoteErrors = {
     unsupported_method: "这个 agent 暂不支持这项功能。",
     queue_full: "Agent 正在处理较多消息，请等待已有回合结束。",
     result_too_large: "返回内容过多，请指定一个事项或对话后重新读取。",
+    invalid_params: "请求内容未通过 Agent 校验，请核对填写内容并刷新最新状态。",
+    request_conflict: "这次请求已绑定其他内容，请先刷新并核实原操作结果。",
 };
 function pause(ms, signal) {
     return new Promise((resolve, reject) => {
@@ -105,6 +108,7 @@ class WorkbenchClient {
         return call;
     }
     async execute(call, signal, onPending) {
+        const writing = WRITE_METHODS.has(call.method);
         const key = canonicalJSON([call.method, call.params]);
         const base = `/api/agents/${encodeURIComponent(this.agentId)}/control`;
         let authenticated = false;
@@ -121,9 +125,9 @@ class WorkbenchClient {
                 if (!response.ok) {
                     const terminal = [400, 401, 403, 404, 410, 413].includes(response.status);
                     // Expired reads can be refreshed. An expired write must first be reconciled.
-                    if (terminal && call.method !== "conversation.send")
+                    if (terminal && !writing)
                         this.calls.delete(key);
-                    throw new WorkbenchError(string(body.error, "连接暂时没有响应，请稍后重试。"), call, !terminal, call.method === "conversation.send");
+                    throw new WorkbenchError(string(body.error, "连接暂时没有响应，请稍后重试。"), call, !terminal, writing);
                 }
                 return body;
             }
@@ -140,14 +144,14 @@ class WorkbenchClient {
                 body = await read(`${base}?request_id=${encodeURIComponent(call.request_id)}`, { cache: "no-store" });
             }
             if (body.status !== "complete") {
-                if (call.method !== "conversation.send" && body.status === "expired")
+                if (!writing && body.status === "expired")
                     this.calls.delete(key);
-                throw new WorkbenchError("尚未收到 agent 的有效响应。请检查本机配对、agent 和 helper 状态；已提交的动作可能仍在处理。", call, body.status !== "expired", call.method === "conversation.send");
+                throw new WorkbenchError("尚未收到 agent 的有效响应。请检查本机配对、agent 和 helper 状态；已提交的动作可能仍在处理。", call, body.status !== "expired", writing);
             }
             const response = record(body.response);
             if (body.request_id !== call.request_id || response.request_id !== call.request_id || response.method !== call.method ||
                 (Object.hasOwn(response, "result") === Object.hasOwn(response, "error"))) {
-                throw new WorkbenchError("返回内容与本次请求不匹配，尚不能确认结果。", call, true, call.method === "conversation.send");
+                throw new WorkbenchError("返回内容与本次请求不匹配，尚不能确认结果。", call, true, writing);
             }
             authenticated = true;
             this.calls.delete(key);
@@ -162,7 +166,7 @@ class WorkbenchClient {
                 throw new DOMException("Aborted", "AbortError");
             if (error instanceof WorkbenchError)
                 throw error;
-            throw new WorkbenchError("连接暂时中断。重试会继续查询同一次请求。", call, true, call.method === "conversation.send" && !authenticated);
+            throw new WorkbenchError("连接暂时中断。重试会继续查询同一次请求。", call, true, writing && !authenticated);
         }
     }
 }
@@ -219,7 +223,10 @@ function syncReadPlan(workspace, conversationIds, now) {
     }
     const allowed = new Set(records(capability.data.methods).filter(item => item.available === true).map(item => string(item.name)));
     const plan = [];
-    const stale = (method) => now - (workspace.snapshots[method]?.time || 0) >= exports.SYNC_INTERVAL_MS;
+    const mutationAt = Math.max(workspace.snapshots["contacts.add"]?.time || 0, workspace.snapshots["approval.respond"]?.time || 0);
+    // A read already in flight when a write completes cannot acknowledge that write.
+    const stale = (method) => now - (workspace.snapshots[method]?.time || 0) >= exports.SYNC_INTERVAL_MS ||
+        mutationAt > (workspace.snapshots[method]?.sourceAt ?? workspace.snapshots[method]?.time ?? 0);
     if (allowed.has("attention.list") && (stale("attention.list") || workspace.snapshots["attention.list"]?.data.has_more === true)) {
         const cursor = workspace.snapshots["attention.list"]?.data.cursor;
         plan.push({ method: "attention.list", params: { after: Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0, limit: 100 } });
@@ -246,6 +253,10 @@ function syncBackoff(failures) {
     return Math.min(300_000, 30_000 * 2 ** Math.min(Math.max(failures - 1, 0), 4));
 }
 function nextCycleDelay(workspace) {
+    const mutationAt = Math.max(workspace.snapshots["contacts.add"]?.time || 0, workspace.snapshots["approval.respond"]?.time || 0);
+    const allowed = new Set(availableMethods(workspace.snapshots.capabilities?.data));
+    const refresh = ["attention.list", ...(allowed.has("collaboration.state") ? ["collaboration.state"] : ["contacts.list", "inbox.list"])];
+    if (mutationAt && refresh.some(method => allowed.has(method) && mutationAt > (workspace.snapshots[method]?.sourceAt ?? workspace.snapshots[method]?.time ?? 0))) return 0;
     return workspace.snapshots["attention.list"]?.data.has_more === true ? 0 : workspace.submission || workspace.conversations.some(item => item.pending) ? 5_000 : exports.SYNC_INTERVAL_MS;
 }
 function validateControlResponse(value, expected) {

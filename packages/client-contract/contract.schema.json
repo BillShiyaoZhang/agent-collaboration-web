@@ -38,7 +38,9 @@
         "inbox.list",
         "conversation.send",
         "conversation.get",
-        "attention.list"
+        "attention.list",
+        "contacts.add",
+        "approval.respond"
       ]
     },
     "stableId": {
@@ -166,6 +168,10 @@
         },
         "requestId": {
           "type": "string"
+        },
+        "sourceAt": {
+          "type": "number",
+          "description": "Read request creation time, in Unix milliseconds; used to refresh reads predating a completed action"
         }
       },
       "required": [

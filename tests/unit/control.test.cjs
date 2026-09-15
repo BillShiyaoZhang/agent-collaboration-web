@@ -43,6 +43,19 @@ test("mutating control routes require the exact configured browser origin",()=>{
   } finally {if(original===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=original;}
 });
 
+test("contact and approval actions accept only explicit scoped parameters", () => {
+  const parse = (method, params) => protocol.controlCallSchema.safeParse({ request_id: crypto.randomUUID(), method, params }).success;
+  const contact = { contact_id: "contact-a", aliases: ["小王"], urn: "urn:hermes:agent:friend" };
+  assert.equal(parse("contacts.add", contact), true);
+  for (const params of [{ ...contact, contact_id: "self" }, { ...contact, contact_id: "friend\n" }, { ...contact, aliases: [] },
+    { ...contact, aliases: [" "] }, { ...contact, aliases: Array(17).fill("name") }, { ...contact, urn: "friend" },
+    { ...contact, urn: contact.urn + "\n" }, { ...contact, owner_principal: "other-owner" }]) assert.equal(parse("contacts.add", params), false);
+  for (const decision of ["approve", "deny"]) assert.equal(parse("approval.respond", { approval_id: "approval-one", decision }), true);
+  for (const params of [{ approval_id: "approval-one", approved: true }, { approval_id: "approval-one", decision: "allow" },
+    { approval_id: "", decision: "approve" }, { approval_id: "approval-one", decision: "approve", owner_session: "injected" }])
+    assert.equal(parse("approval.respond", params), false);
+});
+
 test("the actual RPC route enforces session, saved connection and origin before dispatch",async()=>{
   const original=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL="https://console.example";
   let session=null,called=0;

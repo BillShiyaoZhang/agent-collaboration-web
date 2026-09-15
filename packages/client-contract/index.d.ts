@@ -14,7 +14,7 @@ export type SyncPlanItem = {
 export declare function remoteTimestamp(value: unknown): number;
 export declare function isPairingError(code: unknown): boolean;
 export declare function availableMethods(capabilities: unknown): RpcMethod[];
-export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list"];
+export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond"];
 export type RpcMethod = typeof RPC_METHODS[number];
 export type RemoteRecord = Record<string, unknown>;
 export type PendingCall = {
@@ -49,6 +49,7 @@ export declare function conversationSettled(result: unknown, trackedTurnIds: rea
 export type WorkspaceSnapshot = {
     data: RemoteRecord;
     time: number;
+    sourceAt?: number;
     requestId?: string;
 };
 export type WorkspaceSync = {

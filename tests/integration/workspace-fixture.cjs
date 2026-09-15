@@ -19,6 +19,15 @@ const dbFile=path.join(output,'fixture-'+Date.now()+'.db'),db=new PrismaClient({
 const identities=new Map(),mailboxes=new Map(),turns=new Map(),calls=[];
 let child,server,offline=false,extraMessage=false,stopping=false,log='';
 const attentionMode=process.env.ATTENTION_FIXTURE==='1',fixtureAt=Math.floor(Date.now()/1000);
+const mutationMode=process.env.MUTATION_FIXTURE==='1',mutationContacts=new Map(),mutationDecisions=new Map(),mutationResults=new Map();
+let mutationWritesEnabled=true;
+const mutationApprovals=[
+ {approval_id:'approval-web-approve',subject_id:'允许发送会议提议',question:'请核对：仅向小王发送明天下午 3 点的会议提议。\n不会创建日历，也不代表对方已经同意。',status:'pending',expires_at:fixtureAt+3600},
+ {approval_id:'approval-web-deny',subject_id:'拒绝分享资料',question:'是否允许向小李分享本次项目资料？',status:'presenting',expires_at:fixtureAt+3600},
+ {approval_id:'approval-web-expired',subject_id:'重新核对过期展示',question:'上次展示已过期。是否仍同意本次有效事项的安排？',status:'expired',expires_at:fixtureAt-60},
+ {approval_id:'approval-web-unknown',subject_id:'核实断线后的回应',question:'仅测试本次回应是否已由 agent 保存。',status:'pending',expires_at:fixtureAt+3600},
+ {approval_id:'approval-web-fail',subject_id:'事项已撤销',question:'这项事项已被撤销，旧快照仍显示待确认。',status:'pending',expires_at:fixtureAt+3600},
+];
 let approvalResolved=false;
 function identity(){
  const ed=crypto.generateKeyPairSync('ed25519'),x=crypto.generateKeyPairSync('x25519');
@@ -33,7 +42,30 @@ function verifyBody(req,body){
  assert.ok(identity);assert.equal(crypto.verify(null,Buffer.from(JSON.stringify(body)),identity.ed.publicKey,Buffer.from(signature,'hex')),true);return identity;
 }
 function resultFor(request){
- if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode?['attention.list']:[])].map(name=>({name,available:true})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode?['attention.list']:[]),...(mutationMode?['contacts.add','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(mutationMode){
+  const key=request.agent_urn+'|'+request.console_urn;
+  const contacts=mutationContacts.get(key)||[],decisions=mutationDecisions.get(key)||[];
+  if(request.method==='collaboration.state')return {tasks:[],operations:[],pending_confirmations:mutationApprovals.filter(a=>!decisions.some(d=>d.approval_id===a.approval_id)),approval_decisions:decisions,contacts,inbox:[]};
+  if(request.method==='contacts.list')return {contacts};
+  if(['contacts.add','approval.respond'].includes(request.method)){
+   if(!mutationWritesEnabled)return {__error:{code:'method_not_allowed',message:'Method is not allowed'}};
+   const ledger=key+'|'+request.request_id;
+   if(mutationResults.has(ledger))return mutationResults.get(ledger);
+   let result;
+   if(request.method==='contacts.add'){
+    const contact={...request.params,confirmed:true};mutationContacts.set(key,[...contacts,contact]);
+    result={decision:'allow',status:'confirmed',contact};
+   }else{
+    if(request.params.approval_id==='approval-web-fail')return {__error:{code:'invalid_params',message:'事项已撤销，请刷新后核实。'}};
+    const approval=mutationApprovals.find(a=>a.approval_id===request.params.approval_id);assert.ok(approval);
+    const approved=request.params.decision==='approve';
+    mutationDecisions.set(key,[...decisions.filter(d=>d.approval_id!==approval.approval_id),{...approval,status:approved?'approved':'denied'}]);
+    result={approval_id:approval.approval_id,decision:approved?'allow':'deny',status:approved?'approved_once':'denied'};
+   }
+   mutationResults.set(ledger,result);return result;
+  }
+ }
  if(request.method==='attention.list'&&attentionMode){
   const revision=approvalResolved?2:1;
   const item={attention_id:'fixture-attention-1',kind:'owner_decision_required',subject_id:'fixture-approval-1',task_id:'fixture-task-1',source_revision:'question-1',revision,state:approvalResolved?'resolved':'open',title:'确认会议时间',safe_summary:'双方建议明天下午线上讨论。请回到原生渠道决定此次安排。',target:{kind:'approval',id:'fixture-approval-1'},created_at:fixtureAt,updated_at:fixtureAt+(approvalResolved?1:0),expires_at:fixtureAt+3600};
@@ -52,10 +84,11 @@ function resultFor(request){
 }
 async function handle(req,res){
  const url=new URL(req.url,platform);
- if(url.pathname==='/fixture/summary')return json(res,{calls:calls.map(c=>({agentId:c.agentId,method:c.method,id:c.id})),offline,extraMessage});
+ if(url.pathname==='/fixture/summary')return json(res,{calls:calls.map(c=>({agentId:c.agentId,method:c.method,id:c.id})),offline,extraMessage,...(mutationMode?{mutationContacts:[...mutationContacts.values()].flat(),mutationDecisions:[...mutationDecisions.values()].flat()}: {})});
  if(url.pathname==='/fixture/mode'&&req.method==='POST'){
   const body=await read(req);if(typeof body.offline==='boolean')offline=body.offline;if(typeof body.extraMessage==='boolean')extraMessage=body.extraMessage;
   if(attentionMode&&typeof body.resolveApproval==='boolean')approvalResolved=body.resolveApproval;
+  if(mutationMode&&typeof body.writesAllowed==='boolean')mutationWritesEnabled=body.writesAllowed;
   if(body.due)await db.$executeRawUnsafe('UPDATE "WorkspaceState" SET "nextSyncAt"=0, "leaseUntil"=NULL, "leaseToken"=NULL');
   if(body.expireCapabilities)await db.$executeRawUnsafe('UPDATE "WorkspaceSnapshot" SET "savedAt"=0 WHERE "method"=\'capabilities\'');
   return json(res,{ok:true});
@@ -87,7 +120,7 @@ async function handle(req,res){
   const bytes=ecies.decryptWithSharedSecret(ecies.computeSharedSecret(agent.xPrivate,envelope.senderStaticPubkey),envelope.ephemeralPubkey,envelope.nonce,envelope.ciphertext,envelope.tag);
   const chat=proto.decodeChatMessage(bytes),request=JSON.parse(chat.text);assert.equal(request.console_urn,owner.urn);
   calls.push({agentId:agent.id,method:request.method,id:request.request_id});
-  const {params,...fields}=request,response={...fields,type:'response',result:resultFor(request)};
+  const {params,...fields}=request,result=resultFor(request),response={...fields,type:'response',...(result.__error?{error:result.__error}:{result})};
   const plaintext=proto.encodeChatMessage(JSON.stringify(response),Date.now(),{kind:'control.response',inReplyTo:request.request_id,deadline:request.deadline});
   const encrypted=ecies.encryptWithSharedSecret(ecies.computeSharedSecret(agent.xPrivate,owner.xRaw),plaintext);
   const reply=auth.signEnvelope({senderUrn:agent.urn,recipientUrn:owner.urn,senderStaticPubkey:agent.xRaw,ephemeralPubkey:encrypted.ephemeral,nonce:encrypted.nonce,ciphertext:encrypted.ciphertext,tag:encrypted.tag,messageId:'fixture-reply-'+request.request_id},agent.ed.privateKey);

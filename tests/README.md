@@ -25,6 +25,13 @@ node tests/integration/workspace-resilience.cjs
 指定已有安装。服务仅监听 `127.0.0.1:3061`、`127.0.0.1:3062`，创建独立 SQLite 和测试身份。
 结果存入 `build/workspace-sync-preview/`；结束后用 Ctrl+C 停止 fixture。
 
+### Web 添加联系人和授权确认
+
+构建后，将环境变量 `MUTATION_FIXTURE` 设为 `1` 再启动同一 fixture，然后运行
+`node tests/integration/workspace-mutations-browser.cjs`。它使用隔离账户，检查联系人确认、
+断线后保留原请求、请求过期后显式恢复、审批同意/拒绝、Agent 终态同步、权限撤回和手机布局。
+报告与截图写入 `build/workspace-mutations-preview/`。
+
 ## 真实本地组合检查
 
 `integration/full_stack_smoke.py` 使用部署仓库的相邻 Platform/SDK 源码，需完整递归克隆，
@@ -35,3 +42,5 @@ python tests/integration/full_stack_smoke.py --helper PATH_TO_HELPER --platform 
 ```
 
 输出位于 `build/full-stack-smoke/`，测试只使用临时本地身份和数据库。
+此检查同时验证新操作的显式配对范围、直接添加与重复联系人、审批同意/拒绝，以及
+Agent 事实同步回 Web 账户；不调用语言模型。

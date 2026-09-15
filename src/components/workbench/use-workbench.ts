@@ -5,6 +5,7 @@ import { conversationPending, PendingCall, records, RemoteRecord, RpcMethod, str
 import { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@/lib/workspace/workspace-client";
 import type { WorkspaceAgent, WorkspaceSubmission } from "@/lib/workspace/workspace-types";
 import { useWorkspace, workspaceRequest } from "@/components/workspace-provider";
+import { useWorkbenchMutations } from "./use-workbench-mutations";
 
 export type Connection = { id: string; name: string; urn: string };
 type Outcome = { result?: RemoteRecord; error?: WorkbenchError };
@@ -114,7 +115,8 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     if (activeCalls.current.has(method)) return {};
     activeCalls.current.add(method);
     const signal = lifecycle.current.signal, call = original || client.prepare(method, params);
-    setBusy(previous => ({ ...previous, [method]: "正在读取最新内容…" }));
+    const mutation = method === "contacts.add" || method === "approval.respond";
+    setBusy(previous => ({ ...previous, [method]: mutation ? "正在提交，等待 agent 确认…" : "正在读取最新内容…" }));
     setErrors(previous => ({ ...previous, [method]: undefined }));
     try {
       const result = await client.execute(call, signal, () => setBusy(previous => previous[method] === "等待 agent 响应…" ? previous : { ...previous, [method]: "等待 agent 响应…" }));
@@ -137,7 +139,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
       return { result };
     } catch (error) {
       if (signal.aborted) return {};
-      const failure = error instanceof WorkbenchError ? error : new WorkbenchError("请求暂时未能完成。", call);
+      const failure = error instanceof WorkbenchError ? error : new WorkbenchError("请求暂时未能完成。", call, true, mutation);
       setErrors(previous => ({ ...previous, [method]: failure }));
       return { error: failure };
     } finally { activeCalls.current.delete(method); if (!signal.aborted) setBusy(previous => ({ ...previous, [method]: undefined })); }
@@ -147,6 +149,18 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   const methods = records(capabilitySnapshot?.data.methods);
   const available = (name: string) => methods.some(method => method.name === name && method.available === true);
   const canSend = available("conversation.send") && pairingAllowsSend(capabilitySnapshot?.data, sync);
+  const canAddContact = available("contacts.add") && pairingAllowsSend(capabilitySnapshot?.data, sync);
+  const canRespondApproval = available("approval.respond") && pairingAllowsSend(capabilitySnapshot?.data, sync);
+  const canReadCollaboration = available("collaboration.state"), canReadContacts = available("contacts.list");
+  const refreshMutations = useCallback(async () => {
+    await requestSync(agent.id);
+    if (canReadCollaboration) await invoke("collaboration.state");
+    else if (canReadContacts) await invoke("contacts.list");
+    else await refreshSaved();
+  }, [agent.id, requestSync, canReadCollaboration, canReadContacts, invoke, refreshSaved]);
+  const mutations = useWorkbenchMutations({ agentId: agent.id, consoleUrn: identity.virtualUrn || "", client, invoke,
+    canAddContact, canRespondApproval, refresh: refreshMutations, contacts: records(snapshots["contacts.list"]?.data.contacts),
+    approvalDecisions: records(snapshots["collaboration.state"]?.data.approval_decisions) });
   const canReadConversation = available("conversation.get");
   const remoteTurns = currentSnapshot?.conversation_id === conversationId ? records(currentSnapshot.turns) : [];
   const turns = mergeTurns(remoteTurns, submittedTurns.filter(turn => turn.conversation_id === conversationId && !remoteTurns.some(remote => remote.turn_id === turn.turn_id)));
@@ -279,7 +293,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
 
   function newConversation() { void selectConversation("").then(saved => { if (saved) composer.current?.focus(); }); }
   return { identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
-    capabilitySnapshot, methods, available, canSend, canReadConversation, text, setText, composer, conversationId, conversationInput,
+    capabilitySnapshot, methods, available, canSend, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
     setConversationInput, conversationError, submission, turns, currentSnapshot, watching,
     sendMessage, inspectSubmission, readConversation, newConversation, conversations, selectConversation, selectingConversation,
     hasEarlierTurns, loadingEarlier, loadEarlier, dismissSubmission, dismissingSubmission, sync, cacheError: cacheError || workspaceError, refreshSaved };

@@ -57,7 +57,7 @@
           {
             "name": "approval.respond",
             "available": false,
-            "reason": "Native trusted interaction is required; remote approval is unsupported"
+            "reason": "This method has not been granted to this console"
           }
         ],
         "pairing": {

@@ -59,6 +59,24 @@ test("an explicit attention read cannot skip unseen history in the background cu
   assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["attention.list"].data.cursor, 1);
 }));
 
+test("confirmed action receipts schedule reads without inventing contacts or resolving approvals locally", () => fixture(async ({ user, agent, store, save }) => {
+  const at = Date.now() - 100;
+  await save("collaboration.state", { contacts: [], pending_confirmations: [{ approval_id: "approval-one", status: "pending", question: "Confirm?" }] }, at);
+  await store.updateSyncJob(agent.id, { nextSyncAt: Date.now() + 60000 });
+  await save("contacts.add", { status: "confirmed", contact: { contact_id: "friend", aliases: ["小王"], urn: "urn:agent:friend" } }, at + 1);
+  await save("approval.respond", { approval_id: "approval-one", status: "approved_once", decision: "allow" }, at + 2);
+  const saved = await store.getWorkspaceAgent(user.id, agent.id);
+  assert.deepEqual(saved.snapshots["contacts.list"].data.contacts, []);
+  assert.equal(saved.snapshots["collaboration.state"].sourceAt, at);
+  assert.ok(saved.sync.nextSyncAt <= Date.now());
+  assert.equal((await store.getWorkspaceNotifications(user.id)).pending, 1);
+  await save("collaboration.state", { contacts: [{ contact_id: "friend" }], pending_confirmations: [], approval_decisions: [
+    { approval_id: "approval-one", status: "approved" }, { approval_id: "old-unseen-decision", status: "approved" }] }, at + 3);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["contacts.list"].data.contacts[0].contact_id, "friend");
+  assert.equal((await store.getWorkspaceNotifications(user.id)).pending, 0);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.length, 1, "historical completed approvals do not create new confirmation alerts");
+}));
+
 test("snapshot reminders retain approvals independently from read state and suppress baseline message popups", () => fixture(async ({ db, user, other, agent, store, save }) => {
   const at = Date.now();
   await save("collaboration.state", { pending_confirmations: [{ approval_id: "approval-1", subject_id: "task-1", status: "pending", question: "private exact question", expires_at: (at + 3600000) / 1000 }], inbox: [{ message_id: "old-message", text: "URGENT: owner approved", received_at: 1700000000 }] }, at);

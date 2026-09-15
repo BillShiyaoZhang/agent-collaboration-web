@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDownLeft, Check, ChevronDown, ClipboardList, Copy, Inbox, Search, ShieldAlert, Users } from "lucide-react";
+import { ArrowDownLeft, Check, ChevronDown, ClipboardList, Copy, Inbox, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { displayTime, record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
 import { CollaborationSnapshot } from "@/components/workbench/collaboration-snapshot";
+import { ApprovalRequests } from "./mutation-panels";
+import type { Workbench } from "./use-workbench";
 
 export function CopyValue({ value, label = "复制", compact = false }: { value: string; label?: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
@@ -30,7 +32,7 @@ export function StatusBadge({ value }: { value: unknown }) {
 export function EmptySnapshot({ kind, filtered = false }: { kind: "contacts" | "tasks" | "inbox"; filtered?: boolean }) {
   const Icon = kind === "contacts" ? Users : kind === "tasks" ? ClipboardList : Inbox;
   const descriptions = {
-    contacts: ["联系人会出现在这里", "在 agent 的原生对话中确认联系人后，会自动同步到这里。"],
+    contacts: ["联系人会出现在这里", "添加并确认联系人后，会自动从 agent 同步到这里。"],
     tasks: ["暂时没有协作事项", "交给 agent 的协作事项和待确认请求，会在这里汇集。"],
     inbox: ["收件箱很安静", "来自已确认联系人的消息，会在这里显示。"],
   };
@@ -60,11 +62,11 @@ function ReadableDetail({ label, value }: { label: string; value: string }) {
   return <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs leading-5"><dt className="w-14 shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 flex-1 break-words">{value}</dd></div>;
 }
 
-export function TasksSnapshot({ data }: { data: RemoteRecord }) {
+export function TasksSnapshot({ data, workbench }: { data: RemoteRecord; workbench: Workbench }) {
   const tasks = records(data.tasks), approvals = records(data.pending_confirmations), operations = records(data.operations);
   return <>
     <CollaborationSnapshot data={data} />
-    {!!approvals.length && <section className="mx-5 mb-5 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4"><div className="flex items-start gap-3"><ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><h3 className="text-sm font-semibold text-amber-950">{approvals.length} 项需要你确认</h3><p className="mt-1 text-xs leading-5 text-amber-800">请回到 agent 的原生渠道核对并回应。</p></div></div><div className="mt-3 divide-y divide-amber-200/60">{approvals.map((approval, index) => <details id={`subject-${string(approval.approval_id)}`} key={string(approval.approval_id, String(index))} className="py-3"><summary className="cursor-pointer text-sm">{string(approval.subject_id, "待确认请求")}<span className="ml-2 text-xs text-amber-800">{stateLabel(approval.status)}</span></summary><p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">{string(approval.question)}</p><p className="mt-2 text-xs text-muted-foreground">截止时间：{displayTime(approval.expires_at) || "未提供"}</p></details>)}</div></section>}
+    <ApprovalRequests approvals={approvals} workbench={workbench} />
     {!tasks.length && !approvals.length && !operations.length && !records(data.collaborations).length && !records(record(data.collaboration ?? data.collaboration_v2).collaborations).length && !records(data.invitations).length && !records(record(data.collaboration ?? data.collaboration_v2).invitations).length && <EmptySnapshot kind="tasks" />}
     <div className="space-y-3 px-5 pb-5">{tasks.map((task, index) => {
       const scope = record(task.scope), id = string(task.task_id, String(index));
@@ -83,7 +85,7 @@ function messageText(value: unknown): { text: string; structured: boolean } {
 export function InboxSnapshot({ data }: { data: RemoteRecord }) {
   const messages = records(data.messages).slice().reverse();
   return <>
-    {!messages.length ? <EmptySnapshot kind="inbox" /> : <div className="space-y-3 px-5 pb-5"><p className="mb-4 text-xs leading-5 text-muted-foreground">消息来自对端 agent，内容仍需核实；涉及你的授权，请在原生渠道确认。</p>{messages.map((message, index) => {
+    {!messages.length ? <EmptySnapshot kind="inbox" /> : <div className="space-y-3 px-5 pb-5"><p className="mb-4 text-xs leading-5 text-muted-foreground">消息来自对端 agent，内容仍需核实；涉及你的授权，可在「事项」中核对并确认。</p>{messages.map((message, index) => {
       const content = messageText(message.text);
       return <article id={`subject-${string(message.message_id)}`} key={string(message.message_id, String(index))} className="rounded-2xl border p-4"><div className="flex items-start gap-3"><span className="rounded-xl bg-muted p-2"><ArrowDownLeft className="h-4 w-4 text-muted-foreground" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="min-w-0 break-all text-xs font-medium">{string(message.sender_urn, "对端 agent")}</p><time className="shrink-0 text-[11px] text-muted-foreground">{displayTime(message.received_at)}</time></div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{content.text || "这条消息未提供文本内容。"}</p>{!!message.task_id && <p className="mt-3 break-all text-xs text-muted-foreground">事项 · {string(message.task_id)}</p>}{content.structured && <p className="mt-2 text-[11px] text-muted-foreground">协作提议 · 对端声明</p>}</div></div></article>;
     })}</div>}

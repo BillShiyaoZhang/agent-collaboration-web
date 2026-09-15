@@ -47,9 +47,9 @@ flowchart LR
 3. 打开工作台，点击“创建控制台身份”。复制页面显示的控制台 URN。
 4. 在 agent 本机通过本地管理员 CLI 配对它；Web 没有自助提升权限的配对 API。例如：
    ```text
-   python -m agent_comm_runtime.daemon remote pair --hermes-profile YOUR_HERMES_PROFILE --console-urn YOUR_CONSOLE_URN --allow capabilities --allow contacts.list --allow collaboration.state --allow inbox.list --allow conversation.send --allow conversation.get --expires 2026-10-14T00:00:00Z
+   python -m agent_comm_runtime.daemon remote pair --hermes-profile YOUR_HERMES_PROFILE --console-urn YOUR_CONSOLE_URN --allow capabilities --allow contacts.list --allow contacts.add --allow collaboration.state --allow inbox.list --allow attention.list --allow approval.respond --allow conversation.send --allow conversation.get --expires FUTURE_UTC_EXPIRY
    ```
-   替换 profile、控制台 URN 和有效期。只列出允许的具体方法。使用运行 Hermes 的 Python 环境。
+   替换 profile、控制台 URN 和未来的 RFC3339 有效期（如 `YYYY-MM-DDTHH:MM:SSZ`）。只列出允许的具体方法；若不允许 Web 添加联系人或回答审批，分别省略 `contacts.add` 或 `approval.respond`。使用运行 Hermes 的 Python 环境。旧配对不会自动增加这些权限，需显式重配并保留仍需使用的全部方法。安装包的新版配置脚本通过 `--allow-web-actions` 显式追加这两项，详见根仓库的配对说明。
 5. Hermes connector 配置的 `extra.remote_enabled` 设为 `true`，`extra.allow_from` 显式包含同一控制台 URN。配对与 allowlist 是两项独立条件。helper 地址是本机 loopback 地址，不是云端平台网址。
 6. 重启对应 connector/网关。后台会在后续同步时发现有效配对并读取已开放的数据；也可使用工作台的连接检查提前触发读取。
 
@@ -61,12 +61,19 @@ flowchart LR
 | --- | --- |
 | `capabilities` | agent 根据实际适配器和本地配对返回方法列表 |
 | `contacts.list` | agent 本地 Store 的联系人 |
+| `contacts.add` | 用户提交联系人的稳定 ID、别名和 URN，在 agent Store 确认绑定 |
 | `collaboration.state` | agent 本地 Store 的委托、待办、联系人、收件箱和状态 |
 | `inbox.list` | agent 本地已接收的消息 |
+| `attention.list` | agent 本地持久、分页的提醒记录 |
+| `approval.respond` | 用户同意或拒绝 agent 生成的具体待确认请求，由 agent 保存决定 |
 | `conversation.send` | 适配器实际受理一个远程会话回合 |
 | `conversation.get` | 查询 agent 保存的回合状态与真实答复 |
 
-未提供的方法隐藏，显式不支持的方法展示原因。发送对话的 `submitted` 仅表示受理；`conversation.get` 中的最终回合状态和答复来自 agent。Web 不提供远程审批确认；需要原生主人确认的动作仍通过适配的原生渠道执行。
+未提供的方法隐藏，显式不支持的方法展示原因。发送对话的 `submitted` 仅表示受理；`conversation.get` 中的最终回合状态和答复来自 agent。新增联系人与审批回答分别受 `contacts.add` 和 `approval.respond` 配对权限约束，不能由远程对话权限推导。
+
+`contacts.add` 接受 `{contact_id, aliases, urn}`，表单提交即用户确认该绑定，返回 agent 的联系人记录。`approval.respond` 接受 `{approval_id, decision: "approve" | "deny"}`；审批内容来自 agent，Web 无法覆盖主人主体或提交任意批准内容。Agent 从已验证控制台的本地配对导出主人身份，并检查请求、事项、内容版本与期限；批准只更新授权/审批状态，不直接发送业务消息。两项变更均通过用户操作触发，后台同步仍只读取；联系人与审批事实继续通过 agent 的已认证读取结果保存到账户副本。
+
+此新增能力需要发布匹配的 Agent/runtime 和 Web；仓库文档更新不代表线上服务或公开安装包已包含。
 
 ## RPC 契约与验证
 

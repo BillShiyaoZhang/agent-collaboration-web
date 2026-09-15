@@ -85,6 +85,29 @@ test("expired pending response preserves ambiguous write and does not report com
   assert.strictEqual(client.prepare("conversation.send", { text: "go" }), call);
 });
 
+test("contact and approval writes preserve the exact request through network loss and cache expiry", async () => {
+  for (const [method, params] of [["contacts.add", { contact_id: "friend", aliases: ["小王"], urn: "urn:agent:friend" }],
+    ["approval.respond", { approval_id: "approval-one", decision: "approve" }]]) {
+    let mode = "lost";
+    const sent = [];
+    const client = fixture(async (_url, init) => {
+      const call = JSON.parse(init.body); sent.push(call);
+      if (mode === "lost") throw new Error("connection lost after enqueue");
+      if (mode === "expired") return Response.json({ error: "expired" }, { status: 410 });
+      return complete(call, { status: "confirmed" });
+    });
+    const call = client.prepare(method, params);
+    await assert.rejects(client.execute(call, signal()), error => error.uncertain && error.retryable);
+    assert.strictEqual(client.prepare(method, params), call);
+    mode = "expired";
+    await assert.rejects(client.execute(call, signal()), error => error.uncertain && !error.retryable);
+    assert.strictEqual(client.prepare(method, params), call);
+    mode = "complete";
+    assert.equal((await client.execute(call, signal())).status, "confirmed");
+    assert.deepEqual(sent, [call, call, call]);
+  }
+});
+
 test("complete responses must correlate to the original request and method", async () => {
   for (const change of ["outer_id", "inner_id", "method", "result_and_error"]) {
     const client = fixture(async (_url, init) => {

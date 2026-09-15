@@ -93,7 +93,7 @@ export async function getWorkspaceAgent(userId: string, agentId: string, convers
   const snapshots: WorkspaceAgent["snapshots"] = {};
   for (const row of snapshotRows) {
     if (row.method === "conversation.get" && row.recordKey !== active) continue;
-    snapshots[row.method] = { data: unseal(userId, agentId, `snapshot:${row.method}`, row.recordKey, row.payload), time: row.savedAt, requestId: row.requestId };
+    snapshots[row.method] = { data: unseal(userId, agentId, `snapshot:${row.method}`, row.recordKey, row.payload), time: row.savedAt, sourceAt: row.sourceAt, requestId: row.requestId };
   }
   if (snapshots["inbox.list"]) {
     const inbox = await prisma.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId" = ${agentId} AND "kind" = 'inbox' ORDER BY "sortTime" DESC, "itemId" DESC LIMIT 100`;
@@ -248,6 +248,11 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
       if (automaticPage) await saveSnapshot(tx, user.id, agent.id, row, row.method, "", { schema: page.schema, cursor: page.cursor, has_more: page.has_more });
     } else {
       await saveSnapshot(tx, user.id, agent.id, row, row.method, row.method === "conversation.get" ? convId : "", data);
+    }
+    if (row.method === "contacts.add" || row.method === "approval.respond") {
+      // The authenticated receipt schedules a new read; it never edits a contact
+      // list or approval snapshot using browser input or a transport acknowledgement.
+      await tx.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${Date.now()}) WHERE "agentId" = ${agent.id}`;
     }
     if (row.method === "contacts.list" || row.method === "collaboration.state") {
       if (Array.isArray(data.contacts)) await saveSnapshot(tx, user.id, agent.id, row, "contacts.list", "", { contacts: data.contacts });
@@ -433,9 +438,15 @@ async function deriveNotificationSnapshot(db: DB, userId: string, agentId: strin
   }
   if (Array.isArray(data.messages) || Array.isArray(data.inbox) || Array.isArray(inbox.messages)) await finishNotificationBaseline(db, agentId, "inbox");
   if (method !== "collaboration.state") return;
-  for (const approval of records(data.pending_confirmations)) {
+  for (const approval of [...records(data.pending_confirmations), ...records(data.approval_decisions)]) {
     const id = string(approval.approval_id), status = string(approval.status);
     if (!id || !["pending", "presenting", "awaiting_approval", "approved", "denied", "expired", "superseded"].includes(status)) continue;
+    if (["approved", "denied"].includes(status)) {
+      // Compact historical decisions reconcile known reminders. Importing a
+      // previously unseen completed decision must not create a new confirmation alert.
+      const key = notificationDigest(["approval", id]);
+      if (!(await db.$queryRaw<{ id: string }[]>`SELECT "id" FROM "WorkspaceNotification" WHERE "agentId" = ${agentId} AND "id" = ${key}`).length) continue;
+    }
     const state: AttentionItem["state"] = ["approved", "denied"].includes(status) ? "resolved" : status === "superseded" ? "superseded" : "open";
     const operation = records(data.operations).concat(records(record(data.collaboration).operations)).find(item => item.operation_id === approval.subject_id);
     const taskId = approval.kind === "task" ? approval.subject_id : operation?.task_id;
@@ -445,7 +456,7 @@ async function deriveNotificationSnapshot(db: DB, userId: string, agentId: strin
     const expiresAt = timestamp(record(task?.scope).expires_at, NaN);
     await saveNotification(db, userId, agentId, { attention_id: `approval:${id}`, kind: "owner_decision_required", subject_id: string(approval.subject_id, id),
       source_revision: notificationDigest([approval.question_version ?? approval.question_hash ?? approval.question ?? id]), revision: 1,
-      state, title: "一项协作需要你确认", safe_summary: "请回到 agent 原生渠道，核对当前问题和授权范围后作决定。", target: { kind: "approval", id },
+      state, title: "一项协作需要你确认", safe_summary: "请打开事项，核对当前问题和授权范围后作决定。", target: { kind: "approval", id },
       created_at: timestamp(approval.created_at, sourceAt) / 1000, updated_at: at, ...(Number.isFinite(expiresAt) ? { expires_at: expiresAt / 1000 } : {}) }, sourceAt, "snapshot", true);
   }
   // Absence from a bounded snapshot never resolves an earlier approval.

@@ -58,7 +58,8 @@ api:
     processes, logs = [], []
     bridge = store = None
     environment = dict(os.environ, DATABASE_URL="file:" + database.as_posix(), NEXTAUTH_URL=urls["web"],
-                       NEXTAUTH_SECRET=secrets.token_hex(32), AGENT_PLATFORM_URL=urls["platform"], NEXT_TELEMETRY_DISABLED="1")
+                       NEXTAUTH_SECRET=secrets.token_hex(32), AGENT_PLATFORM_URL=urls["platform"], NEXT_TELEMETRY_DISABLED="1",
+                       WORKSPACE_SYNC_DISABLED="1")
     environment["PATH"] = str(args.node.resolve().parent) + os.pathsep + environment.get("PATH", "")
 
     def start(name, command, cwd=None):
@@ -108,10 +109,10 @@ api:
         bridge.pair(identity["virtualUrn"], "local-smoke-owner", ["capabilities", "contacts.list"], iso(3600))
         transport = HelperTransport(urls["agent"])
 
-        def roundtrip(method):
+        def roundtrip(method, params=None):
             rid = str(uuid.uuid4())
             path = f"/api/agents/{connection['id']}/control"
-            queued = web(path, {"request_id": rid, "method": method, "params": {}})
+            queued = web(path, {"request_id": rid, "method": method, "params": params or {}})
             assert queued["status"] == "pending", queued
             message = until(lambda: next((item for item in transport.retrieve() if item["message_id"] == rid), None), "Web encrypted request arrival", timeout=35)
             assert message["sender_urn"] == identity["virtualUrn"]
@@ -130,14 +131,37 @@ api:
         assert any(method["name"] == "contacts.list" and method["available"] for method in capabilities["result"]["methods"])
         contacts = roundtrip("contacts.list")
         assert contacts["result"]["contacts"][0]["aliases"] == ["仅在 agent 本地保存的联系人"]
+        friend = {"contact_id": "web-friend", "aliases": ["网页添加的朋友"], "urn": "urn:agent-comm:agent:web-friend"}
+        assert roundtrip("contacts.add", friend)["error"]["code"] == "method_not_allowed"
+        bridge.pair(identity["virtualUrn"], "local-smoke-owner",
+                    ["capabilities", "contacts.list", "collaboration.state", "contacts.add", "approval.respond"], iso(3600))
+        assert roundtrip("contacts.add", friend)["result"]["status"] == "confirmed"
+        assert roundtrip("contacts.add", friend)["result"]["status"] == "already_confirmed"
+        decisions = []
+        for decision in ("approve", "deny"):
+            staged = store.prepare_contact("pending-" + decision, ["网页" + decision], "urn:agent-comm:agent:" + decision, owner)
+            state = roundtrip("collaboration.state")["result"]
+            assert any(item["approval_id"] == staged["approval_id"] and item["question"] for item in state["pending_confirmations"])
+            result = roundtrip("approval.respond", {"approval_id": staged["approval_id"], "decision": decision})["result"]
+            assert result["status"] == ("approved_once" if decision == "approve" else "denied")
+            decisions.append(staged["approval_id"])
+        state = roundtrip("collaboration.state")["result"]
+        assert {item["approval_id"] for item in state["approval_decisions"]}.issuperset(decisions)
+        assert {item["contact_id"] for item in state["contacts"]} == {"owner-console", "web-friend", "pending-approve"}
+        saved = web(f"/api/agents/{connection['id']}/workspace")
+        assert saved["snapshots"]["contacts.list"]["data"]["contacts"] == state["contacts"]
+        assert saved["snapshots"]["collaboration.state"]["data"]["pending_confirmations"] == []
         bridge.revoke(identity["virtualUrn"])
         assert roundtrip("contacts.list")["error"]["code"] == "not_paired"
         with sqlite3.connect(database) as db:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert not tables.intersection({"Contact", "Message", "HITLRequest", "Transaction"})
-            assert db.execute("SELECT COUNT(*) FROM ControlRequest WHERE status='complete'").fetchone()[0] == 3
+            assert db.execute("SELECT COUNT(*) FROM ControlRequest WHERE status='complete'").fetchone()[0] == 11
         report = {"result": "PASS", "checks": ["built Next login/session", "real Web console URN accepted by Python pairing",
             "Node signed encrypted request through real Go MQ/helper", "agent-owned contacts returned to Web",
+            "new action scopes are explicit and denied for existing read-only pairing",
+            "Web directly adds an idempotent contact and approves/denies agent confirmations",
+            "agent contacts and completed decisions synchronize into the encrypted Web workspace",
             "Web cryptographic correlation and response persistence", "local pairing revocation returned as error",
             "no independent Web domain tables"], "logs": str(folder), "scope": "Fresh local test account, keys and processes only; no public messages or model calls"}
         (folder / "result.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

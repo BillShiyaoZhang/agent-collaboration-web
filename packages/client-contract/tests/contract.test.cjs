@@ -94,13 +94,27 @@ test('pairing policy vectors normalize seconds, milliseconds, ISO dates and inva
 
 test('advertised extensions and writes cannot enter the fixed automatic read plan', () => {
   const state = structuredClone(workspace);
-  state.snapshots.capabilities.data.methods.push({ name: 'approval.respond', available: true }, { name: 'custom.write', available: true });
+  state.snapshots.capabilities.data.methods.push({ name: 'approval.respond', available: true }, { name: 'contacts.add', available: true }, { name: 'custom.write', available: true });
   const methods = api.availableMethods(state.snapshots.capabilities.data);
-  assert.ok(!methods.includes('approval.respond'));
+  assert.ok(methods.includes('approval.respond'));
+  assert.ok(methods.includes('contacts.add'));
   assert.ok(!methods.includes('custom.write'));
   const plan = api.syncReadPlan(state, ['chat-1', 'bad/id', 'chat-1'], state.snapshots.capabilities.time + 30000);
   assert.deepEqual(plan.map(item => item.method), ['collaboration.state', 'conversation.get']);
   assert.deepEqual(plan[1].params, { conversation_id: 'chat-1' });
+});
+
+test('completed actions refresh agent snapshots even when an earlier in-flight read was saved later', () => {
+  const state = structuredClone(workspace), now = state.snapshots.capabilities.time;
+  state.submission = null;
+  state.conversations = [];
+  state.snapshots['collaboration.state'] = { data: {}, time: now + 20, sourceAt: now - 10 };
+  state.snapshots['contacts.add'] = { data: { status: 'confirmed' }, time: now + 10 };
+  assert.equal(api.nextCycleDelay(state), 0);
+  assert.deepEqual(api.syncReadPlan(state, [], now + 20), [{ method: 'collaboration.state', params: {} }]);
+  state.snapshots['collaboration.state'].sourceAt = now + 11;
+  assert.deepEqual(api.syncReadPlan(state, [], now + 20), []);
+  assert.equal(api.nextCycleDelay(state), api.SYNC_INTERVAL_MS);
 });
 
 test('saved content and terminal turns survive stale refresh while authenticated late results can recover local uncertainty', () => {
