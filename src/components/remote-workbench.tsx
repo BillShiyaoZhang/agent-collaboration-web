@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react";
 import { Bot, ClipboardList, Inbox, MessageCircle, RefreshCw, Settings2, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { displayTime, RpcMethod } from "@/lib/workbench-client";
+import { cn } from "@/lib/shared/utils";
+import { displayTime, RpcMethod } from "@/lib/control/workbench-client";
 import { ContactsSnapshot, InboxSnapshot, TasksSnapshot } from "@/components/workbench/snapshot-views";
 import { PairingPanel, RequestFeedback } from "@/components/workbench/pairing-panel";
 import { ConversationPanel } from "@/components/workbench/conversation-panel";
 import { Connection, useWorkbench } from "@/components/workbench/use-workbench";
-import type { WorkspaceAgent } from "@/lib/workspace-types";
-import { syncLabel } from "@/lib/workspace-client";
+import type { WorkspaceAgent } from "@/lib/workspace/workspace-types";
+import { syncLabel } from "@/lib/workspace/workspace-client";
 import { useWorkspace } from "@/components/workspace-provider";
 
 type Tab = "conversation" | "contacts" | "tasks" | "inbox";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { prisma } from "@/lib/shared/db";
+import { hashPassword } from "@/lib/auth/auth";
 
 const registerSchema = z.object({
   email: z.string().email("Invalid email address"),

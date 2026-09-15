@@ -5,8 +5,8 @@ import { ArrowUp, Bot, ChevronDown, Clock3, Loader2, Plus, RefreshCw, Settings2 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { displayTime, string } from "@/lib/workbench-client";
+import { cn } from "@/lib/shared/utils";
+import { displayTime, string } from "@/lib/control/workbench-client";
 import { CopyValue, RawSnapshot, StatusBadge } from "./snapshot-views";
 import { RequestFeedback } from "./pairing-panel";
 import type { Workbench } from "./use-workbench";

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { getWorkspaceAgent, selectWorkspaceConversation, dismissWorkspaceSubmission } from "@/lib/workspace-store";
-import { startWorkspaceSync } from "@/lib/workspace-sync";
-import { workspaceBody, workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace-http";
+import { getWorkspaceAgent, selectWorkspaceConversation, dismissWorkspaceSubmission } from "@/lib/workspace/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
+import { workspaceBody, workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace/workspace-http";
 
 export const dynamic = "force-dynamic";
 import { STABLE_ID_PATTERN } from "@agent-comm/client-contract";

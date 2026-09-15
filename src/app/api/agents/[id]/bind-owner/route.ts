@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { prisma } from "@/lib/db";
-import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/shared/db";
+import { authOptions } from "@/lib/auth/auth";
 import crypto from "crypto";
-import { encryptPrivateKey, deriveUrnFromEd25519PubKey } from "@/lib/crypto";
-import { registerConsole, ControlError } from "@/lib/control-transport";
-import { requireSameOrigin } from "@/lib/control-protocol";
-import { scheduleWorkspaceSync } from "@/lib/workspace-store";
-import { startWorkspaceSync } from "@/lib/workspace-sync";
+import { encryptPrivateKey, deriveUrnFromEd25519PubKey } from "@/lib/protocol/crypto";
+import { registerConsole, ControlError } from "@/lib/control/control-transport";
+import { requireSameOrigin } from "@/lib/control/control-protocol";
+import { scheduleWorkspaceSync } from "@/lib/workspace/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
 
 function publicIdentity(user: {virtualUrn:string|null;virtualEd25519PublicKey:string|null;virtualX25519PublicKey:string|null}) {
   return {virtualUrn:user.virtualUrn,virtualEd25519PublicKey:user.virtualEd25519PublicKey,virtualX25519PublicKey:user.virtualX25519PublicKey};

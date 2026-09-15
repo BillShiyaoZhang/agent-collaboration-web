@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
-import { authOptions } from "@/lib/auth";
-import { resolveIdentity, ControlError } from "@/lib/control-transport";
-import { requireSameOrigin } from "@/lib/control-protocol";
-import { scheduleWorkspaceSync } from "@/lib/workspace-store";
-import { startWorkspaceSync } from "@/lib/workspace-sync";
+import { prisma } from "@/lib/shared/db";
+import { authOptions } from "@/lib/auth/auth";
+import { resolveIdentity, ControlError } from "@/lib/control/control-transport";
+import { requireSameOrigin } from "@/lib/control/control-protocol";
+import { scheduleWorkspaceSync } from "@/lib/workspace/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
 
 export async function GET() {
   const session = await getServerSession(authOptions);

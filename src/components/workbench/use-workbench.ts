@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { conversationPending, PendingCall, records, RemoteRecord, RpcMethod, string, WorkbenchClient, WorkbenchError } from "@/lib/workbench-client";
-import { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@/lib/workspace-client";
-import type { WorkspaceAgent, WorkspaceSubmission } from "@/lib/workspace-types";
+import { conversationPending, PendingCall, records, RemoteRecord, RpcMethod, string, WorkbenchClient, WorkbenchError } from "@/lib/control/workbench-client";
+import { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@/lib/workspace/workspace-client";
+import type { WorkspaceAgent, WorkspaceSubmission } from "@/lib/workspace/workspace-types";
 import { useWorkspace, workspaceRequest } from "@/components/workspace-provider";
 
 export type Connection = { id: string; name: string; urn: string };
