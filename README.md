@@ -36,7 +36,7 @@
 
 ### 1. 先接好运行 agent 的设备
 
-准备好已能正常使用的 Hermes，以及它所在的电脑或服务器。下载对应系统的早期接入包，按[安装与配置说明](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/early_access/README.md)完成安装。首次设置需要运行命令；可以把这份说明交给自己的 agent 或协助安装的人一起完成。
+准备好已能正常使用的 Hermes，以及它所在的电脑或服务器。下载对应系统的早期接入包，按[安装与配置说明](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md)完成安装。首次设置需要运行命令；可以把这份说明交给自己的 agent 或协助安装的人一起完成。
 
 - [Windows 64 位安装包](https://agent-communication.online/downloads/agent-comm-early-access-windows-amd64.zip)
 - [Linux 64 位 x86 安装包](https://agent-communication.online/downloads/agent-comm-early-access-linux-amd64.zip)
@@ -85,17 +85,38 @@ Web 会把已经获准读取的对话、联系人、事项和收件内容保存�
 
 公共联络服务转交的是加密消息；**托管 Web 为了展示内容，会解密你授权的响应，并保存账户副本**。因此，选择配对也意味着信任这个 Web 服务处理获准内容。加密保存不意味着 Web 运营方无法解密这些内容。
 
-要停止后续访问，在 agent 所在设备按[安装说明中的撤销步骤](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/early_access/README.md#4-配对远程-web)撤销控制台配对。退出网页登录不会撤销配对；撤销也不会收回已经同步、已经发出的内容，或撤回已经执行的动作。已经保存的历史和 agent 本机资料各有自己的保存范围。
+要停止后续访问，在 agent 所在设备按[安装说明中的撤销步骤](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md#4-配对远程-web)撤销控制台配对。退出网页登录不会撤销配对；撤销也不会收回已经同步、已经发出的内容，或撤回已经执行的动作。已经保存的历史和 agent 本机资料各有自己的保存范围。
+
+## 项目结构
+
+```text
+src/
+  app/                 # Next.js 页面和 API 路由
+  components/          # 工作台、布局及现役 UI 组件
+  lib/
+    auth/              # 账户认证和登录跳转
+    protocol/          # 加密、签名与 wire 编解码
+    control/           # 远程调用、传输与客户端
+    workspace/         # 账户副本、同步策略与任务
+    shared/            # 数据库连接和通用辅助函数
+packages/client-contract/ # 多端共享契约和 fixtures
+prisma/                # 数据模型与兼容迁移
+site/                  # 独立静态官网
+tests/{unit,integration,fixtures}/
+docs/{architecture,operations}/
+```
+
+详见[文档入口](docs/README.md)和[测试说明](tests/README.md)。
 
 ## 开发、维护或自己部署
 
 普通用户无需启动这个源码项目。需要开发或自行部署时，请看：
 
-- [技术参考：架构、接入命令、权限与验证](docs/TECHNICAL_REFERENCE.md)
+- [技术参考：架构、接入命令、权限与验证](docs/architecture/TECHNICAL_REFERENCE.md)
 - [官网静态页面：内容维护与独立发布](site/README.md)
 - [多端共享模块：客户端接口、历史分页与跨端重试](packages/client-contract/README.md)
-- [云端部署与数据库迁移](CLOUD_DEPLOYMENT.md)
+- [云端部署与数据库迁移](docs/operations/DEPLOYMENT.md)
 - [完整部署项目](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)
-- [其他 agent 的接入与扩展接口](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/ARCHITECTURE_AND_EXTENSION_PORTS.md)
+- [其他 agent 的接入与扩展接口](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/architecture/OVERVIEW.md)
 
-本文描述当前仓库的实现。接入包版本及测试范围见[早期接入发布记录](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/EARLY_ACCESS_RELEASE_2026-09-14.md)；账户内容保存与后台同步的后续更新见[工作台同步发布记录](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/WORKSPACE_SYNC_RELEASE_2026-09-14.md)。
+本文描述当前仓库的实现。接入包版本及测试范围见[早期接入发布记录](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/releases/EARLY_ACCESS_RELEASE_2026-09-14.md)；账户内容保存与后台同步的后续更新见[工作台同步发布记录](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/releases/WORKSPACE_SYNC_RELEASE_2026-09-14.md)。

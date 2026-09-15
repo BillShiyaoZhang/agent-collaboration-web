@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 import { useWorkspace } from "@/components/workspace-provider";
-import { syncLabel } from "@/lib/workspace-client";
-import { displayTime } from "@/lib/workbench-client";
+import { syncLabel } from "@/lib/workspace/workspace-client";
+import { displayTime } from "@/lib/control/workbench-client";
 
 function responseError(data: unknown, fallback: string, status: number) {
   if (status === 401) return "登录已过期，请重新登录后再试。";

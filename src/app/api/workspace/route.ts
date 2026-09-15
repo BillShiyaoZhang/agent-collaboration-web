@@ -1,6 +1,6 @@
-import { getWorkspaceOverview } from "@/lib/workspace-store";
-import { startWorkspaceSync } from "@/lib/workspace-sync";
-import { workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace-http";
+import { getWorkspaceOverview } from "@/lib/workspace/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
+import { workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace/workspace-http";
 
 export const dynamic = "force-dynamic";
 

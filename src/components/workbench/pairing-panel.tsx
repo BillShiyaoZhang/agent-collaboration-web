@@ -2,9 +2,9 @@
 
 import { ArrowRight, Check, ChevronDown, KeyRound, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { displayTime, string, WorkbenchError } from "@/lib/workbench-client";
-import { syncLabel } from "@/lib/workspace-client";
+import { cn } from "@/lib/shared/utils";
+import { displayTime, string, WorkbenchError } from "@/lib/control/workbench-client";
+import { syncLabel } from "@/lib/workspace/workspace-client";
 import { CopyValue } from "./snapshot-views";
 import type { Connection, Workbench } from "./use-workbench";
 

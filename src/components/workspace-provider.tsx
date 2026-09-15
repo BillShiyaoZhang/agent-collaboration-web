@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { WorkspaceAgent, WorkspaceConnection, WorkspaceOverview } from "@/lib/workspace-types";
+import type { WorkspaceAgent, WorkspaceConnection, WorkspaceOverview } from "@/lib/workspace/workspace-types";
 
 type Draft = { text: string; tab: string };
 type WorkspaceContextValue = {

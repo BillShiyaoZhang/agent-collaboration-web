@@ -1,10 +1,10 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { authOptions } from "@/lib/auth/auth";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { WorkspaceProvider } from "@/components/workspace-provider";
-import { getWorkspaceOverview } from "@/lib/workspace-store";
+import { getWorkspaceOverview } from "@/lib/workspace/workspace-store";
 
 export default async function DashboardLayout({
   children,

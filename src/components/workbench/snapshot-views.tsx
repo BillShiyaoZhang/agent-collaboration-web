@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowDownLeft, Check, ChevronDown, ClipboardList, Copy, Inbox, Search, ShieldAlert, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { displayTime, record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/workbench-client";
+import { displayTime, record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
 
 export function CopyValue({ value, label = "复制", compact = false }: { value: string; label?: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);

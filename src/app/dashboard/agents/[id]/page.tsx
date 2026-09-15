@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { notFound } from "next/navigation";
-import { authOptions } from "@/lib/auth";
-import { getWorkspaceAgent } from "@/lib/workspace-store";
+import { authOptions } from "@/lib/auth/auth";
+import { getWorkspaceAgent } from "@/lib/workspace/workspace-store";
 import { RemoteWorkbench } from "@/components/remote-workbench";
 
 export default async function AgentPage({ params }: { params: { id: string } }) {

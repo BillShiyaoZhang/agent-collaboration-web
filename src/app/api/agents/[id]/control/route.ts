@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { controlCallSchema, requireSameOrigin } from "@/lib/control-protocol";
-import { ControlError } from "@/lib/control-transport";
-import { createControlCall, pollControlResponses, controlCallResult } from "@/lib/control-service";
-import { recordWorkspaceResponse } from "@/lib/workspace-store";
+import { authOptions } from "@/lib/auth/auth";
+import { prisma } from "@/lib/shared/db";
+import { controlCallSchema, requireSameOrigin } from "@/lib/control/control-protocol";
+import { ControlError } from "@/lib/control/control-transport";
+import { createControlCall, pollControlResponses, controlCallResult } from "@/lib/control/control-service";
+import { recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
 
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });

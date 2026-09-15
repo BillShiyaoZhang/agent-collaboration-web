@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { scheduleWorkspaceSync } from "@/lib/workspace-store";
-import { startWorkspaceSync } from "@/lib/workspace-sync";
-import { workspaceBody, workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace-http";
+import { scheduleWorkspaceSync } from "@/lib/workspace/workspace-store";
+import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
+import { workspaceBody, workspaceUserId, workspaceJson, workspaceFailure } from "@/lib/workspace/workspace-http";
 
 export const dynamic = "force-dynamic";
 

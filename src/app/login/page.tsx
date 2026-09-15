@@ -5,7 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
-import { safeLoginDestination } from "@/lib/login-destination";
+import { safeLoginDestination } from "@/lib/auth/login-destination";
 import { AuthNotice, AuthShell, PasswordInput } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
