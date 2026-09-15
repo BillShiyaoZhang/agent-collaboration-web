@@ -68,3 +68,27 @@ CREATE TABLE IF NOT EXISTS "WorkspaceSubmission" (
  "createdAt" REAL NOT NULL, "phase" TEXT NOT NULL DEFAULT 'sending',
  FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+-- Notification content is encrypted with the same account/connection binding as workspace data.
+CREATE TABLE IF NOT EXISTS "WorkspaceNotificationSequence" ("seq" INTEGER PRIMARY KEY AUTOINCREMENT);
+CREATE TABLE IF NOT EXISTS "WorkspaceNotification" (
+ "seq" INTEGER PRIMARY KEY AUTOINCREMENT, "agentId" TEXT NOT NULL, "id" TEXT NOT NULL,
+ "kind" TEXT NOT NULL, "state" TEXT NOT NULL, "revision" INTEGER NOT NULL,
+ "readRevision" INTEGER NOT NULL DEFAULT 0, "remoteRevision" INTEGER NOT NULL DEFAULT 0,
+ "sourceAt" REAL NOT NULL, "updatedAt" REAL NOT NULL, "expiresAt" REAL,
+ "systemEligible" INTEGER NOT NULL DEFAULT 0, "payload" TEXT NOT NULL,
+ UNIQUE("agentId", "id"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WorkspaceNotification_agent_seq_idx" ON "WorkspaceNotification"("agentId", "seq");
+CREATE TABLE IF NOT EXISTS "WorkspaceNotificationBaseline" (
+ "agentId" TEXT NOT NULL, "kind" TEXT NOT NULL, "complete" INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY("agentId", "kind"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "WorkspaceNotificationDelivery" (
+ "agentId" TEXT NOT NULL, "notificationId" TEXT NOT NULL, "revision" INTEGER NOT NULL,
+ "deviceId" TEXT NOT NULL, "claimedAt" REAL NOT NULL,
+ PRIMARY KEY("agentId", "notificationId", "revision", "deviceId"),
+ FOREIGN KEY("agentId", "notificationId") REFERENCES "WorkspaceNotification"("agentId", "id") ON DELETE CASCADE ON UPDATE CASCADE
+);

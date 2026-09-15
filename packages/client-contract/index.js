@@ -37,7 +37,7 @@ function isPairingError(code) {
 function availableMethods(capabilities) {
     return records(record(capabilities).methods).filter(item => item.available === true && exports.RPC_METHODS.includes(string(item.name))).map(item => item.name);
 }
-exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get"];
+exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list"];
 function record(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -208,7 +208,7 @@ function pairingAllowsSend(capabilities, sync, now = Date.now()) {
 exports.SYNC_INTERVAL_MS = 30_000;
 exports.CAPABILITY_INTERVAL_MS = 120_000;
 exports.SYNC_LEASE_MS = 60_000;
-exports.AUTOMATIC_METHODS = new Set(["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.get"]);
+exports.AUTOMATIC_METHODS = new Set(["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.get", "attention.list"]);
 /** Fixed read-only allowlist: advertised methods can never schedule a write. */
 function syncReadPlan(workspace, conversationIds, now) {
     const capability = workspace.snapshots.capabilities;
@@ -220,6 +220,10 @@ function syncReadPlan(workspace, conversationIds, now) {
     const allowed = new Set(records(capability.data.methods).filter(item => item.available === true).map(item => string(item.name)));
     const plan = [];
     const stale = (method) => now - (workspace.snapshots[method]?.time || 0) >= exports.SYNC_INTERVAL_MS;
+    if (allowed.has("attention.list") && (stale("attention.list") || workspace.snapshots["attention.list"]?.data.has_more === true)) {
+        const cursor = workspace.snapshots["attention.list"]?.data.cursor;
+        plan.push({ method: "attention.list", params: { after: Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0, limit: 100 } });
+    }
     if (allowed.has("collaboration.state")) {
         if (stale("collaboration.state"))
             plan.push({ method: "collaboration.state", params: {} });
@@ -242,7 +246,7 @@ function syncBackoff(failures) {
     return Math.min(300_000, 30_000 * 2 ** Math.min(Math.max(failures - 1, 0), 4));
 }
 function nextCycleDelay(workspace) {
-    return workspace.submission || workspace.conversations.some(item => item.pending) ? 5_000 : exports.SYNC_INTERVAL_MS;
+    return workspace.snapshots["attention.list"]?.data.has_more === true ? 0 : workspace.submission || workspace.conversations.some(item => item.pending) ? 5_000 : exports.SYNC_INTERVAL_MS;
 }
 function validateControlResponse(value, expected) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -276,3 +280,32 @@ function canonicalJSON(value) {
     if (encoded === undefined) throw new TypeError("Value is not JSON serializable");
     return encoded;
 }
+
+/** Validate before advancing the durable cursor. Unknown fields survive decoding. */
+function validateAttentionPage(value) {
+    const page = record(value);
+    const stable = value => typeof value === "string" && value.length > 0 && value.length <= 512;
+    const seconds = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
+    if (page.schema !== "agent-comm-attention/v1" || !Array.isArray(page.items) || page.items.length > 100 ||
+        !Number.isSafeInteger(page.cursor) || page.cursor < 0 || typeof page.has_more !== "boolean") throw new Error("Invalid attention page");
+    const ids = new Set();
+    for (const item of page.items) {
+        if (!item || typeof item !== "object" || !stable(item.attention_id) || ids.has(item.attention_id) || !stable(item.kind) || !stable(item.subject_id) ||
+            !Number.isSafeInteger(item.revision) || item.revision < 1 || item.revision > page.cursor ||
+            !(typeof item.source_revision === "string" || Number.isSafeInteger(item.source_revision)) ||
+            !["open", "resolved", "superseded", "expired"].includes(item.state) || typeof item.title !== "string" || item.title.length > 1000 ||
+            typeof item.safe_summary !== "string" || item.safe_summary.length > 8000 || !["task", "inbox", "approval"].includes(item.target?.kind) || !stable(item.target.id) ||
+            !seconds(item.created_at) || !seconds(item.updated_at) || (item.expires_at != null && !seconds(item.expires_at))) throw new Error("Invalid attention item");
+        ids.add(item.attention_id);
+    }
+    return page;
+}
+function attentionRequiresAction(kind, state) {
+    return state === "open" && ["owner_decision_required", "needs_recovery", "connection_action_required", "needs_response", "new_collaboration_request"].includes(kind);
+}
+function notificationRoute(agentId, target) {
+    return `/dashboard/agents/${encodeURIComponent(agentId)}?tab=${target.kind === "inbox" ? "inbox" : "tasks"}&subject=${encodeURIComponent(target.id)}`;
+}
+exports.validateAttentionPage = validateAttentionPage;
+exports.attentionRequiresAction = attentionRequiresAction;
+exports.notificationRoute = notificationRoute;

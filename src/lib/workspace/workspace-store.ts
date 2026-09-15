@@ -12,7 +12,7 @@ type StateRow = { agentId: string; activeConversationId: string; activeSelectedA
 type SnapshotRow = { method: RpcMethod; recordKey: string; payload: string; sourceAt: number; savedAt: number; requestId: string };
 type ItemRow = { itemId: string; payload: string; sourceAt: number; sortTime: number; status: string };
 type SubmissionRow = { requestId: string; payload: string; phase: "sending" | "uncertain"; createdAt: number };
-import { canonicalJSON, type SyncPlanItem } from "@agent-comm/client-contract";
+import { canonicalJSON, validateAttentionPage, attentionRequiresAction, notificationRoute, type AttentionItem, type NotificationPage, type WorkspaceNotification, type SyncPlanItem } from "@agent-comm/client-contract";
 export type { SyncPlanItem } from "@agent-comm/client-contract";
 export type SyncJob = Omit<StateRow, "activeConversationId" | "activeSelectedAt" | "plan"> & { plan: SyncPlanItem[] };
 
@@ -70,7 +70,7 @@ function decodeSubmission(userId: string, agentId: string, row?: SubmissionRow):
 export async function getWorkspaceOverview(userId: string): Promise<WorkspaceOverview> {
   const agents = await prisma.agent.findMany({ where: { userId }, orderBy: { createdAt: "desc" } });
   const states = await prisma.$queryRaw<StateRow[]>`SELECT s.* FROM "WorkspaceState" s JOIN "Agent" a ON a."id" = s."agentId" WHERE a."userId" = ${userId}`;
-  return { connections: agents.map(agent => connection(agent, states.find(row => row.agentId === agent.id))) };
+  return { connections: agents.map(agent => connection(agent, states.find(row => row.agentId === agent.id))), notifications: await notificationCounts(prisma, userId) };
 }
 
 export async function getWorkspaceAgent(userId: string, agentId: string, conversationId?: string, before?: string): Promise<WorkspaceAgent | null> {
@@ -228,7 +228,27 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
         return;
       }
     }
-    await saveSnapshot(tx, user.id, agent.id, row, row.method, row.method === "conversation.get" ? convId : "", data);
+    if (row.method === "attention.list") {
+      const page = validateAttentionPage(data);
+      const prior = (await tx.$queryRaw<SnapshotRow[]>`SELECT * FROM "WorkspaceSnapshot" WHERE "agentId" = ${agent.id} AND "method" = 'attention.list' AND "recordKey" = ''`)[0];
+      const cursor = prior ? record(unseal(user.id, agent.id, "snapshot:attention.list", "", prior.payload)).cursor : 0;
+      if (typeof cursor === "number" && page.cursor < cursor) return;
+      const currentJob = (await tx.$queryRaw<StateRow[]>`SELECT * FROM "WorkspaceState" WHERE "agentId" = ${agent.id}`)[0];
+      const currentPlan = currentJob?.plan ? unseal<SyncPlanItem[]>(user.id, agent.id, "sync", "plan", currentJob.plan) : [];
+      const automaticPage = currentJob?.requestId === row.id && currentPlan[0]?.method === "attention.list" && Number(currentPlan[0].params.after || 0) <= Number(cursor);
+      if (automaticPage && page.has_more && (!page.items.length || page.cursor <= Number(cursor))) throw new Error("Attention page does not advance");
+      const initialized = await notificationBaseline(tx, agent.id, "attention");
+      for (const item of page.items) await saveNotification(tx, user.id, agent.id, item, sourceAt, "attention", initialized);
+      if (automaticPage && !page.has_more) {
+        await finishNotificationBaseline(tx, agent.id, "attention");
+        await tx.$executeRaw`UPDATE "WorkspaceNotification" SET "sourceAt" = MAX("sourceAt",${sourceAt}) WHERE "agentId" = ${agent.id} AND "remoteRevision" > 0`;
+      }
+      // Page facts and continuation are committed together. Replaying an older page cannot move the cursor backwards.
+      // An explicit read with an arbitrary `after` must not skip the background worker's unseen history.
+      if (automaticPage) await saveSnapshot(tx, user.id, agent.id, row, row.method, "", { schema: page.schema, cursor: page.cursor, has_more: page.has_more });
+    } else {
+      await saveSnapshot(tx, user.id, agent.id, row, row.method, row.method === "conversation.get" ? convId : "", data);
+    }
     if (row.method === "contacts.list" || row.method === "collaboration.state") {
       if (Array.isArray(data.contacts)) await saveSnapshot(tx, user.id, agent.id, row, "contacts.list", "", { contacts: data.contacts });
     }
@@ -243,6 +263,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
         }
       }
     }
+    if (row.method === "inbox.list" || row.method === "collaboration.state") await deriveNotificationSnapshot(tx, user.id, agent.id, row.method, data, sourceAt);
     if (row.method === "conversation.get" && convId) {
       const turns = records(data.turns);
       await saveConversation(tx, user.id, agent.id, convId, data, sourceAt,
@@ -356,4 +377,116 @@ export async function getTrackedConversationIds(userId: string, agentId: string)
   const rows = await prisma.$queryRaw<{ conversationId: string }[]>`SELECT "conversationId", MAX("sortTime") AS "updatedAt" FROM "WorkspaceItem"
     WHERE "agentId" = ${agentId} AND "kind" = 'turn' AND "status" IN ('submitted','running') GROUP BY "conversationId" ORDER BY "updatedAt" DESC LIMIT 5`;
   return Array.from(new Set([states[0]?.activeConversationId, pending?.conversationId, ...rows.map(row => row.conversationId)].filter((id): id is string => !!id))).slice(0, 5);
+}
+
+type NotificationRow = { seq: number | bigint; agentId: string; id: string; kind: string; state: AttentionItem["state"];
+  revision: number; readRevision: number; remoteRevision: number; sourceAt: number; updatedAt: number; expiresAt: number | null; systemEligible: number; payload: string };
+type NotificationPayload = { item: AttentionItem; source: "attention" | "snapshot" };
+const notificationDigest = (value: unknown) => crypto.createHash("sha256").update(canonicalJSON(value)).digest("hex");
+async function notificationBaseline(db: DB, agentId: string, kind: string): Promise<boolean> {
+  return !!(await db.$queryRaw<{ complete: number }[]>`SELECT "complete" FROM "WorkspaceNotificationBaseline" WHERE "agentId" = ${agentId} AND "kind" = ${kind}`)[0]?.complete;
+}
+async function finishNotificationBaseline(db: DB, agentId: string, kind: string) {
+  await db.$executeRaw`INSERT INTO "WorkspaceNotificationBaseline" ("agentId","kind","complete") VALUES (${agentId},${kind},1)
+    ON CONFLICT("agentId","kind") DO UPDATE SET "complete" = 1`;
+}
+async function saveNotification(db: DB, userId: string, agentId: string, item: AttentionItem, sourceAt: number, source: NotificationPayload["source"], baselineComplete: boolean) {
+  // Match a legacy projection to the feed's authoritative target without revealing IDs in storage keys.
+  const id = notificationDigest(item.target.kind === "task" ? ["attention", item.attention_id] : [item.target.kind, item.target.id]);
+  const previous = (await db.$queryRaw<NotificationRow[]>`SELECT * FROM "WorkspaceNotification" WHERE "agentId" = ${agentId} AND "id" = ${id}`)[0];
+  if (previous && (source === "snapshot" && (previous.remoteRevision > 0 || previous.sourceAt > sourceAt) || source === "attention" && previous.remoteRevision >= item.revision)) return;
+  const prior = previous ? unseal<NotificationPayload>(userId, agentId, "notification", id, previous.payload) : null;
+  const meaningful = (value: AttentionItem) => ({ kind: value.kind, state: value.state, source_revision: value.source_revision, title: value.title, safe_summary: value.safe_summary, target: value.target, expires_at: value.expires_at ?? null });
+  // Changing from fallback to feed does not itself create another unread item.
+  const comparablePrior = prior && source === "attention" && prior.source === "snapshot" ? { ...prior.item, source_revision: item.source_revision } : prior?.item;
+  const changed = !comparablePrior || canonicalJSON(meaningful(comparablePrior)) !== canonicalJSON(meaningful(item));
+  const revision = previous ? previous.revision + Number(changed) : 1;
+  let seq = previous ? Number(previous.seq) : 0;
+  if (changed) {
+    await db.$executeRaw`INSERT INTO "WorkspaceNotificationSequence" DEFAULT VALUES`;
+    seq = Number((await db.$queryRaw<{ seq: bigint }[]>`SELECT MAX("seq") AS "seq" FROM "WorkspaceNotificationSequence"`)[0].seq);
+    await db.$executeRaw`DELETE FROM "WorkspaceNotificationSequence" WHERE "seq" < ${seq}`;
+  }
+  const expiry = item.expires_at == null ? null : item.expires_at * 1000;
+  const eligible = (baselineComplete || attentionRequiresAction(item.kind, item.state)) && (expiry === null || expiry > Date.now());
+  const payload = seal(userId, agentId, "notification", id, { item, source });
+  await db.$executeRaw`INSERT INTO "WorkspaceNotification" ("seq","agentId","id","kind","state","revision","remoteRevision","sourceAt","updatedAt","expiresAt","systemEligible","payload")
+    VALUES (${seq},${agentId},${id},${item.kind},${item.state},${revision},${source === "attention" ? item.revision : 0},${sourceAt},${Date.now()},${expiry},${Number(eligible)},${payload})
+    ON CONFLICT("agentId","id") DO UPDATE SET "seq" = excluded."seq", "kind" = excluded."kind", "state" = excluded."state", "revision" = excluded."revision",
+    "remoteRevision" = excluded."remoteRevision", "sourceAt" = MAX("WorkspaceNotification"."sourceAt",excluded."sourceAt"),
+    "updatedAt" = CASE WHEN excluded."revision" > "WorkspaceNotification"."revision" THEN excluded."updatedAt" ELSE "WorkspaceNotification"."updatedAt" END,
+    "expiresAt" = excluded."expiresAt", "systemEligible" = CASE WHEN excluded."revision" > "WorkspaceNotification"."revision" THEN excluded."systemEligible" ELSE "WorkspaceNotification"."systemEligible" END, "payload" = excluded."payload"`;
+}
+async function deriveNotificationSnapshot(db: DB, userId: string, agentId: string, method: string, data: RemoteRecord, sourceAt: number) {
+  const latest = (await db.$queryRaw<SnapshotRow[]>`SELECT * FROM "WorkspaceSnapshot" WHERE "agentId" = ${agentId} AND "method" = ${method} AND "recordKey" = ''`)[0];
+  if (latest && latest.sourceAt > sourceAt) return;
+  const capability = (await db.$queryRaw<SnapshotRow[]>`SELECT * FROM "WorkspaceSnapshot" WHERE "agentId" = ${agentId} AND "method" = 'capabilities' AND "recordKey" = ''`)[0];
+  if (capability && records(record(unseal(userId, agentId, "snapshot:capabilities", "", capability.payload)).methods).some(item => item.name === "attention.list" && item.available === true)) return;
+  const at = sourceAt / 1000;
+  const inbox = record(data.inbox), messages = Array.isArray(data.messages) ? records(data.messages) : Array.isArray(data.inbox) ? records(data.inbox) : records(inbox.messages);
+  const initialized = await notificationBaseline(db, agentId, "inbox");
+  for (const message of messages) {
+    const id = string(message.message_id); if (!id) continue;
+    await saveNotification(db, userId, agentId, { attention_id: `inbox:${id}`, kind: "peer_message_received", subject_id: id, source_revision: 1, revision: 1,
+      state: "open", title: "收到协作消息", safe_summary: "对端发来一条消息。请在收件箱查看并核实内容。", target: { kind: "inbox", id },
+      created_at: timestamp(message.received_at, sourceAt) / 1000, updated_at: at }, sourceAt, "snapshot", initialized);
+  }
+  if (Array.isArray(data.messages) || Array.isArray(data.inbox) || Array.isArray(inbox.messages)) await finishNotificationBaseline(db, agentId, "inbox");
+  if (method !== "collaboration.state") return;
+  for (const approval of records(data.pending_confirmations)) {
+    const id = string(approval.approval_id), status = string(approval.status);
+    if (!id || !["pending", "presenting", "awaiting_approval", "approved", "denied", "expired", "superseded"].includes(status)) continue;
+    const state: AttentionItem["state"] = ["approved", "denied"].includes(status) ? "resolved" : status === "superseded" ? "superseded" : "open";
+    const operation = records(data.operations).concat(records(record(data.collaboration).operations)).find(item => item.operation_id === approval.subject_id);
+    const taskId = approval.kind === "task" ? approval.subject_id : operation?.task_id;
+    const task = records(data.tasks).find(item => item.task_id === taskId);
+    // The approval's own expiry is a presentation lease: an expired card may be reopened.
+    // Only a known underlying task deadline can expire the durable fallback reminder.
+    const expiresAt = timestamp(record(task?.scope).expires_at, NaN);
+    await saveNotification(db, userId, agentId, { attention_id: `approval:${id}`, kind: "owner_decision_required", subject_id: string(approval.subject_id, id),
+      source_revision: notificationDigest([approval.question_version ?? approval.question_hash ?? approval.question ?? id]), revision: 1,
+      state, title: "一项协作需要你确认", safe_summary: "请回到 agent 原生渠道，核对当前问题和授权范围后作决定。", target: { kind: "approval", id },
+      created_at: timestamp(approval.created_at, sourceAt) / 1000, updated_at: at, ...(Number.isFinite(expiresAt) ? { expires_at: expiresAt / 1000 } : {}) }, sourceAt, "snapshot", true);
+  }
+  // Absence from a bounded snapshot never resolves an earlier approval.
+}
+async function notificationCounts(db: DB, userId: string) {
+  const rows = await db.$queryRaw<{ unread: bigint | null; pending: bigint | null }[]>`SELECT
+    SUM(CASE WHEN n."readRevision" < n."revision" THEN 1 ELSE 0 END) AS "unread",
+    SUM(CASE WHEN n."state" = 'open' AND n."kind" IN ('owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request') AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()}) THEN 1 ELSE 0 END) AS "pending"
+    FROM "WorkspaceNotification" n JOIN "Agent" a ON a."id" = n."agentId" WHERE a."userId" = ${userId}`;
+  return { unread: Number(rows[0]?.unread || 0), pending: Number(rows[0]?.pending || 0) };
+}
+export async function getWorkspaceNotifications(userId: string, before?: number, filter: "all" | "unread" | "pending" = "all"): Promise<NotificationPage> {
+  const rows = await prisma.$queryRaw<(NotificationRow & { agentName: string })[]>(Prisma.sql`SELECT n.*, a."name" AS "agentName" FROM "WorkspaceNotification" n JOIN "Agent" a ON a."id" = n."agentId"
+    WHERE a."userId" = ${userId} ${before === undefined ? Prisma.empty : Prisma.sql`AND n."seq" < ${before}`}
+    ${filter === "unread" ? Prisma.sql`AND n."readRevision" < n."revision"` : filter === "pending" ? Prisma.sql`AND n."state" = 'open' AND n."kind" IN ('owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request') AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()})` : Prisma.empty}
+    ORDER BY n."seq" DESC LIMIT 51`);
+  const stateRows = await prisma.$queryRaw<(StateRow & { agentId: string })[]>`SELECT s.* FROM "WorkspaceState" s JOIN "Agent" a ON a."id" = s."agentId" WHERE a."userId" = ${userId}`;
+  const items: WorkspaceNotification[] = rows.slice(0, 50).map(row => {
+    const { item, source } = unseal<NotificationPayload>(userId, row.agentId, "notification", row.id, row.payload);
+    const state = row.state === "open" && row.expiresAt !== null && row.expiresAt <= Date.now() ? "expired" : row.state;
+    return { id: row.id, agentId: row.agentId, agentName: row.agentName, revision: row.revision, unread: row.readRevision < row.revision,
+      requiresAction: attentionRequiresAction(row.kind, state), kind: row.kind, state, title: item.title, summary: item.safe_summary,
+      target: item.target, href: notificationRoute(row.agentId, item.target), updatedAt: row.updatedAt, observedAt: row.sourceAt, expiresAt: row.expiresAt,
+      systemEligible: !!row.systemEligible, source, sync: sync(stateRows.find(state => state.agentId === row.agentId)) };
+  });
+  return { items, ...await notificationCounts(prisma, userId), before: rows.length > 50 ? Number(rows[49].seq) : null, hasMore: rows.length > 50 };
+}
+export async function readWorkspaceNotification(userId: string, agentId: string, id: string, revision: number) {
+  if (!await owned(userId, agentId)) throw new ControlError("提醒不存在。", 404);
+  const row = (await prisma.$queryRaw<NotificationRow[]>`SELECT * FROM "WorkspaceNotification" WHERE "agentId" = ${agentId} AND "id" = ${id}`)[0];
+  if (!row) throw new ControlError("提醒不存在。", 404);
+  if (row.revision !== revision) throw new ControlError("提醒已经更新，请先查看新内容。", 409);
+  const changed = await prisma.$executeRaw`UPDATE "WorkspaceNotification" SET "readRevision" = MAX("readRevision",${revision}) WHERE "agentId" = ${agentId} AND "id" = ${id} AND "revision" = ${revision}`;
+  if (!changed) throw new ControlError("提醒已经更新，请先查看新内容。", 409);
+}
+export async function claimWorkspaceNotification(userId: string, agentId: string, id: string, revision: number, deviceId: string): Promise<boolean> {
+  if (!await owned(userId, agentId)) throw new ControlError("提醒不存在。", 404);
+  // A durable one-attempt claim prevents concurrent tabs and refreshes from displaying the same device notification.
+  // A crashed claimant may lose a popup; the durable in-app item remains unread and is the recovery path.
+  return (await prisma.$executeRaw`INSERT OR IGNORE INTO "WorkspaceNotificationDelivery" ("agentId","notificationId","revision","deviceId","claimedAt")
+    SELECT n."agentId",n."id",n."revision",${deviceId},${Date.now()} FROM "WorkspaceNotification" n
+    WHERE n."agentId" = ${agentId} AND n."id" = ${id} AND n."revision" = ${revision} AND n."readRevision" < n."revision" AND n."systemEligible" = 1
+      AND n."state" = 'open' AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()})`) > 0;
 }

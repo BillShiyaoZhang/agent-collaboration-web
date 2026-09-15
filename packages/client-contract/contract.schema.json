@@ -21,6 +21,12 @@
     },
     {
       "$ref": "#/$defs/workspaceAction"
+    },
+    {
+      "$ref": "#/$defs/attentionPage"
+    },
+    {
+      "$ref": "#/$defs/notificationPage"
     }
   ],
   "$defs": {
@@ -31,7 +37,8 @@
         "collaboration.state",
         "inbox.list",
         "conversation.send",
-        "conversation.get"
+        "conversation.get",
+        "attention.list"
       ]
     },
     "stableId": {
@@ -236,6 +243,25 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/connection"
+          }
+        },
+        "notifications": {
+          "type": "object",
+          "required": [
+            "unread",
+            "pending"
+          ],
+          "properties": {
+            "unread": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "pending": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
           }
         }
       },
@@ -506,6 +532,262 @@
       },
       "required": [],
       "additionalProperties": false
+    },
+    "attentionItem": {
+      "type": "object",
+      "required": [
+        "attention_id",
+        "kind",
+        "subject_id",
+        "source_revision",
+        "revision",
+        "state",
+        "title",
+        "safe_summary",
+        "target",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "attention_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "kind": {
+          "type": "string"
+        },
+        "subject_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "enum": [
+            "open",
+            "resolved",
+            "superseded",
+            "expired"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "safe_summary": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "target": {
+          "type": "object",
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "task",
+                "inbox",
+                "approval"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        },
+        "created_at": {
+          "type": "number",
+          "minimum": 0
+        },
+        "updated_at": {
+          "type": "number",
+          "minimum": 0
+        },
+        "expires_at": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "attentionPage": {
+      "type": "object",
+      "required": [
+        "schema",
+        "items",
+        "cursor",
+        "has_more"
+      ],
+      "properties": {
+        "schema": {
+          "const": "agent-comm-attention/v1"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/attentionItem"
+          }
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "has_more": {
+          "type": "boolean"
+        }
+      }
+    },
+    "workspaceNotification": {
+      "type": "object",
+      "required": [
+        "id",
+        "agentId",
+        "agentName",
+        "revision",
+        "unread",
+        "requiresAction",
+        "kind",
+        "state",
+        "title",
+        "summary",
+        "target",
+        "href",
+        "updatedAt",
+        "observedAt",
+        "expiresAt",
+        "systemEligible",
+        "source",
+        "sync"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "unread": {
+          "type": "boolean"
+        },
+        "requiresAction": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "resolved",
+            "superseded",
+            "expired"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/attentionItem/properties/target"
+        },
+        "href": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number"
+        },
+        "observedAt": {
+          "type": "number"
+        },
+        "expiresAt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "systemEligible": {
+          "type": "boolean"
+        },
+        "source": {
+          "enum": [
+            "attention",
+            "snapshot"
+          ]
+        },
+        "sync": {
+          "$ref": "#/$defs/sync"
+        }
+      }
+    },
+    "notificationPage": {
+      "type": "object",
+      "required": [
+        "items",
+        "unread",
+        "pending",
+        "before",
+        "hasMore"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/workspaceNotification"
+          }
+        },
+        "unread": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pending": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "before": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, Cable, CircleHelp, Layers3, LockKeyhole, Terminal } from "lucide-react";
+import { ArrowUpRight, Bell, Cable, CircleHelp, Layers3, LockKeyhole, Terminal } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -30,7 +30,8 @@ export function DashboardNavigation({ onNavigate }: { onNavigate?: () => void })
     <Link href="/dashboard/agents" onClick={onNavigate} aria-label="Agent Comm 我的连接" className="self-start rounded-lg"><Brand /></Link>
     <div className="mt-10 px-3 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">个人工作空间</div>
     <nav aria-label="主导航" className="mt-3">
-      <Link href="/dashboard/agents" onClick={onNavigate} aria-current={pathname === "/dashboard/agents" ? "page" : undefined} className="flex items-center gap-3 rounded-xl bg-primary/10 px-3 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"><Layers3 className="h-[18px] w-[18px]" />我的连接<span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" /></Link>
+      <Link href="/dashboard/agents" onClick={onNavigate} aria-current={pathname === "/dashboard/agents" ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${pathname !== "/dashboard/notifications" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><Layers3 className="h-[18px] w-[18px]" />我的连接</Link>
+      <Link href="/dashboard/notifications" onClick={onNavigate} aria-current={pathname === "/dashboard/notifications" ? "page" : undefined} className={`mt-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${pathname === "/dashboard/notifications" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><Bell className="h-[18px] w-[18px]" />提醒中心</Link>
     </nav>
     <div className="mt-auto pt-10">
       <div className="mb-5 rounded-2xl border border-primary/10 bg-gradient-to-br from-secondary to-transparent p-4"><span className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-card text-primary"><Cable className="h-4 w-4" /></span><p className="text-sm font-medium">协作，从连接开始</p><p className="mt-2 text-xs leading-5 text-muted-foreground">让熟悉的 agent，成为随手可及的工作伙伴。</p></div>

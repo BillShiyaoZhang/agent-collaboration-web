@@ -14,7 +14,7 @@ export type SyncPlanItem = {
 export declare function remoteTimestamp(value: unknown): number;
 export declare function isPairingError(code: unknown): boolean;
 export declare function availableMethods(capabilities: unknown): RpcMethod[];
-export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get"];
+export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list"];
 export type RpcMethod = typeof RPC_METHODS[number];
 export type RemoteRecord = Record<string, unknown>;
 export type PendingCall = {
@@ -98,6 +98,7 @@ export type WorkspaceAgent = {
 };
 export type WorkspaceOverview = {
     connections: WorkspaceConnection[];
+    notifications?: { unread: number; pending: number };
 };
 export declare function mergeSnapshots<T extends Partial<Record<string, WorkspaceSnapshot>>>(previous: T, incoming: T): T;
 export declare function mergeTurns(earlier: RemoteRecord[], latest: RemoteRecord[]): RemoteRecord[];
@@ -124,3 +125,22 @@ export declare function validateControlResponse(value: unknown, expected: Omit<C
 
 /** Stable JSON equality for parsed wire values; property order does not identify an action. */
 export declare function canonicalJSON(value: unknown): string;
+
+export type AttentionItem = {
+    attention_id: string; kind: string; subject_id: string; task_id?: string;
+    source_revision: string | number; revision: number;
+    state: "open" | "resolved" | "superseded" | "expired";
+    title: string; safe_summary: string; target: { kind: "task" | "inbox" | "approval"; id: string };
+    created_at: number; updated_at: number; expires_at?: number | null;
+};
+export type AttentionPage = { schema: "agent-comm-attention/v1"; items: AttentionItem[]; cursor: number; has_more: boolean };
+export declare function validateAttentionPage(value: unknown): AttentionPage;
+export declare function attentionRequiresAction(kind: string, state: string): boolean;
+export declare function notificationRoute(agentId: string, target: AttentionItem["target"]): string;
+export type WorkspaceNotification = {
+    id: string; agentId: string; agentName: string; revision: number; unread: boolean; requiresAction: boolean;
+    kind: string; state: AttentionItem["state"]; title: string; summary: string;
+    target: AttentionItem["target"]; href: string; updatedAt: number; observedAt: number; expiresAt: number | null;
+    systemEligible: boolean; source: "attention" | "snapshot"; sync: WorkspaceSync;
+};
+export type NotificationPage = { items: WorkspaceNotification[]; unread: number; pending: number; before: number | null; hasMore: boolean };

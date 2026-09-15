@@ -4,7 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { ChevronDown, ChevronRight, LogOut, Menu, PanelLeft } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, LogOut, Menu, PanelLeft } from "lucide-react";
+import { useNotifications } from "@/components/notification-provider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -12,6 +13,7 @@ import { DashboardNavigation } from "./dashboard-sidebar";
 
 export function DashboardHeader({ user }: { user: { name?: string | null; email?: string | null } }) {
   const pathname = usePathname();
+  const { page: notifications } = useNotifications();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
@@ -28,8 +30,9 @@ export function DashboardHeader({ user }: { user: { name?: string | null; email?
       </DialogContent>
     </Dialog>
     <PanelLeft className="mr-2 hidden h-4 w-4 text-muted-foreground lg:block" aria-hidden="true" />
-    <nav aria-label="面包屑" className="flex min-w-0 items-center gap-2 text-sm"><Link href="/dashboard/agents" className="whitespace-nowrap rounded-sm text-muted-foreground transition-colors hover:text-foreground" aria-current={pathname === "/dashboard/agents" ? "page" : undefined}>我的连接</Link>{pathname !== "/dashboard/agents" && <><ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="truncate font-medium" aria-current="page">工作台</span></>}</nav>
+    <nav aria-label="面包屑" className="flex min-w-0 items-center gap-2 text-sm"><Link href="/dashboard/agents" className="whitespace-nowrap rounded-sm text-muted-foreground transition-colors hover:text-foreground" aria-current={pathname === "/dashboard/agents" ? "page" : undefined}>我的连接</Link>{pathname !== "/dashboard/agents" && <><ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="truncate font-medium" aria-current="page">{pathname === "/dashboard/notifications" ? "提醒中心" : "工作台"}</span></>}</nav>
     <span className="flex-1" />
+    <Link href="/dashboard/notifications" aria-label={`提醒中心，${notifications.unread} 条未读，${notifications.pending} 项待处理`} className="relative flex h-10 items-center gap-2 rounded-xl px-3 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Bell className="h-4 w-4" /><span className="hidden sm:inline">提醒</span>{notifications.unread > 0 && <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">{notifications.unread > 99 ? "99+" : notifications.unread}</span>}{notifications.pending > 0 && <span className="hidden text-xs text-amber-800 md:inline">{notifications.pending} 待处理</span>}</Link>
     {error && <span role="alert" className="text-xs text-destructive">{error}</span>}
     <DropdownMenu>
       <DropdownMenuTrigger asChild><Button variant="ghost" className="h-10 gap-2 rounded-full pl-1 pr-2" aria-label="账户菜单" disabled={signingOut}><span className="flex h-8 w-8 items-center justify-center rounded-full border bg-secondary text-xs font-semibold text-primary">{(user.name || user.email || "A").slice(0, 1).toUpperCase()}</span><span className="hidden max-w-32 truncate text-xs sm:block">{signingOut ? "正在退出…" : user.name || "我的账户"}</span><ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /></Button></DropdownMenuTrigger>

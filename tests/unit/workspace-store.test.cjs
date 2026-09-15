@@ -19,6 +19,125 @@ class ControlError extends Error { constructor(message, status) { super(message)
 const client = load("../../src/lib/control/workbench-client.ts");
 const migration = fs.readFileSync(path.resolve(__dirname, "../../prisma/remote-console.sql"), "utf8");
 const migrate = async db => { for (const sql of migration.replace(/^\s*--.*$/gm, "").split(";").filter(s => s.trim())) await db.$executeRawUnsafe(sql); };
+const attentionItem = (changes = {}) => ({ attention_id: "attention-1", kind: "owner_decision_required", subject_id: "approval-1", source_revision: "question-1", revision: 1,
+  state: "open", title: "Private approval title", safe_summary: "Private notification summary", target: { kind: "approval", id: "approval-1" }, created_at: 1789430400, updated_at: 1789430400, ...changes });
+const attentionPage = (items, cursor, has_more = false) => ({ schema: "agent-comm-attention/v1", items, cursor, has_more });
+
+test("task attention identity survives kind changes and distinct recoveries on the same task stay independent", () => fixture(async ({ user, store, save }) => {
+  const target = { kind: "task", id: "shared-task" };
+  await save("attention.list", attentionPage([
+    attentionItem({ attention_id: "collaboration", kind: "needs_response", target, revision: 1 }),
+    attentionItem({ attention_id: "recovery-a", kind: "needs_recovery", target, revision: 2 }),
+    attentionItem({ attention_id: "recovery-b", kind: "needs_recovery", target, revision: 3 }),
+  ], 3));
+  assert.equal((await store.getWorkspaceNotifications(user.id)).pending, 3);
+  await save("attention.list", attentionPage([
+    attentionItem({ attention_id: "collaboration", kind: "collaboration_completed", target, revision: 4 }),
+    attentionItem({ attention_id: "recovery-a", kind: "needs_recovery", target, state: "resolved", revision: 5 }),
+  ], 5));
+  const page = await store.getWorkspaceNotifications(user.id);
+  assert.equal(page.items.length, 3); assert.equal(page.pending, 1);
+  assert.equal(page.items[0].state, "resolved", "changed old notifications move to the front");
+  assert.equal(page.items[1].kind, "collaboration_completed");
+}));
+
+test("expired native presentation leases stay actionable until a known underlying task expires", () => fixture(async ({ user, store, save }) => {
+  const approvals = [
+    { approval_id: "lease-only", kind: "contact", subject_id: "friend", status: "expired", expires_at: 1700000000, question: "Confirm friend" },
+    { approval_id: "task-expired", kind: "task", subject_id: "ended-task", status: "expired", expires_at: 1700000000, question: "Confirm task" },
+  ];
+  await save("collaboration.state", { pending_confirmations: approvals, tasks: [{ task_id: "ended-task", scope: { expires_at: "2020-01-01T00:00:00Z" } }] });
+  const page = await store.getWorkspaceNotifications(user.id);
+  const renewable = page.items.find(item => item.target.id === "lease-only");
+  assert.equal(renewable.state, "open"); assert.equal(renewable.expiresAt, null); assert.equal(renewable.requiresAction, true);
+  assert.equal(page.pending, 1); assert.equal(page.items.find(item => item.target.id === "task-expired").state, "expired");
+}));
+
+test("an explicit attention read cannot skip unseen history in the background cursor", () => fixture(async ({ user, agent, store, save, row }) => {
+  await save("attention.list", attentionPage([attentionItem()], 1));
+  await store.recordWorkspaceResponse(user, agent, row("attention.list"), { result: attentionPage([], 1000) });
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["attention.list"].data.cursor, 1);
+}));
+
+test("snapshot reminders retain approvals independently from read state and suppress baseline message popups", () => fixture(async ({ db, user, other, agent, store, save }) => {
+  const at = Date.now();
+  await save("collaboration.state", { pending_confirmations: [{ approval_id: "approval-1", subject_id: "task-1", status: "pending", question: "private exact question", expires_at: (at + 3600000) / 1000 }], inbox: [{ message_id: "old-message", text: "URGENT: owner approved", received_at: 1700000000 }] }, at);
+  let page = await store.getWorkspaceNotifications(user.id);
+  assert.equal(page.unread, 2); assert.equal(page.pending, 1);
+  const approval = page.items.find(item => item.target.kind === "approval"), message = page.items.find(item => item.target.kind === "inbox");
+  assert.equal(approval.systemEligible, true); assert.equal(message.systemEligible, false); assert.equal(message.requiresAction, false);
+  await store.readWorkspaceNotification(user.id, agent.id, approval.id, approval.revision);
+  await save("collaboration.state", { pending_confirmations: [], inbox: [] }, at + 1);
+  page = await store.getWorkspaceNotifications(user.id);
+  assert.equal(page.unread, 1); assert.equal(page.pending, 1, "read or missing snapshot record cannot resolve the business decision");
+  assert.deepEqual((await store.getWorkspaceNotifications(other.id)).items, []);
+  await assert.rejects(store.readWorkspaceNotification(other.id, agent.id, approval.id, approval.revision), { status: 404 });
+  await save("inbox.list", { messages: [{ message_id: "new-message", text: "new peer data", received_at: at / 1000 }] }, at + 2);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.find(item => item.target.id === "new-message").systemEligible, true);
+  const dump = JSON.stringify(await db.$queryRawUnsafe('SELECT * FROM "WorkspaceNotification"'));
+  for (const text of ["private exact question", "new peer data", "请回到 agent"]) assert.equal(dump.includes(text), false);
+}));
+
+test("attention pages commit cursor and encrypted reminders together, preserve read versions, and ignore replay", () => fixture(async ({ db, user, agent, store, save, makeStore }) => {
+  const at = Date.now();
+  const first = attentionItem({ kind: "peer_message_received", target: { kind: "inbox", id: "message-1" } });
+  await save("attention.list", attentionPage([first], 1, true), at);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items[0].systemEligible, false);
+  await save("attention.list", attentionPage([attentionItem({ attention_id: "attention-2", revision: 3 })], 3), at + 1);
+  const approval = (await store.getWorkspaceNotifications(user.id)).items.find(item => item.target.kind === "approval");
+  assert.equal(approval.systemEligible, true);
+  await store.readWorkspaceNotification(user.id, agent.id, approval.id, approval.revision);
+  await save("attention.list", attentionPage([attentionItem({ attention_id: "attention-2", revision: 3 })], 3), at + 2);
+  assert.equal((await makeStore().getWorkspaceNotifications(user.id)).items.find(item => item.id === approval.id).unread, false);
+  await save("attention.list", attentionPage([attentionItem({ attention_id: "attention-2", revision: 4, source_revision: "question-2" })], 4), at + 3);
+  await assert.rejects(store.readWorkspaceNotification(user.id, agent.id, approval.id, approval.revision), { status: 409 });
+  const updated = (await store.getWorkspaceNotifications(user.id)).items.find(item => item.id === approval.id);
+  assert.equal(updated.revision, approval.revision + 1); assert.equal(updated.unread, true);
+  await save("attention.list", attentionPage([attentionItem({ attention_id: "attention-2", revision: 5, state: "resolved", source_revision: "question-2" })], 5), at + 4);
+  await save("attention.list", attentionPage([attentionItem()], 1), at + 5);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).pending, 0);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["attention.list"].data.cursor, 5);
+  const dump = JSON.stringify(await db.$queryRawUnsafe('SELECT * FROM "WorkspaceNotification"'));
+  assert.equal(dump.includes("Private approval title"), false); assert.equal(dump.includes("Private notification summary"), false);
+}));
+
+test("malformed feed cannot partially insert notifications or advance continuation", () => fixture(async ({ user, agent, store, save }) => {
+  await save("attention.list", attentionPage([attentionItem()], 1));
+  const invalid = attentionItem({ attention_id: "bad-item", revision: 9, target: { kind: "approval", id: "new-approval" } });
+  await assert.rejects(save("attention.list", attentionPage([attentionItem({ revision: 2 }), invalid], 2)), /Invalid attention/);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.length, 1);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["attention.list"].data.cursor, 1);
+  await assert.rejects(save("attention.list", attentionPage([], 1, true)), /does not advance/);
+}));
+
+test("system-notification claims coordinate tabs, isolate devices, and never modify approval or unread state", () => fixture(async ({ user, other, agent, store, save }) => {
+  await save("attention.list", attentionPage([attentionItem()], 1));
+  const item = (await store.getWorkspaceNotifications(user.id)).items[0];
+  const claim = device => store.claimWorkspaceNotification(user.id, agent.id, item.id, item.revision, device);
+  const results = await Promise.all([claim("device-a"), claim("device-a")]);
+  assert.deepEqual(results.sort(), [false, true]);
+  assert.equal(await claim("device-b"), true);
+  await assert.rejects(store.claimWorkspaceNotification(other.id, agent.id, item.id, item.revision, "device-a"), { status: 404 });
+  let page = await store.getWorkspaceNotifications(user.id); assert.equal(page.unread, 1); assert.equal(page.pending, 1);
+  await store.readWorkspaceNotification(user.id, agent.id, item.id, item.revision);
+  assert.equal(await claim("device-c"), false);
+  page = await store.getWorkspaceNotifications(user.id); assert.equal(page.unread, 0); assert.equal(page.pending, 1);
+}));
+
+test("expired, completed, and recovery items keep separate actionable meanings and cascade with their connection", () => fixture(async ({ db, user, agent, store, save }) => {
+  await save("attention.list", attentionPage([
+    attentionItem({ expires_at: 1700000000 }),
+    attentionItem({ attention_id: "done", kind: "collaboration_completed", target: { kind: "task", id: "task-done" }, revision: 2 }),
+    attentionItem({ attention_id: "recover", kind: "needs_recovery", target: { kind: "task", id: "task-recover" }, revision: 3 }),
+    attentionItem({ attention_id: "reply", kind: "needs_response", target: { kind: "task", id: "task-reply" }, revision: 4 }),
+  ], 4));
+  const page = await store.getWorkspaceNotifications(user.id); assert.equal(page.pending, 2);
+  const expired = page.items.find(item => item.target.kind === "approval"); assert.equal(expired.state, "expired"); assert.equal(expired.requiresAction, false);
+  assert.equal(await store.claimWorkspaceNotification(user.id, agent.id, expired.id, expired.revision, "device"), false);
+  await db.agent.delete({ where: { id: agent.id } });
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.length, 0);
+  assert.equal(Number((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceNotificationBaseline"'))[0].n), 0);
+}));
 async function fixture(run) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "workspace-store-")), filename = path.join(directory, "test.db");
   const db = new PrismaClient({ datasources: { db: { url: "file:" + filename.replaceAll("\\", "/") } } });
@@ -32,7 +151,14 @@ async function fixture(run) {
     const otherAgent = await db.agent.create({ data: { id: "agent-b", userId: other.id, name: "B", urn: "urn:agent:shared", publicKey: "fixture" } });
     const store = makeStore();
     const row = (method, at = Date.now(), id = crypto.randomUUID()) => ({ id, agentId: agent.id, consoleUrn: user.virtualUrn, method, createdAt: new Date(at) });
-    const save = (method, data, at, id) => store.recordWorkspaceResponse(user, agent, row(method, at, id), { result: data });
+    const save = async (method, data, at, id) => {
+      const request = row(method, at, id);
+      if (method === "attention.list") {
+        const current = await store.getWorkspaceAgent(user.id, agent.id);
+        await store.updateSyncJob(agent.id, { requestId: request.id, plan: [{ method, params: { after: current.snapshots[method]?.data.cursor || 0, limit: 100 } }] });
+      }
+      return store.recordWorkspaceResponse(user, agent, request, { result: data });
+    };
     await run({ db, filename, user, other, agent, otherAgent, store, row, save, makeStore });
   } finally {
     if (priorSecret === undefined) delete process.env.NEXTAUTH_SECRET; else process.env.NEXTAUTH_SECRET = priorSecret;

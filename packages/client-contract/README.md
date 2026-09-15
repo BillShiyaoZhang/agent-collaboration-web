@@ -94,6 +94,14 @@ Existing ten-minute delivery-cache records require no database rewrite: the BFF 
 
 ## Conformance fixtures and testing
 
+### Attention and notification additions
+
+`attention.list` is an additional **read-only** RPC and must be explicitly available in the agent's actual pairing. It accepts `{after?: nonnegativeSafeInteger, limit?: 1..100}` and returns `AttentionPage` (`agent-comm-attention/v1`). Times are seconds; `revision` and `cursor` are safe integers. Each page contains latest item states, including `resolved`, `superseded`, and `expired`, rather than instructions to delete missing items. `validateAttentionPage` checks bounded fields before persistence. `syncReadPlan` resumes the saved cursor and drains `has_more` pages; facts and the automatic worker's cursor commit together. An arbitrary manual read cannot advance that continuation.
+
+`GET /api/notifications?filter=all|unread|pending&before=<sequence>` returns `NotificationPage` with up to 50 records and account-wide counts. Web notification times are milliseconds. `POST /api/notifications` accepts `{action:"read",agentId,id,revision}` or `{action:"claim",agentId,id,revision,deviceId:UUID}`; it requires the authenticated account and exact same Origin. A read acknowledges only that version; it never approves or resolves the source item. A device claim coordinates attempts between tabs and does not prove display or readership. Payloads are encrypted per account/connection. The browser explicitly requests device notification permission; closed-page Push is not implemented.
+
+Schema/types and `fixtures/attention-page.json` cover the new feed. Apply the additive `prisma/remote-console.sql` migration before starting the new Web build; preserve existing storage keys and records. Existing pairings remain unchanged. These source changes require a new release and do not imply the public service or downloadable packages already include them.
+
 `fixtures/workspace-agent.json` deliberately contains Unicode, null response fields, saved contacts/inbox, a pending confirmation, mixed terminal/pending turns and an uncertain submission. `control-*` fixtures cover canonical send, pending admission, submitted acknowledgement and authenticated pairing rejection. `policy-cases.json` is language-independent expected behavior for time units, expiry, terminal statuses and backoff.
 
 Native test suites should copy or load these fixtures, record their source path, and run decoder/policy tests on them. They contain synthetic identities only, not working cryptographic identity vectors. Signed encryption compatibility tests remain in the Web `tests/fixtures/protocol-go.json` fixture and the platform SDK tests.

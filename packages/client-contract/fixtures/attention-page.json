@@ -1,0 +1,25 @@
+{
+  "schema": "agent-comm-attention/v1",
+  "items": [
+    {
+      "attention_id": "attention-fixture-1",
+      "kind": "owner_decision_required",
+      "subject_id": "approval-1",
+      "task_id": "meeting-1",
+      "source_revision": "question-v2",
+      "revision": 7,
+      "state": "open",
+      "title": "需要确认会议时间",
+      "safe_summary": "请在原生渠道确认此次例外。",
+      "target": {
+        "kind": "approval",
+        "id": "approval-1"
+      },
+      "created_at": 1789430400,
+      "updated_at": 1789430410,
+      "expires_at": 1893436800
+    }
+  ],
+  "cursor": 7,
+  "has_more": false
+}

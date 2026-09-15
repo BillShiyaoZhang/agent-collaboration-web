@@ -57,3 +57,29 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
     assert.equal(events.some(e=>e[0]==='send'),false);
   }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
 });
+
+test('notification endpoints require account and origin, bind exact read versions, and cannot approve',async()=>{
+  const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
+  let session=null;const events=[];
+  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{}});
+  const protocol=load('../../src/lib/control/control-protocol.ts');
+  const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
+  const store={getWorkspaceNotifications:async(...args)=>{events.push(['list',...args]);return {items:[],unread:0,pending:0,before:null,hasMore:false};},readWorkspaceNotification:async(...args)=>events.push(['read',...args]),claimWorkspaceNotification:async(...args)=>{events.push(['claim',...args]);return false;}};
+  const route=load('../../src/app/api/notifications/route.ts',{'@/lib/workspace/workspace-http':http,'@/lib/workspace/workspace-store':store,'@/lib/control/control-transport':{ControlError}});
+  const body={action:'read',agentId:'own-agent',id:'a'.repeat(64),revision:7};
+  const request=(value=body,origin='https://console.example')=>new Request('https://console.example/api/notifications',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(value)});
+  try{
+    assert.equal((await route.GET(new Request('https://console.example/api/notifications'))).status,401);
+    assert.equal((await route.POST(request())).status,401);assert.equal(events.length,0);
+    session={user:{id:'owner'}};
+    assert.equal((await route.POST(request(body,'https://attacker.invalid'))).status,403);
+    assert.equal((await route.POST(request({...body,action:'approve'}))).status,400);
+    assert.equal((await route.POST(request({...body,userId:'other'}))).status,400);
+    assert.equal((await route.POST(request({...body,revision:1.5}))).status,400);
+    assert.equal((await route.GET(new Request('https://console.example/api/notifications?before=-1'))).status,400);
+    assert.equal((await route.GET(new Request('https://console.example/api/notifications?filter=pending&before=10'))).status,200);
+    assert.deepEqual(events.at(-1),['list','owner',10,'pending']);
+    const read=await route.POST(request());assert.equal(read.status,200);assert.match(read.headers.get('cache-control'),/private.*no-store/);assert.deepEqual(events.at(-1),['read','owner','own-agent','a'.repeat(64),7]);
+    const claim=await route.POST(request({...body,action:'claim',deviceId:'11111111-1111-4111-8111-111111111111'}));assert.deepEqual(await claim.json(),{claimed:false});
+  }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
+});

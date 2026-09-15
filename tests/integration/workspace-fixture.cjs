@@ -18,6 +18,8 @@ const secret='workspace-smoke-only-'+crypto.randomBytes(32).toString('hex');
 const dbFile=path.join(output,'fixture-'+Date.now()+'.db'),db=new PrismaClient({datasources:{db:{url:'file:'+dbFile.replaceAll('\\','/')}}});
 const identities=new Map(),mailboxes=new Map(),turns=new Map(),calls=[];
 let child,server,offline=false,extraMessage=false,stopping=false,log='';
+const attentionMode=process.env.ATTENTION_FIXTURE==='1',fixtureAt=Math.floor(Date.now()/1000);
+let approvalResolved=false;
 function identity(){
  const ed=crypto.generateKeyPairSync('ed25519'),x=crypto.generateKeyPairSync('x25519');
  const edRaw=ed.publicKey.export({type:'spki',format:'der'}).subarray(-32),xRaw=x.publicKey.export({type:'spki',format:'der'}).subarray(-32);
@@ -31,7 +33,13 @@ function verifyBody(req,body){
  assert.ok(identity);assert.equal(crypto.verify(null,Buffer.from(JSON.stringify(body)),identity.ed.publicKey,Buffer.from(signature,'hex')),true);return identity;
 }
 function resultFor(request){
- if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send'].map(name=>({name,available:true})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode?['attention.list']:[])].map(name=>({name,available:true})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(request.method==='attention.list'&&attentionMode){
+  const revision=approvalResolved?2:1;
+  const item={attention_id:'fixture-attention-1',kind:'owner_decision_required',subject_id:'fixture-approval-1',task_id:'fixture-task-1',source_revision:'question-1',revision,state:approvalResolved?'resolved':'open',title:'确认会议时间',safe_summary:'双方建议明天下午线上讨论。请回到原生渠道决定此次安排。',target:{kind:'approval',id:'fixture-approval-1'},created_at:fixtureAt,updated_at:fixtureAt+(approvalResolved?1:0),expires_at:fixtureAt+3600};
+  return {schema:'agent-comm-attention/v1',items:(request.params.after||0)<revision?[item]:[],cursor:revision,has_more:false};
+ }
+ if(request.method==='collaboration.state'&&attentionMode)return {tasks:[],operations:[],pending_confirmations:approvalResolved?[]:[{approval_id:'fixture-approval-1',subject_id:'fixture-task-1',question:'允许明天下午线上讨论30分钟？',status:'pending',expires_at:fixtureAt+3600}],contacts:[],inbox:[],collaboration:{protocol:'agent-comm-collaboration/v2',collaborations:[{collaboration_id:'fixture-collaboration-1',task_id:'fixture-task-1',peer_urn:'urn:fixture:peer',phase:'partially_accepted',terms:{version:1,topic:'项目方案讨论',start:fixtureAt+86400,end:fixtureAt+88200,participant_ids:['urn:fixture:self','urn:fixture:peer']},acceptances:{'urn:fixture:peer':{active:true,terms_digest:'fixture-terms-digest'}},agreement:null,agreement_synced:false}],invitations:[],calendar_created:false}};
  if(request.method==='collaboration.state')return {tasks:[],operations:[],pending_confirmations:[],proposals:[],contacts:[{urn:'urn:fixture:contact',alias:extraMessage?'更新后的联系人':'自动同步联系人'}],inbox:[{message_id:'fixture-message-1',sender_urn:'urn:fixture:peer',text:'这是一条主动同步的来信',received_at:Date.now()/1000},...(extraMessage?[{message_id:'fixture-message-2',sender_urn:'urn:fixture:peer',text:'关闭页面期间同步的新来信',received_at:Date.now()/1000}]:[])]};
  if(request.method==='conversation.send'){
   const conv=request.params.conversation_id||request.request_id,id='turn-'+crypto.createHash('sha256').update(request.console_urn+'\0'+request.request_id).digest('hex').slice(0,40);
@@ -47,6 +55,7 @@ async function handle(req,res){
  if(url.pathname==='/fixture/summary')return json(res,{calls:calls.map(c=>({agentId:c.agentId,method:c.method,id:c.id})),offline,extraMessage});
  if(url.pathname==='/fixture/mode'&&req.method==='POST'){
   const body=await read(req);if(typeof body.offline==='boolean')offline=body.offline;if(typeof body.extraMessage==='boolean')extraMessage=body.extraMessage;
+  if(attentionMode&&typeof body.resolveApproval==='boolean')approvalResolved=body.resolveApproval;
   if(body.due)await db.$executeRawUnsafe('UPDATE "WorkspaceState" SET "nextSyncAt"=0, "leaseUntil"=NULL, "leaseToken"=NULL');
   if(body.expireCapabilities)await db.$executeRawUnsafe('UPDATE "WorkspaceSnapshot" SET "savedAt"=0 WHERE "method"=\'capabilities\'');
   return json(res,{ok:true});

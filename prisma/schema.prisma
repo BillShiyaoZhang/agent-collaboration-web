@@ -39,6 +39,8 @@ model Agent {
   workspaceItems WorkspaceItem[]
   workspaceConversations WorkspaceConversation[]
   workspaceSubmission WorkspaceSubmission?
+  notifications WorkspaceNotification[]
+  notificationBaselines WorkspaceNotificationBaseline[]
   @@index([userId])
   @@unique([userId, urn])
 }
@@ -121,4 +123,43 @@ model WorkspaceSubmission {
   payload String
   createdAt Float
   phase String @default("sending")
+}
+
+model WorkspaceNotification {
+  seq Int @id @default(autoincrement())
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id String
+  kind String
+  state String
+  revision Int
+  readRevision Int @default(0)
+  remoteRevision Int @default(0)
+  sourceAt Float
+  updatedAt Float
+  expiresAt Float?
+  systemEligible Int @default(0)
+  payload String
+  deliveries WorkspaceNotificationDelivery[]
+  @@unique([agentId, id])
+  @@index([agentId, seq], map: "WorkspaceNotification_agent_seq_idx")
+}
+model WorkspaceNotificationSequence {
+  seq Int @id @default(autoincrement())
+}
+model WorkspaceNotificationBaseline {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  kind String
+  complete Int @default(0)
+  @@id([agentId, kind])
+}
+model WorkspaceNotificationDelivery {
+  agentId String
+  notificationId String
+  revision Int
+  deviceId String
+  claimedAt Float
+  notification WorkspaceNotification @relation(fields: [agentId, notificationId], references: [agentId, id], onDelete: Cascade)
+  @@id([agentId, notificationId, revision, deviceId])
 }

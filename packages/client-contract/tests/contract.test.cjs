@@ -11,6 +11,22 @@ const rejected = require('../fixtures/control-pairing-error.json');
 const policy = require('../fixtures/policy-cases.json');
 const schema = require('../contract.schema.json');
 
+test('attention feed validates bounded versions and resumes pagination only when explicitly paired', () => {
+  const fixture = require('../fixtures/attention-page.json');
+  assert.deepEqual(api.validateAttentionPage(fixture), fixture);
+  for (const bad of [{ cursor: -1 }, { cursor: 6 }, { items: [{ ...fixture.items[0], target: { kind: 'url', id: 'https://peer.invalid' } }] }, { items: [{ ...fixture.items[0], revision: 1.5 }] }, { has_more: 'yes' }]) assert.throws(() => api.validateAttentionPage({ ...fixture, ...bad }), /Invalid attention/);
+  const state = structuredClone(workspace), now = state.snapshots.capabilities.time;
+  state.snapshots['attention.list'] = { data: { cursor: 7, has_more: true }, time: now };
+  assert.equal(api.syncReadPlan(state, [], now).some(item => item.method === 'attention.list'), false);
+  state.snapshots.capabilities.data.methods.push({ name: 'attention.list', available: true });
+  assert.deepEqual(api.syncReadPlan(state, [], now).find(item => item.method === 'attention.list'), { method: 'attention.list', params: { after: 7, limit: 100 } });
+  assert.equal(api.nextCycleDelay(state), 0);
+  assert.equal(api.attentionRequiresAction('owner_decision_required', 'resolved'), false);
+  assert.equal(api.attentionRequiresAction('collaboration_completed', 'open'), false);
+  assert.equal(api.attentionRequiresAction('needs_response', 'open'), true);
+  assert.equal(api.notificationRoute('agent/1', { kind: 'approval', id: '../../evil' }), '/dashboard/agents/agent%2F1?tab=tasks&subject=..%2F..%2Fevil');
+});
+
 test('package works in plain Node without the web app, React, Prisma or browser storage', () => {
   const run = spawnSync(process.execPath, ['-e', `const c=require(${JSON.stringify(path.resolve(__dirname, '..'))}); if(c.CONTROL_PROTOCOL!=='agent-comm-control/v1')process.exit(1)`], { cwd: require('node:os').tmpdir(), encoding: 'utf8', env: { ...process.env, NODE_PATH: '' } });
   assert.equal(run.status, 0, run.stderr);

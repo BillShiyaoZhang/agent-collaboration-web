@@ -8,7 +8,7 @@ import { syncLabel } from "@/lib/workspace/workspace-client";
 import { CopyValue } from "./snapshot-views";
 import type { Connection, Workbench } from "./use-workbench";
 
-const methodLabels: Record<string, string> = { capabilities: "连接检查", "contacts.list": "联系人", "collaboration.state": "协作事项", "inbox.list": "收件箱", "conversation.send": "发送消息", "conversation.get": "读取对话", "approval.respond": "远程确认" };
+const methodLabels: Record<string, string> = { capabilities: "连接检查", "contacts.list": "联系人", "collaboration.state": "协作事项", "inbox.list": "收件箱", "conversation.send": "发送消息", "conversation.get": "读取对话", "attention.list": "持久提醒同步", "approval.respond": "远程确认" };
 
 export function RequestFeedback({ busy, error, onRetry }: { busy?: string; error?: WorkbenchError; onRetry?: () => void }) {
   if (busy) return <div role="status" className="flex items-center gap-2 text-xs leading-6 text-muted-foreground"><Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />{busy}</div>;

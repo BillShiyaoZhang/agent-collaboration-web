@@ -7,7 +7,10 @@ export const controlCallSchema = z.object({
   request_id: z.string().uuid(),
   method: z.enum(RPC_METHODS),
   params: z.record(z.unknown()).default({}),
-}).strict();
+}).strict().superRefine((call, context) => {
+  if (call.method === "attention.list" && !z.object({ after: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), limit: z.number().int().min(1).max(100).optional() }).strict().safeParse(call.params).success)
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid attention pagination", path: ["params"] });
+});
 
 export function requireSameOrigin(request: Request): void {
   const origin = request.headers.get("origin");

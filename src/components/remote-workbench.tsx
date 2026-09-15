@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Bot, ClipboardList, Inbox, MessageCircle, RefreshCw, Settings2, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/shared/utils";
@@ -30,12 +31,23 @@ export function RemoteWorkbench({ agent, initial }: { agent: Connection; initial
 function AgentWorkbench({ agent, initial }: { agent: Connection; initial: WorkspaceAgent }) {
   const w = useWorkbench(agent, initial);
   const { getDraft, saveDraft } = useWorkspace();
-  const [activeTab, setActiveTab] = useState<Tab>(() => (getDraft(agent.id)?.tab as Tab) || "conversation");
+  const search = useSearchParams();
+  const requestedTab = search.get("tab");
+  const [activeTab, setActiveTab] = useState<Tab>(() => (["tasks", "inbox"].includes(requestedTab || "") ? requestedTab as Tab : getDraft(agent.id)?.tab as Tab) || "conversation");
+  useEffect(() => { if (requestedTab === "tasks" || requestedTab === "inbox") setActiveTab(requestedTab); }, [requestedTab]);
   useEffect(() => { saveDraft(agent.id, { tab: activeTab }); }, [agent.id, activeTab, saveDraft]);
   const tabs = tabItems.filter(tab => tab.methods.some(w.available) || (tab.id === "conversation" ? !!w.conversations.length || !!w.turns.length || !!w.submission : !!w.snapshots[readMethods[tab.id]]));
   const visibleTab = tabs.some(tab => tab.id === activeTab) ? activeTab : tabs[0]?.id;
   const snapshotMethod = visibleTab && visibleTab !== "conversation" ? readMethods[visibleTab] : null;
   const snapshot = snapshotMethod ? w.snapshots[snapshotMethod] : undefined;
+  const subject = search.get("subject");
+  const hasSubjectSnapshot = !!snapshot;
+  useEffect(() => {
+    if (!subject || !hasSubjectSnapshot) return;
+    const target = document.getElementById(`subject-${subject}`);
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target?.scrollIntoView({ block: "center" });
+  }, [subject, visibleTab, hasSubjectSnapshot]);
 
   return <div className="mx-auto max-w-6xl space-y-6 pb-6">
     <header className="flex flex-wrap items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3.5"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Bot className="h-7 w-7" strokeWidth={1.6} /></div><div className="min-w-0"><div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground"><span>远程工作台</span><span>·</span><span>{syncLabel(w.sync, !!w.capabilitySnapshot)}</span></div><h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{agent.name}</h1></div></div><Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" onClick={() => w.setPairingOpen(previous => !previous)} aria-expanded={w.pairingOpen} aria-controls="pairing-panel"><Settings2 className="h-4 w-4" />连接设置</Button></header>
