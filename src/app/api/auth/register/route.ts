@@ -2,15 +2,18 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/shared/db";
 import { hashPassword } from "@/lib/auth/auth";
+import { MAX_PASSWORD_BYTES, validPasswordSize } from "@/lib/auth/password";
+import { readJsonBody, RequestBodyError } from "@/lib/shared/http-input";
 
 const registerSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  email: z.string().max(254).email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters")
+    .refine(validPasswordSize, `Password must be at most ${MAX_PASSWORD_BYTES} UTF-8 bytes`),
 });
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await readJsonBody(request, 16384);
     const parsed = registerSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -51,6 +54,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
+    if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      return NextResponse.json({ error: "User with this email already exists" }, { status: 409 });
+    }
     console.error("Registration error:", error);
     return NextResponse.json(
       { error: "Internal server error" },

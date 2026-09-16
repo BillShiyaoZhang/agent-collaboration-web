@@ -30,6 +30,10 @@ function RegisterForm() {
       setError("密码至少需要 8 个字符。");
       return;
     }
+    if (new TextEncoder().encode(password).byteLength > 1024) {
+      setError("密码过长，请使用不超过 1024 字节的密码。");
+      return;
+    }
     if (password !== confirmPassword) {
       setError("两次输入的密码不一致，请重新确认。");
       return;

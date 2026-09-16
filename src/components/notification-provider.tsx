@@ -18,7 +18,7 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
   const pushRef = useRef(false), lastPushRefresh = useRef(0), pushRefreshing = useRef(false);
   const pushGeneration = useRef(0);
   const storageKey = `agent-notifications:v1:${accountId}`;
-  const device = useRef(""), reading = useRef(false), enabledRef = useRef(false), lifetime = useRef<AbortController>();
+  const device = useRef(""), reading = useRef(false), enabledRef = useRef(false), lifetime = useRef<AbortController | undefined>(undefined);
   const shown = useRef(new Map<string, Notification>()), processing = useRef(false);
   const attempted = useRef(new Set<string>());
   const pushRequest = useCallback(<T,>(body: Record<string, unknown>) => workspaceRequest<T>("/api/notifications/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: lifetime.current?.signal }), []);

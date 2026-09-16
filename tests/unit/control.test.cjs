@@ -9,7 +9,7 @@ const ts = require("typescript");
 function load(relative, dependencies = {}) {
   const filename = path.resolve(__dirname, relative), loaded = new Module(filename, module);
   loaded.filename = filename; loaded.paths = Module._nodeModulePaths(path.dirname(filename));
-  loaded.require = name => Object.hasOwn(dependencies, name) ? dependencies[name] : Module.prototype.require.call(loaded, name);
+  loaded.require = name => Object.hasOwn(dependencies, name) ? dependencies[name] : name === "@/lib/shared/http-input" ? load("../../src/lib/shared/http-input.ts") : Module.prototype.require.call(loaded, name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename,"utf8"), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);
   return loaded.exports;
 }
@@ -75,6 +75,11 @@ test("the actual RPC route enforces session, saved connection and origin before 
     assert.equal((await route.POST(req(),{params:{id:"someone-else"}})).status,404);
     assert.equal((await route.POST(req(body,"https://attacker.example"),{params:{id:agent.id}})).status,403);
     assert.equal((await route.POST(req({...body,agent_urn:"injected"}),{params:{id:agent.id}})).status,400);
+    let pulls=0,cancelled=false;
+    const stream=new ReadableStream({pull(controller){pulls++;controller.enqueue(new Uint8Array(16384));},cancel(){cancelled=true;}},{highWaterMark:0});
+    const oversized=new Request("https://console.example/api/agents/my-agent/control",{method:"POST",headers:{origin:"https://console.example","content-length":"1"},body:stream,duplex:"half"});
+    assert.equal((await route.POST(oversized,{params:{id:agent.id}})).status,413);
+    assert.equal(pulls,3);assert.equal(cancelled,true);
     assert.equal(called,0);
     assert.equal((await route.POST(req(),{params:{id:agent.id}})).status,202);assert.equal(called,1);
   } finally {if(original===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=original;}

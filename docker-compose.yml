@@ -6,11 +6,11 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     environment:
       - DATABASE_URL=file:./prod.db
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env}
       - AGENT_PLATFORM_URL=${AGENT_PLATFORM_URL:-http://platform:8080}
     volumes:
       - ./prisma:/app/prisma
@@ -20,7 +20,7 @@ services:
   platform:
     image: ghcr.io/billshiyaozhang/agent-comm-platform:latest
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - PLATFORM_MODE=privacy
       - PLATFORM_LISTEN=:8080

@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -91,9 +92,20 @@ api:
         until(lambda: request(urls["platform"], "/api/v1/registry/resolve?urn=" + agent["urn"]).get("found"), "agent registry")
         start("web", [str(args.node.resolve()), str(WEB / "node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", str(ports["web"])], cwd=WEB)
         until(lambda: web("/api/auth/csrf"), "built Next Web", timeout=35)
-        email, password = "local-smoke@example.invalid", secrets.token_urlsafe(24)
+        email, password = "local-smoke@example.invalid", "长" * 24 + secrets.token_urlsafe(24)
         web("/api/auth/register", {"email": email, "password": password})
+        with sqlite3.connect(database) as db:
+            assert db.execute("SELECT passwordHash FROM User WHERE email = ?", (email,)).fetchone()[0].startswith("$scrypt$v1$")
         csrf = web("/api/auth/csrf")["csrfToken"]
+        try:
+            web("/api/auth/callback/credentials", {"email": email, "password": "长" * 24 + "wrong-suffix", "csrfToken": csrf, "json": "true", "callbackUrl": urls["web"] + "/dashboard/agents"}, form=True)
+        except urllib.error.HTTPError as error:
+            assert error.code == 401, error
+            rejected = json.loads(error.read())
+        else:
+            raise AssertionError("wrong password suffix must be rejected")
+        assert "CredentialsSignin" in rejected.get("url", ""), rejected
+        assert not web("/api/auth/session").get("user"), "wrong password suffix must not establish a session"
         web("/api/auth/callback/credentials", {"email": email, "password": password, "csrfToken": csrf, "json": "true", "callbackUrl": urls["web"] + "/dashboard/agents"}, form=True)
         assert web("/api/auth/session")["user"]["email"] == email
         connection = web("/api/agents", {"name": "Local integration agent", "urn": agent["urn"]})
@@ -157,7 +169,7 @@ api:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert not tables.intersection({"Contact", "Message", "HITLRequest", "Transaction"})
             assert db.execute("SELECT COUNT(*) FROM ControlRequest WHERE status='complete'").fetchone()[0] == 11
-        report = {"result": "PASS", "checks": ["built Next login/session", "real Web console URN accepted by Python pairing",
+        report = {"result": "PASS", "checks": ["built Next login/session and full UTF-8 password verification beyond 72 bytes", "real Web console URN accepted by Python pairing",
             "Node signed encrypted request through real Go MQ/helper", "agent-owned contacts returned to Web",
             "new action scopes are explicit and denied for existing read-only pairing",
             "Web directly adds an idempotent contact and approves/denies agent confirmations",

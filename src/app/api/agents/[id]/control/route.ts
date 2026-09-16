@@ -6,6 +6,7 @@ import { controlCallSchema, requireSameOrigin } from "@/lib/control/control-prot
 import { ControlError } from "@/lib/control/control-transport";
 import { createControlCall, pollControlResponses, controlCallResult } from "@/lib/control/control-service";
 import { recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
+import { readJsonBody, RequestBodyError } from "@/lib/shared/http-input";
 
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -20,17 +21,15 @@ async function context(id: string) {
 }
 
 function failure(error: unknown) {
-  return json({ error: error instanceof ControlError ? error.message : "请求未完成，请检查连接并重试。" }, error instanceof ControlError ? error.status : 500);
+  const expected = error instanceof ControlError || error instanceof RequestBodyError;
+  return json({ error: expected ? error.message : "请求未完成，请检查连接并重试。" }, expected ? error.status : 500);
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { user, agent } = await context(params.id);
+    const { user, agent } = await context((await params).id);
     try { requireSameOrigin(request); } catch { throw new ControlError("Forbidden origin", 403); }
-    const text = await request.text();
-    if (Buffer.byteLength(text) > 32768) return json({ error: "Request too large" }, 413);
-    let data: unknown;
-    try { data = JSON.parse(text); } catch { return json({ error: "Invalid JSON" }, 400); }
+    const data = await readJsonBody(request, 32768);
     const call = controlCallSchema.safeParse(data);
     if (!call.success) return json({ error: "Invalid control request" }, 400);
     const result = await createControlCall(user, agent, call.data);
@@ -38,9 +37,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
   } catch (error) { return failure(error); }
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { user, agent } = await context(params.id);
+    const { user, agent } = await context((await params).id);
     const requestId = new URL(request.url).searchParams.get("request_id");
     if (!requestId) return json({ error: "request_id required" }, 400);
     const row = await prisma.controlRequest.findFirst({ where: { id: requestId, agentId: agent.id, consoleUrn: user.virtualUrn! } });

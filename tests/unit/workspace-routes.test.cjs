@@ -8,7 +8,7 @@ const ts=require('typescript');
 function load(relative,deps={}){
   const filename=path.resolve(__dirname,relative),loaded=new Module(filename,module);
   loaded.filename=filename;loaded.paths=Module._nodeModulePaths(path.dirname(filename));
-  loaded.require=name=>Object.hasOwn(deps,name)?deps[name]:Module.prototype.require.call(loaded,name);
+  loaded.require=name=>Object.hasOwn(deps,name)?deps[name]:name==='@/lib/shared/http-input'?load('../../src/lib/shared/http-input.ts'):Module.prototype.require.call(loaded,name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);
   return loaded.exports;
 }
@@ -44,6 +44,10 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
     assert.equal((await sync.POST(req({agentId:'own-agent'},'https://attacker.example'))).status,403);
     assert.equal((await sync.POST(req({userId:'another-account'}))).status,400);
     assert.equal((await sync.POST(req('x'.repeat(4097)))).status,413);
+    let pulls=0,cancelled=false;
+    const stream=new ReadableStream({pull(controller){pulls++;controller.enqueue(new Uint8Array(2048));},cancel(){cancelled=true;}},{highWaterMark:0});
+    assert.equal((await sync.POST(new Request('https://console.example/api/workspace/sync',{method:'POST',headers:{origin:'https://console.example'},body:stream,duplex:'half'}))).status,413);
+    assert.equal(pulls,3);assert.equal(cancelled,true);assert.equal(events.some(event=>event[0]==='schedule'),false);
     assert.equal((await sync.POST(req({agentId:'other'}))).status,404);
     assert.equal((await sync.POST(req({}))).status,202);
     assert.deepEqual(events.find(event=>event[0]==='schedule'),['schedule','owner',undefined]);

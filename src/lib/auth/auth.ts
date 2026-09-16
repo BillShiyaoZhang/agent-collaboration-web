@@ -1,7 +1,8 @@
-import { compare, hash } from "bcryptjs";
 import type { NextAuthOptions, User } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/shared/db";
+import { hashPassword, passwordNeedsUpgrade, validPasswordSize, verifyPassword } from "./password";
+export { hashPassword, verifyPassword } from "./password";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -12,7 +13,7 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials): Promise<User | null> {
-        if (!credentials?.email || !credentials?.password) {
+        if (typeof credentials?.email !== "string" || !credentials.email || credentials.email.length > 254 || !validPasswordSize(credentials.password)) {
           return null;
         }
 
@@ -24,10 +25,17 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const isValid = await compare(credentials.password, user.passwordHash);
+        const isValid = await verifyPassword(credentials.password, user.passwordHash);
 
         if (!isValid) {
           return null;
+        }
+
+        if (passwordNeedsUpgrade(user.passwordHash)) {
+          await prisma.user.updateMany({
+            where: { id: user.id, passwordHash: user.passwordHash },
+            data: { passwordHash: await hashPassword(credentials.password) },
+          });
         }
 
         return {
@@ -60,14 +68,3 @@ export const authOptions: NextAuthOptions = {
     },
   },
 };
-
-export async function hashPassword(password: string): Promise<string> {
-  return hash(password, 12);
-}
-
-export async function verifyPassword(
-  password: string,
-  hashedPassword: string
-): Promise<boolean> {
-  return compare(password, hashedPassword);
-}

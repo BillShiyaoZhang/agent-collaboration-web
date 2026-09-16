@@ -22,12 +22,12 @@ async function owner(id:string) {
 }
 const failed = (error:unknown) => NextResponse.json({error:error instanceof ControlError?error.message:"无法创建控制台身份。"},
   {status:error instanceof ControlError?error.status:500});
-export async function GET(request:Request,{params}:{params:{id:string}}) {
-  try {return NextResponse.json(publicIdentity(await owner(params.id)),{headers:{"Cache-Control":"no-store"}});} catch(error){return failed(error);}
+export async function GET(request:Request,{params}:{params:Promise<{id:string}>}) {
+  try {return NextResponse.json(publicIdentity(await owner((await params).id)),{headers:{"Cache-Control":"no-store"}});} catch(error){return failed(error);}
 }
-export async function POST(request:Request,{params}:{params:{id:string}}) {
+export async function POST(request:Request,{params}:{params:Promise<{id:string}>}) {
   try {
-    let user = await owner(params.id);
+    let user = await owner((await params).id);
     try {requireSameOrigin(request);} catch {throw new ControlError("Forbidden origin",403);}
     const masterKey = process.env.NEXTAUTH_SECRET;
     if (!masterKey) throw new ControlError("服务器必须配置 NEXTAUTH_SECRET。",503);
