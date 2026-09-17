@@ -40,7 +40,12 @@
         "conversation.get",
         "attention.list",
         "contacts.add",
-        "approval.respond"
+        "approval.respond",
+        "contacts.requests",
+        "contacts.respond",
+        "messages.send",
+        "inbox.mark_read",
+        "collaboration.execute"
       ]
     },
     "stableId": {
@@ -607,7 +612,8 @@
               "enum": [
                 "task",
                 "inbox",
-                "approval"
+                "approval",
+                "contact"
               ]
             },
             "id": {

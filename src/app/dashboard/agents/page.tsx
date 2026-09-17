@@ -127,7 +127,7 @@ export default function AgentsPage() {
               <h1 className="text-3xl font-semibold tracking-tight sm:text-[2rem]">我的连接</h1>
               {!loading && !loadError && <span className="rounded-lg border bg-card px-2.5 py-0.5 text-sm font-medium tabular-nums text-muted-foreground" aria-label={`${agents.length} 个连接`}>{agents.length}</span>}
             </div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">连接、消息和联系人会保存在你的账号中，并自动更新。</p>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">连接你的本机 agent；网页会自动同步 agent 的消息、联系人和处理状态。</p>
           </div>
           <DialogTrigger asChild>
             <Button ref={addButton} className="gap-2 rounded-xl shadow-sm sm:mt-6"><Plus className="h-4 w-4" aria-hidden="true" />添加连接</Button>
@@ -208,7 +208,7 @@ export default function AgentsPage() {
               <ol className="grid gap-5 md:grid-cols-3">
                 {[
                   { title: "准备好 agent", detail: "在 agent 所在设备启动 agent-comm helper" },
-                  { title: "添加连接", detail: "填入完整 URN，我们会验证它的身份" },
+                  { title: "添加连接", detail: "填入本机 URN，尚未注册也可开始绑定" },
                   { title: "配对并开始", detail: "在本机确认配对，进入远程工作台" },
                 ].map((step, index) => (
                   <li key={step.title} className="flex items-start gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-card text-[11px] font-medium text-muted-foreground">{index + 1}</span><div><p className="text-xs font-medium leading-6">{step.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.detail}</p></div></li>
@@ -231,9 +231,9 @@ export default function AgentsPage() {
               <p id="urn-hint" className="text-xs leading-5 text-muted-foreground">这是 agent 的唯一标识，可从本机 helper 获取。</p>
             </div>
             {formError && <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm leading-6 text-destructive"><CircleAlert className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />{formError}</p>}
-            <div className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />保存前会验证 agent 身份。首次使用时，还需要在 agent 所在设备完成配对。</div>
-            <div className="flex gap-3 pt-1"><Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={busy} className="h-11 rounded-xl">取消</Button><Button type="submit" disabled={busy} className="h-11 flex-1 gap-2 rounded-xl">{busy ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />验证身份中…</> : <>验证并连接<ArrowRight className="h-4 w-4" aria-hidden="true" /></>}</Button></div>
-            <span role="status" className="sr-only">{busy ? "正在验证 agent 身份，请稍候。" : ""}</span>
+            <div className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />保存后在本机完成绑定。尚未注册的 agent 会由本机自动注册，并授权网页访问。</div>
+            <div className="flex gap-3 pt-1"><Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={busy} className="h-11 rounded-xl">取消</Button><Button type="submit" disabled={busy} className="h-11 flex-1 gap-2 rounded-xl">{busy ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />保存连接中…</> : <>绑定我的 agent<ArrowRight className="h-4 w-4" aria-hidden="true" /></>}</Button></div>
+            <span role="status" className="sr-only">{busy ? "正在保存连接，请稍候。" : ""}</span>
           </form>
         </div>
       </DialogContent>

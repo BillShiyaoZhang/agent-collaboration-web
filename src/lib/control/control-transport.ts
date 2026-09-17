@@ -7,7 +7,7 @@ import { computeSharedSecret, encryptWithSharedSecret, decryptWithSharedSecret }
 import type { ControlRequestBody } from "@/lib/control/control-protocol";
 
 export class ControlError extends Error {
-  constructor(message: string, readonly status = 502) { super(message); }
+  constructor(message: string, readonly status = 502, readonly platformStatus?: number) { super(message); }
 }
 
 export async function platformFetch(path: string, init?: RequestInit) {
@@ -17,7 +17,7 @@ export async function platformFetch(path: string, init?: RequestInit) {
       ...init, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10000),
     });
   } catch { throw new ControlError("无法连接通信平台，请稍后重试同一请求。"); }
-  if (!response.ok) throw new ControlError(`通信平台返回 HTTP ${response.status}。`);
+  if (!response.ok) throw new ControlError(`通信平台返回 HTTP ${response.status}。`, 502, response.status);
   return response;
 }
 

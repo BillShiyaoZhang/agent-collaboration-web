@@ -21,6 +21,17 @@ export const controlCallSchema = z.object({
   if ((call.method === "contacts.add" && !contactParams.safeParse(call.params).success) ||
       (call.method === "approval.respond" && !approvalParams.safeParse(call.params).success))
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid action parameters", path: ["params"] });
+  const stableId = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
+  const socialSchemas: Partial<Record<string, z.ZodTypeAny>> = {
+    "collaboration.execute": z.object({ action: z.string().regex(/^[a-z_]{1,64}$/) }).passthrough().refine(params => !["owner_principal", "owner_session", "owner", "context", "answer", "approved"].some(key => key in params)),
+    "contacts.requests": z.object({}).strict(),
+    "contacts.respond": z.object({ request_id: stableId, decision: z.enum(["accept", "reject"]),
+      contact_id: contactParams.shape.contact_id.optional(), aliases: contactParams.shape.aliases.optional() }).strict(),
+    "messages.send": z.object({ recipient_urn: contactParams.shape.urn, text: z.string().min(1).refine(value => value.trim().length > 0 && new TextEncoder().encode(value).length <= 24000), message_id: stableId.optional() }).strict(),
+    "inbox.mark_read": z.object({ message_id: stableId }).strict(),
+  };
+  if (socialSchemas[call.method] && !socialSchemas[call.method]!.safeParse(call.params).success)
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid communication action parameters", path: ["params"] });
   if (call.method === "attention.list" && !z.object({ after: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), limit: z.number().int().min(1).max(100).optional() }).strict().safeParse(call.params).success)
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid attention pagination", path: ["params"] });
 });

@@ -64,3 +64,13 @@ test('opt-out and account switch finish only after an in-flight display has been
     await w.push({ deliveryId: 'e'.repeat(32) }); assert.equal(w.notices.filter(notice => !notice.closed).length, 0, action);
   }
 });
+
+test('agent resolution closes a displayed notice with no open browser tab', async () => {
+  const w = worker(); await w.bind(); await w.push();
+  assert.equal(w.notices.length, 1);
+  await w.push({ action: 'reconcile' });
+  assert.notEqual(w.notices[0].closed, true, 'a still-valid agent notification cannot be closed');
+  w.setCurrent({ valid: false }); await w.push({ action: 'reconcile' });
+  assert.equal(w.notices[0].closed, true);
+  assert.equal(w.notices.length, 1, 'a reconciliation push never shows another notice');
+});

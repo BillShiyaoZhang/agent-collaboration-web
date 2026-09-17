@@ -44,3 +44,11 @@ python tests/integration/full_stack_smoke.py --helper PATH_TO_HELPER --platform 
 输出位于 `build/full-stack-smoke/`，测试只使用临时本地身份和数据库。
 此检查同时验证新操作的显式配对范围、直接添加与重复联系人、审批同意/拒绝，以及
 Agent 事实同步回 Web 账户；不调用语言模型。
+
+### 好友请求、消息与跨端状态
+
+构建后，设置 `SOCIAL_FIXTURE=1` 启动 `node tests/integration/workspace-fixture.cjs`，再运行
+`node tests/integration/workspace-social-browser.cjs`。检查真实 React 控件发送的签名控制请求：好友请求接受/拒绝、发送后等待对方接受、在线/离线状态、网页发消息、电脑端与网页已读同步、协作动作结果不明确时禁止换 ID 重放，以及手机布局。
+报告与截图保存在 `build/workspace-social-preview/`。`PLAYWRIGHT_MODULE`、`CHROME_EXECUTABLE` 可指定已有浏览器测试工具。
+
+`npm test` 另验证 agent 权威好友快照、旧消息已读更新、已处理通知计数、后台推送撤回和服务工作线程在关闭网页时关闭原通知。

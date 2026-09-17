@@ -14,7 +14,7 @@ export type SyncPlanItem = {
 export declare function remoteTimestamp(value: unknown): number;
 export declare function isPairingError(code: unknown): boolean;
 export declare function availableMethods(capabilities: unknown): RpcMethod[];
-export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond"];
+export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"];
 export type RpcMethod = typeof RPC_METHODS[number];
 export type RemoteRecord = Record<string, unknown>;
 export type PendingCall = {
@@ -131,7 +131,7 @@ export type AttentionItem = {
     attention_id: string; kind: string; subject_id: string; task_id?: string;
     source_revision: string | number; revision: number;
     state: "open" | "resolved" | "superseded" | "expired";
-    title: string; safe_summary: string; target: { kind: "task" | "inbox" | "approval"; id: string };
+    title: string; safe_summary: string; target: { kind: "task" | "inbox" | "approval" | "contact"; id: string };
     created_at: number; updated_at: number; expires_at?: number | null;
 };
 export type AttentionPage = { schema: "agent-comm-attention/v1"; items: AttentionItem[]; cursor: number; has_more: boolean };

@@ -17,6 +17,7 @@ export default function NotificationsPage() {
   const [items, setItems] = useState<WorkspaceNotification[]>([]), [before, setBefore] = useState<number | null>(null);
   const [error, setError] = useState(""), [loading, setLoading] = useState(false);
   const currentFilter = useRef(filter), older = useRef(false);
+  useEffect(() => { void notifications.checkReadSupport(items); }, [items, notifications.page, notifications.checkReadSupport]);
   useEffect(() => {
     const controller = new AbortController();
     void workspaceRequest<NotificationPage>(`/api/notifications?filter=${filter}`, { signal: controller.signal }).then(page => {
@@ -62,7 +63,8 @@ export default function NotificationsPage() {
       <p className="mt-3 text-[11px] leading-6 text-muted-foreground">最近同步 {time(item.observedAt)}{item.expiresAt !== null && <> · 截止 {time(item.expiresAt)}</>}{item.source === "snapshot" && " · 来自已保存快照"}</p>
       {["offline", "needs_pairing"].includes(item.sync.status) && <p className="mt-1 text-xs text-amber-800">当前连接尚未核实，显示上次同步的状态。请打开事项，恢复连接后核对。</p>}
       {item.requiresAction && <p className="mt-2 text-xs leading-6 text-amber-800">请打开当前事项核对并决定；如网页尚未开放此项确认，可从 agent 的原生渠道回应。标记已读只更新提醒。</p>}
-      <div className="mt-4 flex flex-wrap gap-2"><Button asChild size="sm" className="gap-2"><Link href={item.href}><ExternalLink className="h-3.5 w-3.5" />查看当前事项</Link></Button>{item.unread && <Button variant="outline" size="sm" className="gap-2" onClick={() => void markRead(item)}><Check className="h-3.5 w-3.5" />标记已读</Button>}</div>
+      {item.unread && notifications.readBlockedReason(item) && <p className="mt-2 text-xs leading-6 text-amber-800">{notifications.readBlockedReason(item)}</p>}
+      <div className="mt-4 flex flex-wrap gap-2"><Button asChild size="sm" className="gap-2"><Link href={item.href}><ExternalLink className="h-3.5 w-3.5" />查看当前事项</Link></Button>{item.unread && <Button variant="outline" size="sm" className="gap-2" disabled={!!notifications.readBlockedReason(item)} onClick={() => void markRead(item)}><Check className="h-3.5 w-3.5" />标记已读</Button>}</div>
     </article>)}</div>
     {before !== null && <div className="text-center"><Button variant="outline" disabled={loading} onClick={() => void loadMore()}>{loading ? "正在加载…" : "更早的提醒"}</Button></div>}
   </div>;

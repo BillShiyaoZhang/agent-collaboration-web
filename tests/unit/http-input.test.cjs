@@ -102,3 +102,22 @@ test('saving an agent connection enforces body limits before registry or persist
     assert.equal((await route.POST(request)).status, 201); assert.deepEqual(calls, ['resolve', 'create', 'sync', 'start']);
   } finally { if (previous === undefined) delete process.env.NEXTAUTH_URL; else process.env.NEXTAUTH_URL = previous; }
 });
+
+test('an unregistered local URN is saved pending but invalid identity signatures still fail closed', async () => {
+  class ControlError extends Error { constructor(message, status = 502, platformStatus) { super(message); this.status = status; this.platformStatus = platformStatus; } }
+  let failure = new ControlError('not registered', 502, 404), saved;
+  const route = load('../../src/app/api/agents/route.ts', {
+    'next-auth': { getServerSession: async () => ({ user: { id: 'owner' } }) }, '@/lib/auth/auth': { authOptions: {} },
+    '@/lib/shared/http-input': input, '@/lib/control/control-protocol': load('../../src/lib/control/control-protocol.ts'),
+    '@/lib/shared/db': { prisma: { agent: { create: async ({ data }) => { saved = data; return { id: 'pending', ...data }; } } } },
+    '@/lib/control/control-transport': { ControlError, resolveIdentity: async () => { throw failure; } },
+    '@/lib/workspace/workspace-store': { scheduleWorkspaceSync: async () => {} }, '@/lib/workspace/workspace-sync': { startWorkspaceSync() {} },
+  });
+  const previous = process.env.NEXTAUTH_URL; process.env.NEXTAUTH_URL = 'https://console.example';
+  const request = urn => new Request('https://console.example/api/agents', { method: 'POST', headers: { origin: 'https://console.example' }, body: JSON.stringify({ name: 'local agent', urn }) });
+  try {
+    assert.equal((await route.POST(request('urn:agent:local'))).status, 201); assert.equal(saved.platformRegistered, false); assert.equal(saved.publicKey, '');
+    saved = null; failure = new ControlError('signature invalid'); assert.equal((await route.POST(request('urn:agent:local'))).status, 502); assert.equal(saved, null);
+    assert.equal((await route.POST(request('not a valid urn'))).status, 400);
+  } finally { if (previous === undefined) delete process.env.NEXTAUTH_URL; else process.env.NEXTAUTH_URL = previous; }
+});

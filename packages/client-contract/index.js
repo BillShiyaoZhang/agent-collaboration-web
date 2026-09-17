@@ -37,8 +37,8 @@ function isPairingError(code) {
 function availableMethods(capabilities) {
     return records(record(capabilities).methods).filter(item => item.available === true && exports.RPC_METHODS.includes(string(item.name))).map(item => item.name);
 }
-exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond"];
-const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond"]);
+exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"];
+const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"]);
 function record(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -212,7 +212,7 @@ function pairingAllowsSend(capabilities, sync, now = Date.now()) {
 exports.SYNC_INTERVAL_MS = 30_000;
 exports.CAPABILITY_INTERVAL_MS = 120_000;
 exports.SYNC_LEASE_MS = 60_000;
-exports.AUTOMATIC_METHODS = new Set(["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.get", "attention.list"]);
+exports.AUTOMATIC_METHODS = new Set(["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.get", "attention.list", "contacts.requests"]);
 /** Fixed read-only allowlist: advertised methods can never schedule a write. */
 function syncReadPlan(workspace, conversationIds, now) {
     const capability = workspace.snapshots.capabilities;
@@ -223,7 +223,7 @@ function syncReadPlan(workspace, conversationIds, now) {
     }
     const allowed = new Set(records(capability.data.methods).filter(item => item.available === true).map(item => string(item.name)));
     const plan = [];
-    const mutationAt = Math.max(workspace.snapshots["contacts.add"]?.time || 0, workspace.snapshots["approval.respond"]?.time || 0);
+    const mutationAt = Math.max(...["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].map(method => workspace.snapshots[method]?.time || 0));
     // A read already in flight when a write completes cannot acknowledge that write.
     const stale = (method) => now - (workspace.snapshots[method]?.time || 0) >= exports.SYNC_INTERVAL_MS ||
         mutationAt > (workspace.snapshots[method]?.sourceAt ?? workspace.snapshots[method]?.time ?? 0);
@@ -238,6 +238,8 @@ function syncReadPlan(workspace, conversationIds, now) {
     else {
         if (allowed.has("contacts.list") && stale("contacts.list"))
             plan.push({ method: "contacts.list", params: {} });
+        if (allowed.has("contacts.requests") && stale("contacts.requests"))
+            plan.push({ method: "contacts.requests", params: {} });
         if (allowed.has("inbox.list") && stale("inbox.list"))
             plan.push({ method: "inbox.list", params: {} });
     }
@@ -253,9 +255,9 @@ function syncBackoff(failures) {
     return Math.min(300_000, 30_000 * 2 ** Math.min(Math.max(failures - 1, 0), 4));
 }
 function nextCycleDelay(workspace) {
-    const mutationAt = Math.max(workspace.snapshots["contacts.add"]?.time || 0, workspace.snapshots["approval.respond"]?.time || 0);
+    const mutationAt = Math.max(...["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].map(method => workspace.snapshots[method]?.time || 0));
     const allowed = new Set(availableMethods(workspace.snapshots.capabilities?.data));
-    const refresh = ["attention.list", ...(allowed.has("collaboration.state") ? ["collaboration.state"] : ["contacts.list", "inbox.list"])];
+    const refresh = ["attention.list", ...(allowed.has("collaboration.state") ? ["collaboration.state"] : ["contacts.list", "contacts.requests", "inbox.list"])];
     if (mutationAt && refresh.some(method => allowed.has(method) && mutationAt > (workspace.snapshots[method]?.sourceAt ?? workspace.snapshots[method]?.time ?? 0))) return 0;
     return workspace.snapshots["attention.list"]?.data.has_more === true ? 0 : workspace.submission || workspace.conversations.some(item => item.pending) ? 5_000 : exports.SYNC_INTERVAL_MS;
 }
@@ -305,17 +307,17 @@ function validateAttentionPage(value) {
             !Number.isSafeInteger(item.revision) || item.revision < 1 || item.revision > page.cursor ||
             !(typeof item.source_revision === "string" || Number.isSafeInteger(item.source_revision)) ||
             !["open", "resolved", "superseded", "expired"].includes(item.state) || typeof item.title !== "string" || item.title.length > 1000 ||
-            typeof item.safe_summary !== "string" || item.safe_summary.length > 8000 || !["task", "inbox", "approval"].includes(item.target?.kind) || !stable(item.target.id) ||
+            typeof item.safe_summary !== "string" || item.safe_summary.length > 8000 || !["task", "inbox", "approval", "contact"].includes(item.target?.kind) || !stable(item.target.id) ||
             !seconds(item.created_at) || !seconds(item.updated_at) || (item.expires_at != null && !seconds(item.expires_at))) throw new Error("Invalid attention item");
         ids.add(item.attention_id);
     }
     return page;
 }
 function attentionRequiresAction(kind, state) {
-    return state === "open" && ["owner_decision_required", "needs_recovery", "connection_action_required", "needs_response", "new_collaboration_request"].includes(kind);
+    return state === "open" && ["owner_decision_required", "needs_recovery", "connection_action_required", "needs_response", "new_collaboration_request", "friend_request_received"].includes(kind);
 }
 function notificationRoute(agentId, target) {
-    return `/dashboard/agents/${encodeURIComponent(agentId)}?tab=${target.kind === "inbox" ? "inbox" : "tasks"}&subject=${encodeURIComponent(target.id)}`;
+    return `/dashboard/agents/${encodeURIComponent(agentId)}?tab=${target.kind === "inbox" ? "inbox" : target.kind === "contact" ? "contacts" : "tasks"}&subject=${encodeURIComponent(target.id)}`;
 }
 exports.validateAttentionPage = validateAttentionPage;
 exports.attentionRequiresAction = attentionRequiresAction;

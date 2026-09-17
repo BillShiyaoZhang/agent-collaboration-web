@@ -86,7 +86,7 @@ The request deadline is 120 seconds and encrypted delivery cache retention is 10
 
 New agent versions can separately grant `contacts.add` and `approval.respond` in local pairing. Existing pairings gain no permissions automatically. Both methods require an explicit user action and are excluded from every automatic sync plan.
 
-- `contacts.add`: `{ contact_id, aliases, urn }`. The user confirms the displayed name/address binding; the agent stores it directly, without asking a language model. Returns `{ decision: "allow", status: "confirmed" | "already_confirmed", contact }`. This establishes a contact mapping only.
+- `contacts.add`: `{ contact_id, aliases, urn }`. The user confirms the displayed name/address binding; the local agent sends a friendship request through its persistent outbox. Returns `{ decision: "allow", status: "requested" | "already_requested" | "already_connected", contact, request_id? }`. A new request is pending until the peer accepts.
 - `approval.respond`: `{ approval_id, decision: "approve" | "deny" }`. Display the complete agent-provided question before submitting. The immutable approval ID binds the question, owner and payload; the agent revalidates the owner, task version, expiry and current decision. Returns `{ approval_id, decision: "allow" | "deny", status: "approved_once" | "denied" }`. An expired presentation lease can be renewed by an explicit decision, while the underlying task's expiry remains enforced.
 
 Preserve the original request ID and parameters after an uncertain result. A successful receipt schedules fresh agent reads; it does not fabricate contact or approval snapshots. Snapshot `sourceAt` is the read request's creation time in milliseconds, so a read already in flight before a mutation receipt is refreshed again. `collaboration.state.approval_decisions` supplies explicit terminal decisions for clients without `attention.list`; missing records alone never resolve a notification. Native confirmation and Web confirmation share the same agent state and cannot overwrite an already completed decision.
@@ -122,3 +122,8 @@ npx tsc --noEmit
 npm run lint
 npm run build
 ```
+
+
+Social parity RPCs are separately paired: `contacts.requests` is a read returning `{ contact_requests }`; `contacts.respond` accepts `{ request_id, decision: "accept" | "reject", contact_id?, aliases? }`; `messages.send` accepts `{ recipient_urn, text, message_id? }`; `inbox.mark_read` accepts `{ message_id }` and returns the authoritative message view. `collaboration.execute` accepts the same action parameters as the native runtime and exposes `describe.action_fields` for forms. It is never automatically scheduled; an `uncertain` execution must be inspected, not replayed under a new ID.
+
+`collaboration.state` includes `contact_requests`, `sent_messages`, contact `connection_status` and expiring `presence`, and inbox `read`/`read_at`. `attention.target.kind` supports `contact`. Resolved inbox attention updates older cached read facts and closes notification counts and browser notices. Server push invalidation wakes a closed browser to revalidate and close the original notification; delivery remains subject to browser push availability.

@@ -1,0 +1,65 @@
+// Run after SOCIAL_FIXTURE=1 node tests/integration/workspace-fixture.cjs.
+// Exercises real rendered React controls against the signed/encrypted loopback fixture.
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
+const base = 'http://127.0.0.1:3062', platform = 'http://127.0.0.1:3061';
+const output = path.resolve(__dirname, '../../build/workspace-social-preview'); fs.mkdirSync(output, { recursive: true });
+const writes = [], errors = [], checks = [];
+(async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } }); page.setDefaultTimeout(30000);
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => { if (request.method() === 'POST' && /\/control$/.test(request.url())) { const call = request.postDataJSON(); if (['contacts.add','contacts.respond','messages.send','inbox.mark_read','conversation.send'].includes(call.method)) writes.push(call); } });
+    await page.goto(`${base}/login`); await page.getByLabel('邮箱', { exact: true }).fill('owner-a@workspace.invalid');
+    await page.getByLabel('密码', { exact: true }).fill('Workspace-smoke-fixture-2026'); await page.getByRole('button', { name: '进入工作空间', exact: true }).click();
+    await page.waitForURL('**/dashboard/agents'); await page.getByRole('link', { name: '打开 同步测试 A1 的远程工作台', exact: true }).click();
+    await page.getByRole('tab', { name: '联系人', exact: true }).click();
+    await page.locator('#subject-incoming-accept').getByRole('button', { name: '接受好友请求', exact: true }).waitFor();
+    assert.equal(writes.length, 0);
+    await page.locator('#subject-incoming-accept').getByRole('button', { name: '接受好友请求', exact: true }).click();
+    await page.locator('#subject-incoming-accept').getByText('收到的请求 · 已建立连接', { exact: true }).waitFor();
+    await page.locator('#subject-incoming-reject').getByRole('button', { name: '拒绝', exact: true }).click();
+    await page.locator('#subject-incoming-reject').getByText('收到的请求 · 已拒绝', { exact: true }).waitFor();
+    await page.getByText('● 在线', { exact: true }).waitFor(); await page.getByText('● 离线', { exact: true }).waitFor();
+    checks.push('incoming friend requests are visible and accept/reject updates the agent-backed contacts; fresh online/offline states render');
+    await page.getByRole('button', { name: '添加联系人', exact: true }).click();
+    await page.getByLabel('姓名或称呼', { exact: true }).fill('新朋友'); await page.getByLabel('对方的 URN', { exact: true }).fill('urn:fixture:new-friend');
+    await page.getByRole('checkbox').check(); await page.getByRole('button', { name: '发送好友请求', exact: true }).click();
+    await page.getByText('好友请求已发出，等待对方接受；通讯录状态会自动同步。', { exact: true }).waitFor();
+    const pending = page.locator('article').filter({ has: page.getByRole('heading', { name: '新朋友', exact: true }) });
+    await pending.getByText('等待对方接受', { exact: true }).waitFor();
+    await fetch(`${platform}/fixture/mode`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acceptOutgoing: true, due: true }) });
+    await page.getByRole('button', { name: '刷新', exact: true }).click(); await pending.locator('p').filter({hasText:'已建立连接'}).waitFor();
+    checks.push('outgoing requests stay pending until peer acceptance arrives; then the contact becomes connected');
+    await page.getByRole('tab', { name: '收件箱', exact: true }).click();
+    await page.getByLabel('消息接收方 URN').fill('urn:fixture:online');
+    await page.getByLabel('发送给好友的消息', { exact: true }).first().fill('网页直接发送，与本机相同');
+    await page.getByRole('button', { name: '发送消息', exact: true }).click(); await page.getByText('Agent 已受理消息，发送记录正在同步。', { exact: true }).waitFor();
+    await fetch(`${platform}/fixture/mode`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nativeRead: true, due: true }) });
+    await page.getByRole('button', {name:'刷新',exact:true}).click();
+    await page.locator('#subject-social-message').getByText('已读 · agent 已记录', { exact: true }).waitFor();
+    await page.locator('#subject-social-message-web').getByRole('button', { name: '标为已读并关闭提醒', exact: true }).click();
+    await page.locator('#subject-social-message').getByText('已读 · agent 已记录', { exact: true }).waitFor();
+    const send = writes.find(call => call.method === 'messages.send'); assert.equal(send.params.recipient_urn, 'urn:fixture:online'); assert.ok(send.params.message_id);
+    assert.equal(writes.filter(call => call.method === 'inbox.mark_read').length, 1);
+    await page.locator('#subject-social-message-web').getByText('已读 · agent 已记录', { exact: true }).waitFor();
+    checks.push('peer-message composer dispatches through the local agent; native read updates Web and Web read updates agent snapshots');
+    await page.getByRole('tab', {name:'事项',exact:true}).click();
+    await page.getByText('更多 agent-comm 功能', {exact:true}).click();
+    await page.getByRole('button', {name:'读取本机可用功能',exact:true}).click();
+    await page.getByLabel('接收者 URN *', {exact:true}).fill('urn:fixture:online');
+    await page.getByLabel('内容 *', {exact:true}).fill('只执行一次的协作动作');
+    await page.getByRole('button', {name:'执行所选功能',exact:true}).click();
+    await page.getByText('本机重启后尚不能确认操作，请查询记录核实。', {exact:true}).waitFor();
+    assert.equal(await page.getByRole('button', {name:'重新提交相同内容',exact:true}).count(),0);
+    checks.push('uncertain collaboration execution remains unresolved and cannot silently receive a new request ID');
+    await page.getByRole('tab', {name:'收件箱',exact:true}).click();
+    await page.screenshot({ path: path.join(output, 'desktop-inbox.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 }); await page.getByRole('tab', { name: '联系人', exact: true }).click();
+    const bounds = await page.evaluate(() => ({ viewport: innerWidth, content: document.documentElement.scrollWidth })); assert.equal(bounds.content, bounds.viewport);
+    await page.screenshot({ path: path.join(output, 'mobile-contacts.png'), fullPage: true });
+    assert.deepEqual(errors, []); fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ checks, writes: writes.map(call => call.method), errors, bounds }, null, 2));
+    console.log(JSON.stringify({ checks, writes: writes.length, errors }, null, 2));
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

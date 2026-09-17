@@ -79,6 +79,16 @@ self.addEventListener("push", event => {
     const bound = await read("binding");
     if (!bound || payload.binding !== bound.binding) return;
     const current = await api({ action: "resolve", deliveryId: payload.deliveryId, binding: payload.binding });
+    if (payload.action === "reconcile") {
+      if (current && current.valid === false) await mutateDisplay(async () => {
+        const latest = await read("binding");
+        if (latest?.binding !== payload.binding) return;
+        for (const notice of await self.registration.getNotifications())
+          if (notice.data?.deliveryId === payload.deliveryId && notice.data?.binding === payload.binding) notice.close();
+      });
+      for (const client of await self.clients.matchAll({ type: "window", includeUncontrolled: true })) client.postMessage({ type: "agent-comm-attention-refresh" });
+      return;
+    }
     if (!current?.valid || current.accountId !== bound.accountId || current.binding !== bound.binding) return;
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     if (!current.test && windows.some(client => client.focused && client.visibilityState === "visible")) {

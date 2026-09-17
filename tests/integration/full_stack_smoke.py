@@ -147,8 +147,8 @@ api:
         assert roundtrip("contacts.add", friend)["error"]["code"] == "method_not_allowed"
         bridge.pair(identity["virtualUrn"], "local-smoke-owner",
                     ["capabilities", "contacts.list", "collaboration.state", "contacts.add", "approval.respond"], iso(3600))
-        assert roundtrip("contacts.add", friend)["result"]["status"] == "confirmed"
-        assert roundtrip("contacts.add", friend)["result"]["status"] == "already_confirmed"
+        assert roundtrip("contacts.add", friend)["result"]["status"] == "requested"
+        assert roundtrip("contacts.add", friend)["result"]["status"] == "already_requested"
         decisions = []
         for decision in ("approve", "deny"):
             staged = store.prepare_contact("pending-" + decision, ["网页" + decision], "urn:agent-comm:agent:" + decision, owner)

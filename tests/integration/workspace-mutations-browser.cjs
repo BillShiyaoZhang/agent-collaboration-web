@@ -19,7 +19,7 @@ async function contact(name, urn) {
   await page.getByLabel("姓名或称呼", { exact: true }).fill(name);
   await page.getByLabel("其他别名", { exact: false }).fill("朋友，协作伙伴");
   await page.getByLabel("对方的 URN", { exact: true }).fill(urn);
-  assert.equal(await page.getByRole("button", { name: "确认添加", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "发送好友请求", exact: true }).isDisabled(), true);
   await page.getByRole("checkbox").check();
 }
 async function decision(id, name) {
@@ -57,7 +57,7 @@ async function main() {
   await contact("网页测试联系人", "urn:agent-comm:agent:web-browser-contact");
   await noOverflow(); await shot("01-contact-confirmation-desktop");
   nextFailure = "disconnect";
-  await page.getByRole("button", { name: "确认添加", exact: true }).click();
+  await page.getByRole("button", { name: "发送好友请求", exact: true }).click();
   await page.getByRole("button", { name: "重试本次添加", exact: true }).waitFor();
   const first = writes.at(-1);
   assert.match(first.params.contact_id, /^contact-/);
@@ -73,7 +73,7 @@ async function main() {
   await page.getByRole("button", { name: "添加另一位联系人", exact: true }).click();
   await contact("过期请求测试联系人", "urn:agent-comm:agent:expired-browser-contact");
   nextFailure = "expired";
-  await page.getByRole("button", { name: "确认添加", exact: true }).click();
+  await page.getByRole("button", { name: "发送好友请求", exact: true }).click();
   await page.getByRole("button", { name: "重新提交相同内容", exact: true }).waitFor();
   const expired = writes.at(-1);
   await page.getByRole("button", { name: "重新提交相同内容", exact: true }).click();

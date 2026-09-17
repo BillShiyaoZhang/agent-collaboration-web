@@ -115,7 +115,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     if (activeCalls.current.has(method)) return {};
     activeCalls.current.add(method);
     const signal = lifecycle.current.signal, call = original || client.prepare(method, params);
-    const mutation = method === "contacts.add" || method === "approval.respond";
+    const mutation = ["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].includes(method);
     setBusy(previous => ({ ...previous, [method]: mutation ? "正在提交，等待 agent 确认…" : "正在读取最新内容…" }));
     setErrors(previous => ({ ...previous, [method]: undefined }));
     try {
@@ -159,8 +159,9 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     else await refreshSaved();
   }, [agent.id, requestSync, canReadCollaboration, canReadContacts, invoke, refreshSaved]);
   const mutations = useWorkbenchMutations({ agentId: agent.id, consoleUrn: identity.virtualUrn || "", client, invoke,
-    canAddContact, canRespondApproval, refresh: refreshMutations, contacts: records(snapshots["contacts.list"]?.data.contacts),
-    approvalDecisions: records(snapshots["collaboration.state"]?.data.approval_decisions) });
+    canAddContact, canRespondApproval, canMutate: name => available(name) && pairingAllowsSend(capabilitySnapshot?.data, sync), refresh: refreshMutations, contacts: records(snapshots["contacts.list"]?.data.contacts),
+    approvalDecisions: records(snapshots["collaboration.state"]?.data.approval_decisions), requests: records(snapshots["contacts.requests"]?.data.contact_requests ?? snapshots["contacts.requests"]?.data.requests),
+    messages: records(snapshots["inbox.list"]?.data.messages), sentMessages: records(snapshots["collaboration.state"]?.data.sent_messages) });
   const canReadConversation = available("conversation.get");
   const remoteTurns = currentSnapshot?.conversation_id === conversationId ? records(currentSnapshot.turns) : [];
   const turns = mergeTurns(remoteTurns, submittedTurns.filter(turn => turn.conversation_id === conversationId && !remoteTurns.some(remote => remote.turn_id === turn.turn_id)));
@@ -191,6 +192,16 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     } catch (error) { if (!signal.aborted) setIdentityError(error instanceof Error ? error.message : "暂时无法注册控制台身份。"); }
     finally { if (!signal.aborted) setIdentityBusy(false); }
   }
+
+  const identityAttempted = useRef(false);
+  useEffect(() => {
+    if (!identity.virtualUrn && !identityAttempted.current) {
+      identityAttempted.current = true;
+      void createIdentity();
+    }
+    // Create the console identity once on first binding; a failed registration remains explicitly retryable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity.virtualUrn]);
 
   async function selectConversation(id: string) {
     if (selecting.current || sending.current || submission) return false;

@@ -179,3 +179,16 @@ test('already queued foreground rows cannot starve another account from the next
   await store.runPushTick(send); assert.equal(sent.length, 0);
   await store.runPushTick(send); assert.deepEqual(sent, [`https://fcm.googleapis.com/fcm/send/${otherDevice}`]);
 }));
+
+test('agent-resolved notifications send one verified dismissal wakeup to closed browsers', () => fixture(async ({ db, store, subscribe, notice }) => {
+  await subscribe(); await notice(); const calls = [];
+  const send = async (_subscription, payload) => { calls.push(JSON.parse(payload)); };
+  await store.runPushTick(send);
+  assert.equal(calls.length, 1);
+  await db.$executeRawUnsafe('UPDATE "WebPushDelivery" SET "status"=\'displayed\'');
+  await db.$executeRawUnsafe('UPDATE "WorkspaceNotification" SET "state"=\'resolved\',"revision"=2');
+  await store.runPushTick(send); await store.runPushTick(send);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].action, 'reconcile'); assert.equal(calls[1].deliveryId, calls[0].deliveryId);
+  assert.equal((await db.$queryRawUnsafe('SELECT "status" FROM "WebPushDelivery"'))[0].status, 'closed');
+}));

@@ -131,3 +131,11 @@ test('canonical JSON ignores object order while preserving array order, values a
   const client = new api.WorkbenchClient('agent', async () => { throw new Error('unused'); });
   assert.strictEqual(client.prepare('conversation.send', { text: 'go', conversation_id: 'chat' }), client.prepare('conversation.send', { conversation_id: 'chat', text: 'go' }));
 });
+
+test('friend request targets route to contacts and social writes only invalidate reads', () => {
+  const c = require('../index.js');
+  assert.equal(c.attentionRequiresAction('friend_request_received', 'open'), true);
+  assert.equal(c.notificationRoute('agent', { kind: 'contact', id: 'request-1' }), '/dashboard/agents/agent?tab=contacts&subject=request-1');
+  for (const method of ['contacts.respond', 'messages.send', 'inbox.mark_read', 'collaboration.execute']) assert.equal(c.AUTOMATIC_METHODS.has(method), false);
+  assert.equal(c.AUTOMATIC_METHODS.has('contacts.requests'), true);
+});

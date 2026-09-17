@@ -525,3 +525,37 @@ test("real SQLite transaction-start contention remains a recoverable P1008 failu
     await other.$disconnect();
   }
 }));
+
+test("agent snapshots carry friend decisions and resolve read messages without mutating from receipts", () => fixture(async ({ user, agent, store, save }) => {
+  const time = Date.now() - 500;
+  const request = { request_id: "request-a", direction: "incoming", peer_urn: "urn:agent:friend", status: "pending" };
+  const message = { message_id: "message-a", sender_urn: "urn:agent:friend", text: "hello", read: false };
+  await save("collaboration.state", { contacts: [], contact_requests: [request], inbox: { messages: [message] } }, time);
+  let workspace = await store.getWorkspaceAgent(user.id, agent.id);
+  assert.deepEqual(workspace.snapshots["contacts.requests"].data.contact_requests, [request]);
+  assert.equal(workspace.snapshots["inbox.list"].data.messages[0].read, false);
+  await save("inbox.mark_read", { message_id: "message-a", status: "read" }, time + 1);
+  await save("contacts.respond", { request_id: "request-a", status: "accepted" }, time + 2);
+  workspace = await store.getWorkspaceAgent(user.id, agent.id);
+  assert.equal(workspace.snapshots["inbox.list"].data.messages[0].read, false, "receipt never invents an agent snapshot");
+  assert.equal(workspace.snapshots["contacts.requests"].data.contact_requests[0].status, "pending");
+  await save("collaboration.state", { contacts: [{ urn: "urn:agent:friend", connection_status: "connected", presence: { status: "online", expires_at: 9999999999 } }], contact_requests: [{ ...request, status: "accepted" }], inbox: { messages: [{ ...message, read: true }] } }, time + 3);
+  workspace = await store.getWorkspaceAgent(user.id, agent.id);
+  assert.equal(workspace.snapshots["contacts.list"].data.contacts[0].presence.status, "online");
+  assert.equal(workspace.snapshots["contacts.requests"].data.contact_requests[0].status, "accepted");
+  assert.equal(workspace.snapshots["inbox.list"].data.messages[0].read, true);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.find(item => item.target.id === "message-a").state, "resolved");
+}));
+
+
+test("resolved agent attention closes an old cached message outside the latest inbox and clears unread counts", () => fixture(async ({ user, agent, store, save }) => {
+  const time = Date.now() - 100;
+  await save("inbox.list", { messages: [{ message_id: "old-message", sender_urn: "urn:agent:friend", text: "old", read: false }] }, time);
+  await save("attention.list", attentionPage([attentionItem({ attention_id: "inbox:old-message", kind: "peer_message_received", subject_id: "old-message", target: {kind:"inbox",id:"old-message"}, state: "resolved" })], 1), time + 1);
+  const data = await store.getWorkspaceAgent(user.id, agent.id);
+  assert.equal(data.snapshots["inbox.list"].data.messages[0].read, true);
+  const page = await store.getWorkspaceNotifications(user.id);
+  assert.equal(page.unread, 0); assert.equal(page.items[0].unread, false);
+  await save("inbox.list", { messages: [{ message_id: "old-message", read: false }] }, time + 2);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["inbox.list"].data.messages[0].read, true);
+}));

@@ -19,10 +19,18 @@ export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return NextResponse.json({error:"Unauthorized"},{status:401});
     try { requireSameOrigin(request); } catch { return NextResponse.json({error:"Forbidden origin"},{status:403}); }
-    const parsed = z.object({name:z.string().trim().min(1).max(100),urn:z.string().min(10).max(256)}).strict().safeParse(await readJsonBody(request, 4096));
+    const parsed = z.object({name:z.string().trim().min(1).max(100),urn:z.string().trim().min(10).max(256).regex(/^urn:[A-Za-z0-9][A-Za-z0-9._:-]*:[A-Za-z0-9][A-Za-z0-9._-]*$/)}).strict().safeParse(await readJsonBody(request, 4096));
     if (!parsed.success) return NextResponse.json({error:"请填写连接名称与 agent 的完整 URN。"}, {status:400});
-    const identity = await resolveIdentity(parsed.data.urn);
-    const agent = await prisma.agent.create({data:{userId:session.user.id,name:parsed.data.name,urn:parsed.data.urn,publicKey:Buffer.from(identity.ed25519_pubkey,"base64").toString("hex"),platformRegistered:true}});
+    let publicKey = "", platformRegistered = false;
+    try {
+      const identity = await resolveIdentity(parsed.data.urn);
+      publicKey = Buffer.from(identity.ed25519_pubkey, "base64").toString("hex");
+      platformRegistered = true;
+    } catch (error) {
+      // An unregistered local agent can be bound after local setup registers its own signed identity.
+      if (!(error instanceof ControlError && error.platformStatus === 404)) throw error;
+    }
+    const agent = await prisma.agent.create({data:{userId:session.user.id,name:parsed.data.name,urn:parsed.data.urn,publicKey,platformRegistered}});
     await scheduleWorkspaceSync(session.user.id, agent.id);
     startWorkspaceSync();
     return NextResponse.json(agent,{status:201});

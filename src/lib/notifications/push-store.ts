@@ -7,7 +7,7 @@ import { allowedPushEndpoint, isGonePushStatus, PUSH_FRESH_MS, PUSH_LEASE_MS, PU
 type Subscription = { id: string; userId: string; deviceId: string; binding: string; endpointHash: string; payload: string; active: number; enabledAt: number; expiresAt: number; visibleUntil: number; lastTestAt: number; lastError: string | null };
 type Delivery = { id: string; subscriptionId: string; agentId: string; notificationId: string; revision: number; kind: string; status: string; attempts: number; claimed: number; nextAttemptAt: number; expiresAt: number; leaseToken: string | null; leaseUntil: number | null; updatedAt: number; lastError: string | null };
 type Vapid = { publicKey: string; privateKey: string };
-const ACTIONABLE = "'owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request'";
+const ACTIONABLE = "'owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request','friend_request_received'";
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 function storageKey() {
   if (!process.env.NEXTAUTH_SECRET) throw new ControlError("服务器尚未配置推送加密。", 503);
@@ -122,6 +122,33 @@ export async function runPushTick(send = webpush.sendNotification.bind(webpush))
   await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status" = 'expired', "leaseToken" = NULL, "leaseUntil" = NULL, "updatedAt" = ${now}
     WHERE "status" IN ('pending','sending','sent','received','deferred') AND "expiresAt" <= ${now}`;
   await prisma.$executeRaw`DELETE FROM "WebPushDelivery" WHERE "updatedAt" < ${now - 7 * 86400000} AND "status" NOT IN ('pending','sending')`;
+  // Wake closed browsers when an agent resolves a previously displayed item.
+  // The browser verifies the saved delivery again before closing its exact notice.
+  await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='close_pending',"attempts"=0,"nextAttemptAt"=${now},"expiresAt"=${now + PUSH_TTL_MS},"updatedAt"=${now}
+    WHERE "kind"='notification' AND "status" IN ('displayed','sent','received','deferred','expired')
+    AND EXISTS (SELECT 1 FROM "WorkspaceNotification" n WHERE n."agentId"="WebPushDelivery"."agentId" AND n."id"="WebPushDelivery"."notificationId"
+      AND (n."state"<>'open' OR n."revision"<>"WebPushDelivery"."revision" OR n."readRevision">="WebPushDelivery"."revision"))`;
+  const closing = await prisma.$queryRaw<Delivery[]>`SELECT d.* FROM "WebPushDelivery" d JOIN "WebPushSubscription" s ON s."id"=d."subscriptionId"
+    WHERE s."active"=1 AND s."expiresAt">${now} AND d."attempts"<5 AND d."nextAttemptAt"<=${now}
+    AND (d."status"='close_pending' OR d."status"='close_sending' AND d."leaseUntil"<${now}) LIMIT 4`;
+  for (const row of closing) {
+    const token = crypto.randomUUID();
+    const leased = await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='close_sending',"leaseToken"=${token},"leaseUntil"=${now + 30000},"attempts"="attempts"+1
+      WHERE "id"=${row.id} AND ("status"='close_pending' OR "status"='close_sending' AND "leaseUntil"<${now})`;
+    if (!leased) continue;
+    try {
+      const sub = (await prisma.$queryRaw<Subscription[]>`SELECT * FROM "WebPushSubscription" WHERE "id"=${row.subscriptionId}`)[0];
+      if (sub?.active) {
+        const value = unseal<BrowserPushSubscription>([sub.userId, sub.id], sub.payload);
+        if (!allowedPushEndpoint(value.endpoint)) throw new Error("invalid_endpoint");
+        await send(value, JSON.stringify({ schema: "agent-comm-push/v1", action: "reconcile", deliveryId: row.id, binding: sub.binding, expiresAt: now + PUSH_TTL_MS }),
+          { vapidDetails: { subject, ...await keys() }, TTL: Math.floor(PUSH_TTL_MS / 1000), urgency: "normal", topic: hash(`close:${row.id}`).slice(0, 32), timeout: 10000 });
+      }
+      await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='closed',"leaseToken"=NULL,"leaseUntil"=NULL,"updatedAt"=${Date.now()} WHERE "id"=${row.id} AND "leaseToken"=${token}`;
+    } catch {
+      await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='close_pending',"leaseToken"=NULL,"leaseUntil"=NULL,"nextAttemptAt"=${Date.now() + pushRetryDelay(row.attempts + 1)},"updatedAt"=${Date.now()} WHERE "id"=${row.id} AND "leaseToken"=${token}`;
+    }
+  }
   // Parameterized constants only; the interpolated actionable list is fixed code.
   await prisma.$executeRawUnsafe(`INSERT OR IGNORE INTO "WebPushDelivery" ("id","subscriptionId","agentId","notificationId","revision","nextAttemptAt","expiresAt","updatedAt")
     SELECT lower(hex(randomblob(16))),s."id",n."agentId",n."id",n."revision",?,MIN(COALESCE(n."expiresAt",?),?),?

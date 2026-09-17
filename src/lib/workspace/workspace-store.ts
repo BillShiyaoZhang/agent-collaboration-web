@@ -148,6 +148,7 @@ async function saveItem(db: DB, userId: string, agentId: string, kind: "turn" | 
   const merged = { ...prior, ...data };
   // A missing user-text field in a remote read must not erase the accepted send.
   if (!string(merged.text) && string(prior.text)) merged.text = prior.text;
+  if (kind === "inbox" && prior.read === true) { merged.read = true; merged.read_at = prior.read_at; }
   // Delayed or inconsistent remote snapshots cannot revive a settled turn.
   if (kind === "turn" && (["completed", "failed"].includes(string(prior.status)) || prior.status === "interrupted" && prior.locally_unconfirmed !== true) && ["submitted", "running"].includes(string(data.status))) {
     merged.status = prior.status; merged.response = prior.response; merged.error = prior.error;
@@ -238,7 +239,14 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
       const automaticPage = currentJob?.requestId === row.id && currentPlan[0]?.method === "attention.list" && Number(currentPlan[0].params.after || 0) <= Number(cursor);
       if (automaticPage && page.has_more && (!page.items.length || page.cursor <= Number(cursor))) throw new Error("Attention page does not advance");
       const initialized = await notificationBaseline(tx, agent.id, "attention");
-      for (const item of page.items) await saveNotification(tx, user.id, agent.id, item, sourceAt, "attention", initialized);
+      for (const item of page.items) {
+        await saveNotification(tx, user.id, agent.id, item, sourceAt, "attention", initialized);
+        if (item.target.kind === "inbox" && item.state === "resolved" && ["peer_message_received", "friend_request_accepted", "friend_request_rejected"].includes(item.kind)) {
+          // Resolved inbox attention is the agent's read fact, including old messages outside its latest inbox window.
+          const previous = (await tx.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId"=${agent.id} AND "kind"='inbox' AND "itemId"=${item.target.id}`)[0];
+          if (previous) await saveItem(tx, user.id, agent.id, "inbox", item.target.id, "", { ...unseal<RemoteRecord>(user.id, agent.id, "inbox", item.target.id, previous.payload), read: true, read_at: item.updated_at }, Math.max(sourceAt, previous.sourceAt));
+        }
+      }
       if (automaticPage && !page.has_more) {
         await finishNotificationBaseline(tx, agent.id, "attention");
         await tx.$executeRaw`UPDATE "WorkspaceNotification" SET "sourceAt" = MAX("sourceAt",${sourceAt}) WHERE "agentId" = ${agent.id} AND "remoteRevision" > 0`;
@@ -249,7 +257,10 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     } else {
       await saveSnapshot(tx, user.id, agent.id, row, row.method, row.method === "conversation.get" ? convId : "", data);
     }
-    if (row.method === "contacts.add" || row.method === "approval.respond") {
+    if (row.method === "inbox.mark_read" && data.status === "read" && record(data.message).message_id === data.message_id && record(data.message).read === true) {
+      await saveItem(tx, user.id, agent.id, "inbox", string(data.message_id), "", record(data.message), sourceAt);
+    }
+    if (["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].includes(row.method)) {
       // The authenticated receipt schedules a new read; it never edits a contact
       // list or approval snapshot using browser input or a transport acknowledgement.
       await tx.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${Date.now()}) WHERE "agentId" = ${agent.id}`;
@@ -257,6 +268,8 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     if (row.method === "contacts.list" || row.method === "collaboration.state") {
       if (Array.isArray(data.contacts)) await saveSnapshot(tx, user.id, agent.id, row, "contacts.list", "", { contacts: data.contacts });
     }
+    if (row.method === "collaboration.state" && Array.isArray(data.contact_requests))
+      await saveSnapshot(tx, user.id, agent.id, row, "contacts.requests", "", { contact_requests: data.contact_requests });
     if (row.method === "inbox.list" || row.method === "collaboration.state") {
       const inbox = row.method === "inbox.list" ? data : record(data.inbox);
       const messages = Array.isArray(data.messages) ? records(data.messages) : Array.isArray(data.inbox) ? records(data.inbox) : records(inbox.messages);
@@ -433,7 +446,7 @@ async function deriveNotificationSnapshot(db: DB, userId: string, agentId: strin
   for (const message of messages) {
     const id = string(message.message_id); if (!id) continue;
     await saveNotification(db, userId, agentId, { attention_id: `inbox:${id}`, kind: "peer_message_received", subject_id: id, source_revision: 1, revision: 1,
-      state: "open", title: "收到协作消息", safe_summary: "对端发来一条消息。请在收件箱查看并核实内容。", target: { kind: "inbox", id },
+      state: message.read === true ? "resolved" : "open", title: "收到协作消息", safe_summary: "对端发来一条消息。请在收件箱查看并核实内容。", target: { kind: "inbox", id },
       created_at: timestamp(message.received_at, sourceAt) / 1000, updated_at: at }, sourceAt, "snapshot", initialized);
   }
   if (Array.isArray(data.messages) || Array.isArray(data.inbox) || Array.isArray(inbox.messages)) await finishNotificationBaseline(db, agentId, "inbox");
@@ -463,21 +476,21 @@ async function deriveNotificationSnapshot(db: DB, userId: string, agentId: strin
 }
 async function notificationCounts(db: DB, userId: string) {
   const rows = await db.$queryRaw<{ unread: bigint | null; pending: bigint | null }[]>`SELECT
-    SUM(CASE WHEN n."readRevision" < n."revision" THEN 1 ELSE 0 END) AS "unread",
-    SUM(CASE WHEN n."state" = 'open' AND n."kind" IN ('owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request') AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()}) THEN 1 ELSE 0 END) AS "pending"
+    SUM(CASE WHEN n."state" = 'open' AND n."readRevision" < n."revision" THEN 1 ELSE 0 END) AS "unread",
+    SUM(CASE WHEN n."state" = 'open' AND n."kind" IN ('owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request','friend_request_received') AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()}) THEN 1 ELSE 0 END) AS "pending"
     FROM "WorkspaceNotification" n JOIN "Agent" a ON a."id" = n."agentId" WHERE a."userId" = ${userId}`;
   return { unread: Number(rows[0]?.unread || 0), pending: Number(rows[0]?.pending || 0) };
 }
 export async function getWorkspaceNotifications(userId: string, before?: number, filter: "all" | "unread" | "pending" = "all"): Promise<NotificationPage> {
   const rows = await prisma.$queryRaw<(NotificationRow & { agentName: string })[]>(Prisma.sql`SELECT n.*, a."name" AS "agentName" FROM "WorkspaceNotification" n JOIN "Agent" a ON a."id" = n."agentId"
     WHERE a."userId" = ${userId} ${before === undefined ? Prisma.empty : Prisma.sql`AND n."seq" < ${before}`}
-    ${filter === "unread" ? Prisma.sql`AND n."readRevision" < n."revision"` : filter === "pending" ? Prisma.sql`AND n."state" = 'open' AND n."kind" IN ('owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request') AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()})` : Prisma.empty}
+    ${filter === "unread" ? Prisma.sql`AND n."state" = 'open' AND n."readRevision" < n."revision"` : filter === "pending" ? Prisma.sql`AND n."state" = 'open' AND n."kind" IN ('owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request','friend_request_received') AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()})` : Prisma.empty}
     ORDER BY n."seq" DESC LIMIT 51`);
   const stateRows = await prisma.$queryRaw<(StateRow & { agentId: string })[]>`SELECT s.* FROM "WorkspaceState" s JOIN "Agent" a ON a."id" = s."agentId" WHERE a."userId" = ${userId}`;
   const items: WorkspaceNotification[] = rows.slice(0, 50).map(row => {
     const { item, source } = unseal<NotificationPayload>(userId, row.agentId, "notification", row.id, row.payload);
     const state = row.state === "open" && row.expiresAt !== null && row.expiresAt <= Date.now() ? "expired" : row.state;
-    return { id: row.id, agentId: row.agentId, agentName: row.agentName, revision: row.revision, unread: row.readRevision < row.revision,
+    return { id: row.id, agentId: row.agentId, agentName: row.agentName, revision: row.revision, unread: state === "open" && row.readRevision < row.revision,
       requiresAction: attentionRequiresAction(row.kind, state), kind: row.kind, state, title: item.title, summary: item.safe_summary,
       target: item.target, href: notificationRoute(row.agentId, item.target), updatedAt: row.updatedAt, observedAt: row.sourceAt, expiresAt: row.expiresAt,
       systemEligible: !!row.systemEligible, source, sync: sync(stateRows.find(state => state.agentId === row.agentId)) };

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import type { Agent, ControlRequest, User } from "@prisma/client";
 import { prisma } from "@/lib/shared/db";
-import { ControlError } from "@/lib/control/control-transport";
+import { ControlError, resolveIdentity } from "@/lib/control/control-transport";
 import { createControlCall, pollControlResponses, controlCallResult } from "@/lib/control/control-service";
 import { ensureWorkspaceState, listDueSyncAgents, claimSyncJob, readSyncJob, updateSyncJob,
   getWorkspaceAgent, getTrackedConversationIds, recordWorkspaceResponse, type SyncJob } from "@/lib/workspace/workspace-store";
@@ -69,6 +69,19 @@ export async function runAgentSyncStep(agentId: string): Promise<void> {
       await updateSyncJob(agentId, { status: "needs_pairing", error: "请先创建控制台身份，再在 agent 本机配对。",
         nextSyncAt: now + 60_000, leaseToken: null, leaseUntil: null }, token);
       return;
+    }
+    if (agent.platformRegistered === false) {
+      try {
+        const identity = await resolveIdentity(agent.urn);
+        const publicKey = Buffer.from(identity.ed25519_pubkey, "base64").toString("hex");
+        await prisma.agent.update({ where: { id: agent.id }, data: { publicKey, platformRegistered: true } });
+        agent.publicKey = publicKey; agent.platformRegistered = true;
+      } catch (error) {
+        if (!(error instanceof ControlError && error.platformStatus === 404)) throw error;
+        await updateSyncJob(agentId, { status: "needs_pairing", error: "请在 agent 本机完成绑定设置；本机将自动注册到 platform。",
+          nextSyncAt: Date.now() + 10_000, leaseToken: null, leaseUntil: null }, token);
+        return;
+      }
     }
     if (!job.lastSuccessAt && !job.requestId) await importRecentResults(user, agent);
     if (job.requestId) {

@@ -1,18 +1,53 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { NotificationPage, WorkspaceNotification } from "@agent-comm/client-contract";
+import { availableMethods, pairingAllowsSend, WorkbenchClient } from "@agent-comm/client-contract";
+import type { NotificationPage, WorkspaceAgent, WorkspaceNotification } from "@agent-comm/client-contract";
 import { workspaceRequest } from "@/components/workspace-provider";
 import { applicationServerKey, bindBrowserPush, browserIsAway, browserPushTransition, clearBrowserPush, PUSH_OWNER_KEY, pushRegistration, pushWorkerMessage, supportsBackgroundPush, type PushSettings } from "@/lib/notifications/browser-push";
 
 const empty: NotificationPage = { items: [], unread: 0, pending: 0, before: null, hasMore: false };
 type ContextValue = { page: NotificationPage; error: string; refresh: () => Promise<void>; markRead: (item: WorkspaceNotification) => Promise<boolean>;
+  checkReadSupport: (items: WorkspaceNotification[]) => Promise<void>; readBlockedReason: (item: WorkspaceNotification) => string;
   enabled: boolean; permission: string; toggleSystem: () => Promise<void>; enableBackground: () => Promise<void>; disableSystem: () => Promise<void>;
   background: boolean; pushAvailable: boolean; away: boolean; diagnostic: string; testSystem: () => Promise<void> };
 const NotificationContext = createContext<ContextValue | null>(null);
 
+type ReadSupport = Pick<WorkspaceAgent, "snapshots" | "sync">;
+const needsAgentRead = (item: WorkspaceNotification) => item.target.kind === "inbox" &&
+  ["peer_message_received", "friend_request_accepted", "friend_request_rejected"].includes(item.kind) && item.state === "open";
+
+export function notificationReadBlockedReason(item: WorkspaceNotification, workspace?: ReadSupport): string {
+  if (!needsAgentRead(item)) return "";
+  const capabilities = workspace?.snapshots.capabilities?.data;
+  if (!capabilities) return "尚未取得本机的已读同步能力，请打开当前事项并检查连接。";
+  if (!availableMethods(capabilities).includes("inbox.mark_read"))
+    return "本机尚未提供或授权已读同步。请升级本机 helper、runtime 和 Hermes connector，再用新版绑定命令重新配对。";
+  if (!pairingAllowsSend(capabilities, workspace!.sync)) return "本机配对已失效，请用绑定命令重新配对后同步已读。";
+  if (workspace!.sync.status === "offline") return "本机 agent 当前离线，恢复连接后才能同步已读。";
+  return "";
+}
+
+export async function confirmNotificationRead(item: WorkspaceNotification, signal: AbortSignal) {
+  if (needsAgentRead(item)) {
+    // Recheck server-saved agent capabilities at the action boundary. A legacy
+    // or ungranted client must never fall back to a Web-only message read fact.
+    const workspace = await workspaceRequest<ReadSupport>(`/api/agents/${encodeURIComponent(item.agentId)}/workspace`, { signal });
+    const blocked = notificationReadBlockedReason(item, workspace);
+    if (blocked) throw new Error(blocked);
+    const client = new WorkbenchClient(item.agentId);
+    const call = client.prepare("inbox.mark_read", { message_id: item.target.id });
+    const result = await client.execute(call, signal);
+    if (result.message_id !== item.target.id || result.status !== "read") throw new Error("Agent 尚未确认已读状态，请稍后重试。");
+    await workspaceRequest("/api/workspace/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId: item.agentId }), signal });
+  }
+  await workspaceRequest("/api/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "read", agentId: item.agentId, id: item.id, revision: item.revision }), signal });
+}
+
 export function NotificationProvider({ accountId, children }: { accountId: string; children: React.ReactNode }) {
   const [page, setPage] = useState(empty), [error, setError] = useState("");
+  const [readSupport, setReadSupport] = useState<Record<string, { workspace?: ReadSupport; error?: string }>>({});
+  const readSupportChecked = useRef(new Map<string, number>()), readSupportPending = useRef(new Set<string>());
   const [enabled, setEnabled] = useState(false), [permission, setPermission] = useState("default");
   const [background, setBackground] = useState(false), [pushAvailable, setPushAvailable] = useState(false), [away, setAway] = useState(false), [diagnostic, setDiagnostic] = useState("");
   const pushRef = useRef(false), lastPushRefresh = useRef(0), pushRefreshing = useRef(false);
@@ -21,6 +56,23 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
   const device = useRef(""), reading = useRef(false), enabledRef = useRef(false), lifetime = useRef<AbortController | undefined>(undefined);
   const shown = useRef(new Map<string, Notification>()), processing = useRef(false);
   const attempted = useRef(new Set<string>());
+  const checkReadSupport = useCallback(async (items: WorkspaceNotification[]) => {
+    const signal = lifetime.current?.signal;
+    if (!signal || signal.aborted) return;
+    const agentIds = [...new Set(items.filter(needsAgentRead).map(item => item.agentId))];
+    await Promise.all(agentIds.map(async agentId => {
+      if (readSupportPending.current.has(agentId) || Date.now() - (readSupportChecked.current.get(agentId) || 0) < 30000) return;
+      readSupportPending.current.add(agentId);
+      try {
+        const workspace = await workspaceRequest<ReadSupport>(`/api/agents/${encodeURIComponent(agentId)}/workspace`, { signal });
+        if (!signal.aborted) setReadSupport(previous => ({ ...previous, [agentId]: { workspace: { snapshots: { capabilities: workspace.snapshots.capabilities }, sync: workspace.sync } } }));
+      } catch {
+        if (!signal.aborted) setReadSupport(previous => ({ ...previous, [agentId]: { error: "暂时无法核验本机已读能力，请恢复连接后刷新。" } }));
+      } finally { readSupportPending.current.delete(agentId); readSupportChecked.current.set(agentId, Date.now()); }
+    }));
+  }, []);
+  const readBlockedReason = useCallback((item: WorkspaceNotification) => needsAgentRead(item)
+    ? readSupport[item.agentId]?.error || notificationReadBlockedReason(item, readSupport[item.agentId]?.workspace) : "", [readSupport]);
   const pushRequest = useCallback(<T,>(body: Record<string, unknown>) => workspaceRequest<T>("/api/notifications/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: lifetime.current?.signal }), []);
   const refreshPush = useCallback(async () => {
     if (!device.current || !supportsBackgroundPush() || pushRefreshing.current || Date.now() - lastPushRefresh.current < 10000) return;
@@ -100,8 +152,8 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
   useEffect(() => {
     // The tab is only a display channel. Server claims coordinate all tabs sharing this device ID.
     for (const [key, notification] of Array.from(shown.current)) {
-      const current = page.items.find(item => `${item.agentId}:${item.id}:${item.revision}` === key);
-      if (current && (!current.unread || current.state !== "open")) { notification.close(); shown.current.delete(key); }
+      const current = page.items.find(item => key.startsWith(`${item.agentId}:${item.id}:`));
+      if (current && (!current.unread || current.state !== "open" || `${current.agentId}:${current.id}:${current.revision}` !== key)) { notification.close(); shown.current.delete(key); }
     }
     if (!enabled || background || !device.current || !away || processing.current || Notification.permission !== "granted") return;
     const candidate = page.items.find(item => item.unread && item.systemEligible && item.state === "open" &&
@@ -126,7 +178,7 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
 
   const markRead = useCallback(async (item: WorkspaceNotification) => {
     try {
-      await workspaceRequest("/api/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "read", agentId: item.agentId, id: item.id, revision: item.revision }), signal: lifetime.current?.signal });
+      await confirmNotificationRead(item, lifetime.current?.signal || new AbortController().signal);
       await refresh();
       return true;
     } catch (failure) { await refresh(); setError(failure instanceof Error ? failure.message : "未能保存已读状态。"); return false; }
@@ -188,6 +240,6 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
       else { const notice = new Notification("Agent Comm 测试提醒", { body: "这是此设备的显示测试，不会执行协作或批准授权。", tag: `agent-comm-test:${accountId}` }); notice.onclick = () => { window.focus(); window.location.assign("/dashboard/notifications"); notice.close(); }; setDiagnostic("已向浏览器提交显示请求；是否出现横幅由浏览器和系统通知设置决定。"); }
     } catch (failure) { setDiagnostic(failure instanceof Error ? failure.message : "测试提醒未能提交，请检查浏览器通知权限。"); }
   }, [accountId, pushRequest]);
-  return <NotificationContext.Provider value={{ page, error, refresh, markRead, enabled, permission, toggleSystem, enableBackground, disableSystem, background, pushAvailable, away, diagnostic, testSystem }}>{children}</NotificationContext.Provider>;
+  return <NotificationContext.Provider value={{ page, error, refresh, markRead, checkReadSupport, readBlockedReason, enabled, permission, toggleSystem, enableBackground, disableSystem, background, pushAvailable, away, diagnostic, testSystem }}>{children}</NotificationContext.Provider>;
 }
 export function useNotifications() { const context = useContext(NotificationContext); if (!context) throw new Error("NotificationProvider is required"); return context; }

@@ -9,17 +9,17 @@ import { cn } from "@/lib/shared/utils";
 import type { Workbench } from "./use-workbench";
 import type { MutationState } from "./use-workbench-mutations";
 
-function ActionFeedback({ action, onRetry, onRestart, onRefresh, retryDisabled }: {
+export function ActionFeedback({ action, onRetry, onRestart, onRefresh, retryDisabled }: {
   action: MutationState; onRetry?: () => void; onRestart?: () => void; onRefresh: () => void; retryDisabled?: boolean;
 }) {
   return <div role={action.phase === "failed" ? "alert" : "status"} className={cn("mt-3 rounded-xl border px-3 py-3 text-xs leading-6",
     action.phase === "failed" ? "border-rose-200 bg-rose-50 text-rose-900" : action.phase === "succeeded"
       ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-950")}>
     <p className="flex items-start gap-2">{action.phase === "sending" ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin" /> : action.phase === "succeeded" ? <Check className="mt-1 h-4 w-4 shrink-0" /> : null}<span>{action.message}</span></p>
-    {action.phase === "uncertain" && <p className="mt-1">{action.retryable ? "请保留这条记录。重试会继续本次提交，不会创建新的操作。" : "旧请求已无法重试。请先刷新核实；如果仍未完成，可重新提交相同内容，agent 会核查是否已处理。"}</p>}
+    {action.phase === "uncertain" && <p className="mt-1">{action.call.method === "collaboration.execute" && !action.retryable ? "请先通过本机 agent 或查询功能核实结果；此动作不会自动重新执行。" : action.retryable ? "请保留这条记录。重试会继续本次提交，不会创建新的操作。" : "旧请求已无法重试。请先刷新核实；如果仍未完成，可重新提交相同内容，agent 会核查是否已处理。"}</p>}
     {(action.phase === "uncertain" || action.phase === "failed") && <div className="mt-2 flex flex-wrap gap-2">
       {action.retryable && onRetry && <Button type="button" variant="outline" size="sm" disabled={retryDisabled} onClick={onRetry}>重试本次{action.call.method === "contacts.add" ? "添加" : "回应"}</Button>}
-      {action.phase === "uncertain" && !action.retryable && onRestart && <Button type="button" variant="outline" size="sm" disabled={retryDisabled} onClick={onRestart}>重新提交相同内容</Button>}
+      {action.phase === "uncertain" && !action.retryable && action.call.method !== "collaboration.execute" && onRestart && <Button type="button" variant="outline" size="sm" disabled={retryDisabled} onClick={onRestart}>重新提交相同内容</Button>}
       <Button type="button" variant="ghost" size="sm" onClick={onRefresh}><RefreshCw className="h-3.5 w-3.5" />刷新核实结果</Button>
     </div>}
   </div>;
@@ -47,7 +47,7 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
   }
 
   return <section className="mx-5 mb-5 rounded-2xl border bg-muted/20 p-4" aria-label="添加联系人">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-medium">添加联系人</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，确认后由 agent 保存并同步。</p></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-medium">添加联系人</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，由本机 agent 发出好友请求。对方接受后双方通讯录会自动更新。</p></div>
       {!shown && <Button type="button" size="sm" disabled={!allowed} onClick={() => setOpen(true)}><Plus className="h-4 w-4" />添加联系人</Button>}
     </div>
     {!w.canAddContact && <p className="mt-2 text-xs leading-6 text-muted-foreground">{w.available("contacts.add") ? "此连接的授权已失效，请先在连接设置中重新配对。" : "当前连接尚未开放在网页添加联系人，请在连接设置中检查授权。"}</p>}
@@ -55,9 +55,9 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
     {shown && !locked && <form onSubmit={submit} className="mt-4 space-y-4">
       <div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="contact-name" className="text-xs font-medium">姓名或称呼</label><Input id="contact-name" autoComplete="off" required maxLength={100} value={name} onChange={event => { setName(event.target.value); setConfirmed(false); }} placeholder="例如：小王" className="mt-1.5" disabled={!allowed} /></div><div><label htmlFor="contact-aliases" className="text-xs font-medium">其他别名 <span className="font-normal text-muted-foreground">（可选）</span></label><Input id="contact-aliases" autoComplete="off" value={aliasText} onChange={event => { setAliasText(event.target.value); setConfirmed(false); }} placeholder="多个别名用逗号分隔" className="mt-1.5" disabled={!allowed} /></div></div>
       <div><label htmlFor="contact-urn" className="text-xs font-medium">对方的 URN</label><Input id="contact-urn" autoComplete="off" autoCapitalize="none" spellCheck={false} required maxLength={256} value={urn} onChange={event => { setUrn(event.target.value); setConfirmed(false); }} placeholder="urn:agent-comm:agent:…" className="mt-1.5 font-mono text-xs" disabled={!allowed} /><p className="mt-1.5 text-xs leading-6 text-muted-foreground">请向对方获取其 agent 的完整 URN。</p></div>
-      <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border bg-background p-3 text-xs leading-6"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={!allowed || !name.trim() || !urn.trim()} className="mt-1 h-4 w-4 shrink-0 accent-primary" /><span>我已核对，确认{aliases.length ? `「${aliases.join("、")}」` : "以上称呼"}对应此 URN：<span className="mt-1 block break-all font-mono">{urn.trim() || "填写后将在这里显示"}</span><span className="mt-1 block text-muted-foreground">添加联系人仅建立身份对应关系，具体协作仍按授权范围执行。</span></span></label>
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border bg-background p-3 text-xs leading-6"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={!allowed || !name.trim() || !urn.trim()} className="mt-1 h-4 w-4 shrink-0 accent-primary" /><span>我已核对，确认{aliases.length ? `「${aliases.join("、")}」` : "以上称呼"}对应此 URN：<span className="mt-1 block break-all font-mono">{urn.trim() || "填写后将在这里显示"}</span><span className="mt-1 block text-muted-foreground">对方接受前会显示「等待对方接受」，接受后才建立好友连接。</span></span></label>
       {error && <p role="alert" className="text-xs leading-6 text-destructive">{error}</p>}
-      <div className="flex flex-wrap gap-2"><Button type="submit" size="sm" disabled={!allowed || !confirmed || !name.trim() || !urn.trim()}>确认添加</Button><Button type="button" variant="ghost" size="sm" onClick={() => { setOpen(false); setError(""); w.mutations.clearContact(); }}>取消</Button></div>
+      <div className="flex flex-wrap gap-2"><Button type="submit" size="sm" disabled={!allowed || !confirmed || !name.trim() || !urn.trim()}>发送好友请求</Button><Button type="button" variant="ghost" size="sm" onClick={() => { setOpen(false); setError(""); w.mutations.clearContact(); }}>取消</Button></div>
     </form>}
     {locked && action && <div className="mt-4 rounded-xl border bg-background p-3"><p className="text-sm font-medium">{strings(action.call.params.aliases).join(" · ")}</p><p className="mt-1 break-all font-mono text-xs leading-6 text-muted-foreground">{string(action.call.params.urn)}</p></div>}
     {action && <ActionFeedback action={action} onRetry={() => void w.mutations.retry(action)} onRestart={() => void w.mutations.restart(action)} onRefresh={() => void w.mutations.refresh()} retryDisabled={!allowed} />}

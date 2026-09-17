@@ -20,6 +20,12 @@ const identities=new Map(),mailboxes=new Map(),turns=new Map(),calls=[];
 let child,server,offline=false,extraMessage=false,stopping=false,log='';
 const attentionMode=process.env.ATTENTION_FIXTURE==='1',fixtureAt=Math.floor(Date.now()/1000);
 const mutationMode=process.env.MUTATION_FIXTURE==='1',mutationContacts=new Map(),mutationDecisions=new Map(),mutationResults=new Map();
+const socialMode=process.env.SOCIAL_FIXTURE==='1', socialStates=new Map();
+function socialState(request) {
+ const key=request.agent_urn+'|'+request.console_urn;
+ if(!socialStates.has(key))socialStates.set(key,{revision:1,contacts:[{contact_id:'friend-online',urn:'urn:fixture:online',aliases:['在线好友'],connection_status:'connected',presence:{status:'online',expires_at:fixtureAt+3600}}],contact_requests:[{request_id:'incoming-accept',direction:'incoming',peer_urn:'urn:fixture:alice',status:'pending',created_at:fixtureAt},{request_id:'incoming-reject',direction:'incoming',peer_urn:'urn:fixture:bob',status:'pending',created_at:fixtureAt}],messages:[{message_id:'social-message',sender_urn:'urn:fixture:online',text:'这条消息需要两端同步已读',read:false,received_at:fixtureAt},{message_id:'social-message-web',sender_urn:'urn:fixture:online',text:'这条消息通过网页标为已读',read:false,received_at:fixtureAt}],sent_messages:[]});
+ return socialStates.get(key);
+}
 let mutationWritesEnabled=true;
 const mutationApprovals=[
  {approval_id:'approval-web-approve',subject_id:'允许发送会议提议',question:'请核对：仅向小王发送明天下午 3 点的会议提议。\n不会创建日历，也不代表对方已经同意。',status:'pending',expires_at:fixtureAt+3600},
@@ -42,7 +48,32 @@ function verifyBody(req,body){
  assert.ok(identity);assert.equal(crypto.verify(null,Buffer.from(JSON.stringify(body)),identity.ed.publicKey,Buffer.from(signature,'hex')),true);return identity;
 }
 function resultFor(request){
- if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode?['attention.list']:[]),...(mutationMode?['contacts.add','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode||socialMode?['attention.list']:[]),...(socialMode?['contacts.add','contacts.requests','contacts.respond','messages.send','inbox.mark_read','collaboration.execute']:[]),...(mutationMode?['contacts.add','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(socialMode){
+  const state=socialState(request),params=request.params;
+  if(request.method==='collaboration.execute')return params.action==='describe'?{actions:['describe','prepare_message'],action_fields:{prepare_message:{required:['recipient_urn','text'],optional:[]}}}:{status:'uncertain',instruction:'本机重启后尚不能确认操作，请查询记录核实。'};
+  if(request.method==='collaboration.state')return {...state,inbox:{messages:state.messages},tasks:[],pending_confirmations:[]};
+  if(request.method==='contacts.list')return {contacts:state.contacts};
+  if(request.method==='contacts.requests')return {contact_requests:state.contact_requests};
+  if(request.method==='inbox.list')return {messages:state.messages};
+  if(request.method==='contacts.add'){
+   const contact={...params,connection_status:'pending'},request_id='friend-'+params.contact_id;
+   if(!state.contacts.some(item=>item.contact_id===params.contact_id)) {state.contacts.push(contact);state.contact_requests.push({request_id,peer_urn:params.urn,direction:'outgoing',status:'pending',created_at:fixtureAt});state.revision++;}
+   return {decision:'allow',status:'requested',contact,request_id};
+  }
+  if(request.method==='contacts.respond'){
+   const item=state.contact_requests.find(item=>item.request_id===params.request_id);assert.ok(item);
+   item.status=params.decision==='accept'?'accepted':'rejected';state.revision++;
+   if(item.status==='accepted'&&!state.contacts.some(c=>c.urn===item.peer_urn))state.contacts.push({contact_id:'accepted-'+item.request_id,urn:item.peer_urn,aliases:['已接受好友'],connection_status:'connected',presence:{status:'offline',expires_at:null}});
+   return {request_id:item.request_id,status:item.status};
+  }
+  if(request.method==='messages.send'){state.sent_messages.push({...params,status:'accepted'});return {message_id:params.message_id,status:'accepted'};}
+  if(request.method==='inbox.mark_read'){const item=state.messages.find(item=>item.message_id===params.message_id);assert.ok(item);item.read=true;state.revision++;return {message_id:item.message_id,status:'read'};}
+  if(request.method==='attention.list'){
+   const items=[{attention_id:'inbox:social-message',kind:'peer_message_received',subject_id:'social-message',source_revision:state.revision,revision:state.revision,state:state.messages[0].read?'resolved':'open',title:'收到好友消息',safe_summary:'好友发来消息',target:{kind:'inbox',id:'social-message'},created_at:fixtureAt,updated_at:fixtureAt+state.revision}];
+   return {schema:'agent-comm-attention/v1',items:(params.after||0)<state.revision?items:[],cursor:state.revision,has_more:false};
+  }
+ }
  if(mutationMode){
   const key=request.agent_urn+'|'+request.console_urn;
   const contacts=mutationContacts.get(key)||[],decisions=mutationDecisions.get(key)||[];
@@ -89,6 +120,11 @@ async function handle(req,res){
   const body=await read(req);if(typeof body.offline==='boolean')offline=body.offline;if(typeof body.extraMessage==='boolean')extraMessage=body.extraMessage;
   if(attentionMode&&typeof body.resolveApproval==='boolean')approvalResolved=body.resolveApproval;
   if(mutationMode&&typeof body.writesAllowed==='boolean')mutationWritesEnabled=body.writesAllowed;
+  if(socialMode)for(const state of socialStates.values()){
+   if(body.acceptOutgoing)for(const request of state.contact_requests.filter(item=>item.direction==='outgoing')){request.status='accepted';const contact=state.contacts.find(item=>item.urn===request.peer_urn);if(contact)contact.connection_status='connected';state.revision++;}
+   if(body.nativeRead){state.messages[0].read=true;state.revision++;}
+   if(body.nativeUnread){state.messages[0].read=false;state.revision++;}
+  }
   if(body.due)await db.$executeRawUnsafe('UPDATE "WorkspaceState" SET "nextSyncAt"=0, "leaseUntil"=NULL, "leaseToken"=NULL');
   if(body.expireCapabilities)await db.$executeRawUnsafe('UPDATE "WorkspaceSnapshot" SET "savedAt"=0 WHERE "method"=\'capabilities\'');
   return json(res,{ok:true});

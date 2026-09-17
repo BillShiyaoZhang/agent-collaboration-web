@@ -276,3 +276,21 @@ test("simultaneous same-value calls with reordered params share one in-flight op
   assert.deepEqual(a, b);
   assert.equal(f.sent.length, 1);
 });
+
+test("social RPCs reject injected authority and invalid business identifiers", () => {
+  const parse = (method, params) => protocol.controlCallSchema.safeParse({ request_id: crypto.randomUUID(), method, params }).success;
+  assert.equal(parse("contacts.requests", {}), true);
+  assert.equal(parse("contacts.respond", { request_id: "friend-request", decision: "accept" }), true);
+  assert.equal(parse("contacts.respond", { request_id: "friend-request", decision: "reject" }), true);
+  assert.equal(parse("messages.send", { recipient_urn: "urn:agent:friend", message_id: "message-1", text: "hello" }), true);
+  assert.equal(parse("inbox.mark_read", { message_id: "message-1" }), true);
+  for (const [method, params] of [
+    ["contacts.respond", { request_id: "friend-request", decision: "approve" }],
+    ["contacts.respond", { request_id: "friend-request", decision: "accept", owner: "forged" }],
+    ["messages.send", { recipient_urn: "urn:agent:friend", text: " " }],
+    ["messages.send", { recipient_urn: "urn:agent:friend", text: "你".repeat(8001) }],
+    ["inbox.mark_read", { message_id: "message-1", read_at: 123 }],
+    ["collaboration.execute", { action: "confirm", approval_id: "one", answer: "yes" }],
+    ["collaboration.execute", { action: "state", owner_session: "forged" }],
+  ]) assert.equal(parse(method, params), false);
+});
