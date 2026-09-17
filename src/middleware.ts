@@ -9,7 +9,9 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check if the route is public
-  const isPublicRoute = publicRoutes.some((route) => pathname === route || (route === "/api/auth" && pathname.startsWith(route + "/")));
+  const isPublicRoute = publicRoutes.some((route) => pathname === route || (route === "/api/auth" && pathname.startsWith(route + "/")))
+    || pathname === "/api/onboarding" || /^\/api\/onboarding\/[0-9a-f-]{36}$/.test(pathname)
+    || pathname === "/agent-install.md" || pathname === "/llms.txt";
 
   if (isPublicRoute || pathname === "/beian-icon.png" || pathname === "/agent-comm-sw.js") {
     return NextResponse.next();

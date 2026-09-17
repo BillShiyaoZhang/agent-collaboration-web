@@ -137,6 +137,14 @@ test("authentication middleware", { concurrency: false }, async (t) => {
       }
     });
 
+    await t.test("only agent onboarding endpoints bypass the session; claiming stays authenticated", async () => {
+      for (const pathname of ["/api/onboarding", "/api/onboarding/11111111-1111-4111-8111-111111111111", "/agent-install.md", "/llms.txt"])
+        assertAllowed(await middleware(request(productionOrigin, pathname)));
+      for (const pathname of ["/api/onboarding/claim/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "/api/onboarding-extra", "/api/onboarding/11111111-1111-4111-8111-111111111111/private"])
+        await assertUnauthorizedJson(await middleware(request(productionOrigin, pathname)));
+      assertLoginRedirect(await middleware(request(productionOrigin, "/connect/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")), productionOrigin, "/connect/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    });
+
     await t.test("retired demo and similarly named pages are not public routes", async () => {
       for (const pathname of ["/demo", "/demo/private", "/demography", "/login-extra"]) {
         assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);

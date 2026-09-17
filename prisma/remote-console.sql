@@ -115,3 +115,16 @@ CREATE TABLE IF NOT EXISTS "WebPushDelivery" (
  FOREIGN KEY("subscriptionId") REFERENCES "WebPushSubscription"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE INDEX IF NOT EXISTS "WebPushDelivery_due_idx" ON "WebPushDelivery"("status", "nextAttemptAt");
+
+-- Short-lived device handoff. Only a hash of the agent's polling secret is stored.
+CREATE TABLE IF NOT EXISTS "OnboardingTicket" (
+ "id" TEXT PRIMARY KEY, "publicCode" TEXT NOT NULL UNIQUE, "agentUrn" TEXT NOT NULL,
+ "agentPublicKey" TEXT NOT NULL, "name" TEXT NOT NULL, "secretHash" TEXT NOT NULL,
+ "requestHash" TEXT NOT NULL UNIQUE, "methods" TEXT NOT NULL, "grantExpiresAt" TEXT NOT NULL,
+ "ticketExpiresAt" REAL NOT NULL, "userId" TEXT, "agentId" TEXT, "grant" TEXT,
+ "signature" TEXT, "consolePublicKey" TEXT, "completedAt" REAL,
+ FOREIGN KEY("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "OnboardingTicket_expiry_idx" ON "OnboardingTicket"("ticketExpiresAt");
+CREATE INDEX IF NOT EXISTS "OnboardingTicket_agent_idx" ON "OnboardingTicket"("agentUrn");

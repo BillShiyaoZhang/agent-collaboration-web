@@ -21,6 +21,7 @@ model User {
   updatedAt DateTime @updatedAt
   agents Agent[]
   pushSubscriptions WebPushSubscription[]
+  onboardingTickets OnboardingTicket[]
 }
 // A connection record is not ownership; the agent must pair the console locally.
 model Agent {
@@ -42,8 +43,33 @@ model Agent {
   workspaceSubmission WorkspaceSubmission?
   notifications WorkspaceNotification[]
   notificationBaselines WorkspaceNotificationBaseline[]
+  onboardingTickets OnboardingTicket[]
   @@index([userId])
   @@unique([userId, urn])
+}
+
+// A one-time public claim code never authorizes polling or grants agent access.
+model OnboardingTicket {
+  id String @id
+  publicCode String @unique
+  agentUrn String
+  agentPublicKey String
+  name String
+  secretHash String
+  requestHash String @unique
+  methods String
+  grantExpiresAt String
+  ticketExpiresAt Float
+  userId String?
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId String?
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  grant String?
+  signature String?
+  consolePublicKey String?
+  completedAt Float?
+  @@index([ticketExpiresAt], map: "OnboardingTicket_expiry_idx")
+  @@index([agentUrn], map: "OnboardingTicket_agent_idx")
 }
 // Bounded delivery cache only: encrypted wire bytes, maximum ten-minute retention.
 model ControlRequest {
