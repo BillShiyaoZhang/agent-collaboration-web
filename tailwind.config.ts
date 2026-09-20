@@ -16,6 +16,11 @@ const config: Config = {
       },
     },
     extend: {
+      // Keep supporting copy readable and allow browser text scaling via rem.
+      fontSize: {
+        xs: ["0.8125rem", { lineHeight: "1.375rem" }],
+        sm: ["0.9375rem", { lineHeight: "1.5rem" }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

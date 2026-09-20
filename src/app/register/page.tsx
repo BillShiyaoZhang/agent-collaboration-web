@@ -87,7 +87,7 @@ function RegisterForm() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={isLoading}
-            className="h-12 rounded-xl text-base sm:text-sm"
+            className="h-12 rounded-xl text-base"
           />
         </div>
         <div className="space-y-2">

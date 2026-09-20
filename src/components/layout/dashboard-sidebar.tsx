@@ -28,7 +28,7 @@ export function DashboardNavigation({ onNavigate }: { onNavigate?: () => void })
   const pathname = usePathname();
   return <div className="flex h-full flex-col">
     <Link href="/dashboard/agents" onClick={onNavigate} aria-label="Agent Comm 我的连接" className="self-start rounded-lg"><Brand /></Link>
-    <div className="mt-10 px-3 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">个人工作空间</div>
+    <div className="mt-10 px-3 text-xs font-semibold tracking-[0.18em] text-muted-foreground">个人工作空间</div>
     <nav aria-label="主导航" className="mt-3">
       <Link href="/dashboard/agents" onClick={onNavigate} aria-current={pathname === "/dashboard/agents" ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${pathname !== "/dashboard/notifications" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><Layers3 className="h-[18px] w-[18px]" />我的连接</Link>
       <Link href="/dashboard/notifications" onClick={onNavigate} aria-current={pathname === "/dashboard/notifications" ? "page" : undefined} className={`mt-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${pathname === "/dashboard/notifications" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><Bell className="h-[18px] w-[18px]" />提醒中心</Link>
@@ -36,7 +36,7 @@ export function DashboardNavigation({ onNavigate }: { onNavigate?: () => void })
     <div className="mt-auto pt-10">
       <div className="mb-5 rounded-2xl border border-primary/10 bg-gradient-to-br from-secondary to-transparent p-4"><span className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-card text-primary"><Cable className="h-4 w-4" /></span><p className="text-sm font-medium">协作，从连接开始</p><p className="mt-2 text-xs leading-5 text-muted-foreground">让熟悉的 agent，成为随手可及的工作伙伴。</p></div>
       <ConnectionGuide />
-      <div className="mt-4 flex items-center gap-2 border-t px-3 pt-4 text-[10px] tracking-wide text-muted-foreground"><LockKeyhole className="h-3 w-3" />本机授权 · 远程协作</div>
+      <div className="mt-4 flex items-center gap-2 border-t px-3 pt-4 text-xs tracking-wide text-muted-foreground"><LockKeyhole className="h-3 w-3" />本机授权 · 远程协作</div>
     </div>
   </div>;
 }

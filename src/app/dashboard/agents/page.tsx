@@ -167,13 +167,13 @@ export default function AgentsPage() {
                       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted/60 text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary"><ArrowRight className="h-4 w-4 transition-transform motion-safe:group-hover:-rotate-45" aria-hidden="true" /></span>
                     </div>
                     <h2 className="truncate text-lg font-semibold tracking-tight" title={agent.name}>{agent.name}</h2>
-                    <p className="mt-2 truncate font-mono text-[11px] leading-5 text-muted-foreground" title={agent.urn}>{agent.urn}</p>
+                    <p className="mt-2 truncate font-mono text-xs leading-5 text-muted-foreground" title={agent.urn}>{agent.urn}</p>
                     <div className="mb-5 mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground" title="工作台功能区，可用功能以 agent 授权为准">
                       <span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5" aria-hidden="true" />联系人</span>
                       <span className="inline-flex items-center gap-1.5"><CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />事项</span>
                       <span className="inline-flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />对话</span>
                     </div>
-                    <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs"><span className="min-w-0 pr-2 text-muted-foreground"><span className="block">{syncLabel(agent.sync, !!agent.sync.lastSuccessAt)}</span>{agent.sync.lastSuccessAt && <span className="mt-1 block text-[10px]">最近同步 {displayTime(agent.sync.lastSuccessAt / 1000)}</span>}</span><span className="flex items-center gap-1 font-medium text-primary">打开<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span></div>
+                    <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs"><span className="min-w-0 pr-2 text-muted-foreground"><span className="block">{syncLabel(agent.sync, !!agent.sync.lastSuccessAt)}</span>{agent.sync.lastSuccessAt && <span className="mt-1 block text-xs">最近同步 {displayTime(agent.sync.lastSuccessAt / 1000)}</span>}</span><span className="flex items-center gap-1 font-medium text-primary">打开<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span></div>
                   </Link>
                 ))}
               </div>
@@ -211,7 +211,7 @@ export default function AgentsPage() {
                   { title: "添加连接", detail: "填入本机 URN，尚未注册也可开始绑定" },
                   { title: "配对并开始", detail: "在本机确认配对，进入远程工作台" },
                 ].map((step, index) => (
-                  <li key={step.title} className="flex items-start gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-card text-[11px] font-medium text-muted-foreground">{index + 1}</span><div><p className="text-xs font-medium leading-6">{step.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.detail}</p></div></li>
+                  <li key={step.title} className="flex items-start gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-card text-xs font-medium text-muted-foreground">{index + 1}</span><div><p className="text-xs font-medium leading-6">{step.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.detail}</p></div></li>
                 ))}
               </ol>
             </div>
@@ -227,7 +227,7 @@ export default function AgentsPage() {
             <div className="space-y-2"><label htmlFor="connection-name" className="text-sm font-medium">连接名称</label><Input id="connection-name" maxLength={100} placeholder="例如：我的 Hermes" value={name} onChange={(event) => setName(event.target.value)} className="h-11 rounded-xl" disabled={busy} required /></div>
             <div className="space-y-2">
               <label htmlFor="connection-urn" className="text-sm font-medium">Agent URN</label>
-              <Input id="connection-urn" maxLength={256} minLength={10} placeholder="urn:hermes:agent:…" value={urn} onChange={(event) => setUrn(event.target.value)} aria-describedby="urn-hint" className="h-11 rounded-xl font-mono text-base md:text-xs" autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} required />
+              <Input id="connection-urn" maxLength={256} minLength={10} placeholder="urn:hermes:agent:…" value={urn} onChange={(event) => setUrn(event.target.value)} aria-describedby="urn-hint" className="h-11 rounded-xl font-mono text-base" autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} required />
               <p id="urn-hint" className="text-xs leading-5 text-muted-foreground">这是 agent 的唯一标识，可从本机 helper 获取。</p>
             </div>
             {formError && <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm leading-6 text-destructive"><CircleAlert className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />{formError}</p>}
@@ -240,4 +240,3 @@ export default function AgentsPage() {
     </Dialog>
   );
 }
-

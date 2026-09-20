@@ -47,19 +47,19 @@ export function AuthShell({ title, description, children }: {
           <div className="relative mt-12 max-w-md" aria-hidden="true">
             <div className="relative z-10 flex items-center gap-4 rounded-2xl border border-white/90 bg-white/90 p-5 shadow-[0_8px_35px_-20px_rgba(35,62,51,0.3)]">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#233e33] text-white"><Network className="h-6 w-6" strokeWidth={1.5} /></div>
-              <div className="flex-1"><p className="text-sm font-semibold">你的工作空间</p><p className="mt-1 text-xs text-[#728579]">人与 Agent，从这里连接</p></div>
+              <div className="flex-1"><p className="text-sm font-semibold">你的工作空间</p><p className="mt-1 text-xs text-[#52695b]">人与 Agent，从这里连接</p></div>
               <ArrowUpRight className="h-5 w-5 text-[#8ca598]" />
             </div>
             <div className="mx-auto h-7 w-px bg-[#bdcfc3]" />
             <div className="relative mx-auto h-5 w-[52%] rounded-t-xl border-x border-t border-[#bdcfc3]" />
             <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-white/80 bg-white/60 p-5"><Bot className="mb-4 h-6 w-6 text-[#507662]" strokeWidth={1.5} /><p className="text-sm font-medium">管理 Agent</p><p className="mt-1.5 text-xs text-[#728579]">连接你的智能伙伴</p></div>
-              <div className="rounded-2xl border border-white/80 bg-white/60 p-5"><MessageSquare className="mb-4 h-6 w-6 text-[#507662]" strokeWidth={1.5} /><p className="text-sm font-medium">开始对话</p><p className="mt-1.5 text-xs text-[#728579]">让沟通触手可及</p></div>
+              <div className="rounded-2xl border border-white/80 bg-white/60 p-5"><Bot className="mb-4 h-6 w-6 text-[#507662]" strokeWidth={1.5} /><p className="text-sm font-medium">管理 Agent</p><p className="mt-1.5 text-xs text-[#52695b]">连接你的智能伙伴</p></div>
+              <div className="rounded-2xl border border-white/80 bg-white/60 p-5"><MessageSquare className="mb-4 h-6 w-6 text-[#507662]" strokeWidth={1.5} /><p className="text-sm font-medium">开始对话</p><p className="mt-1.5 text-xs text-[#52695b]">让沟通触手可及</p></div>
             </div>
           </div>
         </div>
 
-        <p className="relative z-10 text-xs text-[#6d8778]">为人与 Agent 的日常协作而设计。</p>
+        <p className="relative z-10 text-xs text-[#52695b]">为人与 Agent 的日常协作而设计。</p>
         <div className="pointer-events-none absolute -bottom-52 -right-48 h-[540px] w-[540px] rounded-full border border-[#dbe7df]" aria-hidden="true" />
         <div className="pointer-events-none absolute -bottom-36 -right-32 h-[410px] w-[410px] rounded-full border border-[#dbe7df]" aria-hidden="true" />
       </aside>
@@ -71,7 +71,7 @@ export function PasswordInput({ className = "", ...props }: Omit<InputProps, "ty
   const [visible, setVisible] = useState(false);
   return (
     <div className="relative">
-      <Input {...props} type={visible ? "text" : "password"} className={`h-12 rounded-xl pr-12 text-base sm:text-sm ${className}`} />
+      <Input {...props} type={visible ? "text" : "password"} className={`h-12 rounded-xl pr-12 text-base ${className}`} />
       <button
         type="button"
         aria-label={visible ? "隐藏密码" : "显示密码"}
