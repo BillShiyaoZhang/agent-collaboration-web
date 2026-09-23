@@ -553,6 +553,60 @@ test("ensuring an existing workspace state does not acquire a SQLite writer lock
   }
 }));
 
+test("standalone sync writes retry a real SQLite writer lock without repeating a job", () => fixture(async ({ db, filename, user, agent, otherAgent }) => {
+  const contender = new PrismaClient({ datasources: { db: { url: "file:" + filename.replaceAll("\\", "/") } } });
+  const contenderStore = load("../../src/lib/workspace/workspace-store.ts", {
+    "@/lib/shared/db": { prisma: contender }, "@/lib/control/control-transport": { ControlError }, "@/lib/control/workbench-client": client,
+  });
+  try {
+    await contender.$queryRawUnsafe("PRAGMA busy_timeout = 1");
+    await contenderStore.ensureWorkspaceState(agent.id);
+    async function contend(action) {
+      let signalLocked, releaseWriter;
+      const locked = new Promise(resolve => { signalLocked = resolve; });
+      const release = new Promise(resolve => { releaseWriter = resolve; });
+      const writer = db.$transaction(async tx => {
+        await tx.$executeRaw`UPDATE "User" SET "email" = "email" WHERE "id" = ${user.id}`;
+        signalLocked();
+        await release;
+      }, { timeout: 10000 });
+      await locked;
+      const execute = contender.$executeRaw.bind(contender);
+      const failures = [];
+      let attempts = 0;
+      contender.$executeRaw = async (...args) => {
+        attempts++;
+        try { return await execute(...args); }
+        catch (error) { failures.push(error); releaseWriter(); throw error; }
+      };
+      try {
+        const result = await action();
+        await writer;
+        assert.equal(attempts, 2, "the same standalone statement is retried once");
+        assert.equal(failures.length, 1);
+        assert.equal(failures[0].code, "P2010");
+        assert.equal(String(failures[0].meta?.code), "5");
+        return result;
+      } finally {
+        releaseWriter();
+        await writer;
+        contender.$executeRaw = execute;
+      }
+    }
+    await contend(() => contenderStore.ensureWorkspaceState(otherAgent.id));
+    assert.equal((await contender.$queryRaw`SELECT COUNT(*) AS "n" FROM "WorkspaceState" WHERE "agentId" = ${otherAgent.id}`)[0].n, 1n);
+    const token = crypto.randomUUID(), now = Date.now();
+    assert.equal(await contend(() => contenderStore.claimSyncJob(agent.id, token, now, 60000)), true);
+    assert.equal(await contend(() => contenderStore.updateSyncJob(agent.id, { status: "ready" }, token)), true);
+    assert.equal((await contenderStore.readSyncJob(agent.id)).leaseToken, token);
+    await contenderStore.updateSyncJob(agent.id, { nextSyncAt: Date.now() + 60000, leaseToken: null, leaseUntil: null }, token);
+    await contend(() => contenderStore.scheduleWorkspaceSync(user.id, agent.id));
+    const [job] = await contender.$queryRaw`SELECT "nextSyncAt", "lastWakeAt" FROM "WorkspaceState" WHERE "agentId" = ${agent.id}`;
+    assert.ok(job.nextSyncAt <= Date.now());
+    assert.equal(job.lastWakeAt, job.nextSyncAt, "the same wake time is reused across retries");
+  } finally { await contender.$disconnect(); }
+}));
+
 test("agent snapshots carry friend decisions and resolve read messages without mutating from receipts", () => fixture(async ({ user, agent, store, save }) => {
   const time = Date.now() - 500;
   const request = { request_id: "request-a", direction: "incoming", peer_urn: "urn:agent:friend", status: "pending" };

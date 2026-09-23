@@ -48,11 +48,28 @@ async function ownerId(agentId: string) {
 async function state(db: DB, agentId: string) {
   await db.$executeRaw`INSERT OR IGNORE INTO "WorkspaceState" ("agentId") VALUES (${agentId})`;
 }
+function sqliteBusy(error: unknown) {
+  const details = record(error), metadata = record(details.meta);
+  return details.code === "SQLITE_BUSY" || details.code === "P2010" &&
+    (metadata.code === "5" || metadata.code === 5 || metadata.code === "SQLITE_BUSY");
+}
+async function retryStandaloneSQLiteWrite<T>(write: () => Promise<T>): Promise<T> {
+  // Only use for a single idempotent statement outside a transaction. Retrying
+  // a whole sync step could repeat a network call after another agent advanced.
+  const delays = [40, 120, 300];
+  for (let attempt = 0; ; attempt++) {
+    try { return await write(); }
+    catch (error) {
+      if (!sqliteBusy(error) || attempt >= delays.length) throw error;
+      await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+    }
+  }
+}
 export async function ensureWorkspaceState(agentId: string) {
   // Discovery and reads call this repeatedly. Avoid a no-op INSERT write lock
   // after the row exists; the INSERT OR IGNORE still resolves creation races.
   if (!(await prisma.$queryRaw<{ agentId: string }[]>`SELECT "agentId" FROM "WorkspaceState" WHERE "agentId" = ${agentId}`).length)
-    await state(prisma, agentId);
+    await retryStandaloneSQLiteWrite(() => state(prisma, agentId));
 }
 function sync(row?: StateRow): WorkspaceSync {
   return { status: row?.status || "waiting", lastAttemptAt: row?.lastAttemptAt ?? null,
@@ -182,9 +199,8 @@ async function retryProjectionTransaction(write: (onEnter: () => void) => Promis
     let entered = false;
     try { return await write(() => { entered = true; }); }
     catch (error) {
-      const details = record(error), metadata = record(details.meta);
-      const busy = details.code === "SQLITE_BUSY" || details.code === "P2010" &&
-        (metadata.code === "5" || metadata.code === 5 || metadata.code === "SQLITE_BUSY");
+      const busy = sqliteBusy(error);
+      const details = record(error);
       // Prisma may report a busy SQLite writer as P1008 while opening a
       // transaction. No application statement ran if the callback never began.
       const startTimeout = details.code === "P1008" && !entered;
@@ -367,8 +383,8 @@ export async function readSyncJob(agentId: string): Promise<SyncJob> {
 }
 export async function claimSyncJob(agentId: string, token: string, now: number, leaseMs: number): Promise<boolean> {
   await ensureWorkspaceState(agentId);
-  return (await prisma.$executeRaw`UPDATE "WorkspaceState" SET "leaseToken" = ${token}, "leaseUntil" = ${now + leaseMs}
-    WHERE "agentId" = ${agentId} AND "nextSyncAt" <= ${now} AND ("leaseUntil" IS NULL OR "leaseUntil" <= ${now})`) > 0;
+  return (await retryStandaloneSQLiteWrite(() => prisma.$executeRaw`UPDATE "WorkspaceState" SET "leaseToken" = ${token}, "leaseUntil" = ${now + leaseMs}
+    WHERE "agentId" = ${agentId} AND "nextSyncAt" <= ${now} AND ("leaseUntil" IS NULL OR "leaseUntil" <= ${now})`)) > 0;
 }
 export async function updateSyncJob(agentId: string, patch: Partial<SyncJob>, leaseToken?: string): Promise<boolean> {
   const userId = await ownerId(agentId);
@@ -378,8 +394,8 @@ export async function updateSyncJob(agentId: string, patch: Partial<SyncJob>, le
   for (const field of fields) if (patch[field] !== undefined) values.push(Prisma.sql`${Prisma.raw(`"${field}"`)} = ${patch[field]}`);
   if (patch.plan !== undefined) values.push(Prisma.sql`"plan" = ${seal(userId, agentId, "sync", "plan", patch.plan)}`);
   if (!values.length) return false;
-  return (await prisma.$executeRaw(Prisma.sql`UPDATE "WorkspaceState" SET ${Prisma.join(values)} WHERE "agentId" = ${agentId}
-    ${leaseToken === undefined ? Prisma.empty : Prisma.sql`AND "leaseToken" = ${leaseToken}`} `)) > 0;
+  return (await retryStandaloneSQLiteWrite(() => prisma.$executeRaw(Prisma.sql`UPDATE "WorkspaceState" SET ${Prisma.join(values)} WHERE "agentId" = ${agentId}
+    ${leaseToken === undefined ? Prisma.empty : Prisma.sql`AND "leaseToken" = ${leaseToken}`} `))) > 0;
 }
 export async function listDueSyncAgents(now: number, limit: number): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ agentId: string }[]>`SELECT a."id" AS "agentId" FROM "Agent" a
@@ -393,8 +409,8 @@ export async function scheduleWorkspaceSync(userId: string, agentId?: string) {
   const now = Date.now();
   for (const agent of agents) {
     await ensureWorkspaceState(agent.id);
-    await prisma.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${now}), "lastWakeAt" = ${now}
-      WHERE "agentId" = ${agent.id} AND "lastWakeAt" <= ${now - 15000}`;
+    await retryStandaloneSQLiteWrite(() => prisma.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${now}), "lastWakeAt" = ${now}
+      WHERE "agentId" = ${agent.id} AND "lastWakeAt" <= ${now - 15000}`);
   }
 }
 export async function getTrackedConversationIds(userId: string, agentId: string): Promise<string[]> {
