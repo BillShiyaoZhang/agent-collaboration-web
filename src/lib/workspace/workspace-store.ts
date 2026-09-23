@@ -48,7 +48,12 @@ async function ownerId(agentId: string) {
 async function state(db: DB, agentId: string) {
   await db.$executeRaw`INSERT OR IGNORE INTO "WorkspaceState" ("agentId") VALUES (${agentId})`;
 }
-export async function ensureWorkspaceState(agentId: string) { await state(prisma, agentId); }
+export async function ensureWorkspaceState(agentId: string) {
+  // Discovery and reads call this repeatedly. Avoid a no-op INSERT write lock
+  // after the row exists; the INSERT OR IGNORE still resolves creation races.
+  if (!(await prisma.$queryRaw<{ agentId: string }[]>`SELECT "agentId" FROM "WorkspaceState" WHERE "agentId" = ${agentId}`).length)
+    await state(prisma, agentId);
+}
 function sync(row?: StateRow): WorkspaceSync {
   return { status: row?.status || "waiting", lastAttemptAt: row?.lastAttemptAt ?? null,
     lastSuccessAt: row?.lastSuccessAt ?? null, nextSyncAt: row?.nextSyncAt ?? null, error: row?.error ?? null };
@@ -171,15 +176,19 @@ async function saveConversation(db: DB, userId: string, agentId: string, id: str
     WHERE excluded."sourceAt" >= "WorkspaceConversation"."sourceAt"`;
 }
 
-async function retryProjectionTransaction(write: () => Promise<void>) {
+async function retryProjectionTransaction(write: (onEnter: () => void) => Promise<void>) {
   const delays = [40, 120, 300];
   for (let attempt = 0; ; attempt++) {
-    try { return await write(); }
+    let entered = false;
+    try { return await write(() => { entered = true; }); }
     catch (error) {
       const details = record(error), metadata = record(details.meta);
       const busy = details.code === "SQLITE_BUSY" || details.code === "P2010" &&
         (metadata.code === "5" || metadata.code === 5 || metadata.code === "SQLITE_BUSY");
-      if (!busy || attempt >= delays.length) throw error;
+      // Prisma may report a busy SQLite writer as P1008 while opening a
+      // transaction. No application statement ran if the callback never began.
+      const startTimeout = details.code === "P1008" && !entered;
+      if ((!busy && !startTimeout) || attempt >= delays.length) throw error;
       // Retry only this rolled-back local transaction. Network delivery and
       // mailbox ACK remain outside, and every attempt reads current rows afresh.
       await new Promise(resolve => setTimeout(resolve, delays[attempt]));
@@ -190,7 +199,8 @@ async function retryProjectionTransaction(write: () => Promise<void>) {
 /** Only call after envelope signature, sender, recipient and RPC correlation checks. */
 export async function recordWorkspaceResponse(user: User, agent: Agent, row: ControlRequest, response: Record<string, unknown>) {
   if (agent.userId !== user.id || row.agentId !== agent.id || !await owned(user.id, agent.id)) throw new ControlError("连接不存在。", 404);
-  await retryProjectionTransaction(() => prisma.$transaction(async tx => {
+  await retryProjectionTransaction(onEnter => prisma.$transaction(async tx => {
+    onEnter();
     await state(tx, agent.id);
     const pendingRow = (await tx.$queryRaw<SubmissionRow[]>`SELECT * FROM "WorkspaceSubmission" WHERE "agentId" = ${agent.id}`)[0];
     const pending = decodeSubmission(user.id, agent.id, pendingRow);

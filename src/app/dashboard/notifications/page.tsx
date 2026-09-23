@@ -14,11 +14,12 @@ const filterOptions = [["all", "全部"], ["unread", "未读"], ["pending", "待
 
 export default function NotificationsPage() {
   const notifications = useNotifications();
+  const checkReadSupport = notifications.checkReadSupport;
   const [filter, setFilter] = useState<"all" | "unread" | "pending">("all");
   const [items, setItems] = useState<WorkspaceNotification[]>([]), [before, setBefore] = useState<number | null>(null);
   const [error, setError] = useState(""), [loading, setLoading] = useState(false);
   const currentFilter = useRef(filter), older = useRef(false);
-  useEffect(() => { void notifications.checkReadSupport(items); }, [items, notifications.page, notifications.checkReadSupport]);
+  useEffect(() => { void checkReadSupport(items); }, [items, notifications.page, checkReadSupport]);
   useEffect(() => {
     const controller = new AbortController();
     void workspaceRequest<NotificationPage>(`/api/notifications?filter=${filter}`, { signal: controller.signal }).then(page => {

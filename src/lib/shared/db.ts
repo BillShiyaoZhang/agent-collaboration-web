@@ -13,4 +13,6 @@ export const prisma =
         : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// Next.js bundles the instrumentation and API routes separately. They still
+// share a process, so reuse one SQLite connection pool in production as well.
+globalForPrisma.prisma = prisma;

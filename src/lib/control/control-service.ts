@@ -8,7 +8,32 @@ import { reserveWorkspaceSubmission, markWorkspaceSubmissionUncertain, clearWork
 import { CONTROL_RETENTION_MS as RETENTION_MS, CONTROL_REQUEST_MS as REQUEST_MS, canonicalJSON } from "@agent-comm/client-contract";
 
 export async function cleanupControlCache() {
-  await prisma.controlRequest.deleteMany({ where: { expiresAt: { lte: new Date() } } });
+  const now = new Date();
+  const where = { expiresAt: { lte: now } };
+  // A DELETE affecting zero rows still competes for SQLite's one write lock.
+  if (await prisma.controlRequest.findFirst({ where, select: { id: true } }))
+    await prisma.controlRequest.deleteMany({ where });
+}
+
+type CacheWorker = { stopped: boolean; timer?: ReturnType<typeof setTimeout>; warningAt: number };
+const cacheGlobal = globalThis as typeof globalThis & { __agentControlCacheCleanup?: CacheWorker };
+export function startControlCacheCleanup() {
+  if (process.env.NEXT_PHASE === "phase-production-build" || cacheGlobal.__agentControlCacheCleanup && !cacheGlobal.__agentControlCacheCleanup.stopped) return;
+  const state: CacheWorker = { stopped: false, warningAt: 0 };
+  cacheGlobal.__agentControlCacheCleanup = state;
+  const tick = async () => {
+    if (state.stopped) return;
+    try { await cleanupControlCache(); }
+    catch {
+      if (Date.now() - state.warningAt > 60_000) {
+        console.warn("Control cache cleanup will retry; check database availability.");
+        state.warningAt = Date.now();
+      }
+    } finally {
+      if (!state.stopped) { state.timer = setTimeout(tick, 60_000); state.timer.unref?.(); }
+    }
+  };
+  state.timer = setTimeout(tick, 60_000); state.timer.unref?.();
 }
 
 function expected(row: ControlRequest, agent: Agent) {
@@ -37,7 +62,6 @@ function requestFingerprints(agent: Agent, consoleUrn: string, call: Call) {
 }
 
 async function createControlCallOnce(user: User, agent: Agent, call: Call) {
-  await cleanupControlCache();
   if (!user.virtualUrn) throw new ControlError("请先创建控制台身份，并在 agent 本机完成配对。", 409);
   const { fingerprint, matches } = requestFingerprints(agent, user.virtualUrn, call);
   let row = await prisma.controlRequest.findUnique({ where: { id: call.request_id } });
@@ -47,7 +71,7 @@ async function createControlCallOnce(user: User, agent: Agent, call: Call) {
   let enqueueAttempted = false;
   try {
     if (!row) {
-      if (await prisma.controlRequest.count({ where: { agent: { userId: user.id } } }) >= 64) throw new ControlError("短期请求数量达到上限，请稍后重试。", 429);
+      if (await prisma.controlRequest.count({ where: { agent: { userId: user.id }, expiresAt: { gt: new Date() } } }) >= 64) throw new ControlError("短期请求数量达到上限，请稍后重试。", 429);
       const now = Date.now(), deadline = new Date(now + REQUEST_MS);
       const requestEnvelope = await encodeControl(user, { protocol: CONTROL_PROTOCOL, type: "request", ...expected({ id: call.request_id, consoleUrn: user.virtualUrn, method: call.method, deadline } as ControlRequest, agent), params: call.params });
       try {
@@ -109,7 +133,6 @@ export function controlCallResult(user: User, agent: Agent, row: ControlRequest)
 }
 
 async function retrieveControlResponses(user: User) {
-  await cleanupControlCache();
   const items = await retrieveEnvelopes(user), ack: string[] = [];
   const keys = consoleKeys(user);
   for (const item of items) {

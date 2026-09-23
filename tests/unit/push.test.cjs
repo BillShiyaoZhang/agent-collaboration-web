@@ -37,7 +37,7 @@ async function fixture(run) {
       await db.$executeRawUnsafe('INSERT OR REPLACE INTO "WorkspaceNotification" ("agentId","id","kind","state","revision","readRevision","sourceAt","updatedAt","expiresAt","systemEligible","payload") VALUES (?,?,?,?,?,?,?,?,?,?,?)', 'agent', n.id, n.kind, n.state, n.revision, n.read, n.sourceAt, n.updatedAt, n.expiry, n.eligible, 'private-exact-authorization-and-chat-content');
       return n;
     };
-    await run({ db, store, makeStore, device, input, subscribe, notice });
+    await run({ db, filename, store, makeStore, device, input, subscribe, notice });
   } finally {
     await db.$disconnect();
     for (const [key, value] of [['NEXTAUTH_SECRET', oldSecret], ['NEXTAUTH_URL', oldUrl], ['WEB_PUSH_DISABLED', oldDisabled]]) value === undefined ? delete process.env[key] : process.env[key] = value;
@@ -101,6 +101,35 @@ test('read, expired and stale source notifications never become push jobs', () =
   await subscribe(); await notice({ id: 'read', read: 1 }); await notice({ id: 'expired', expiry: Date.now() - 1 }); await notice({ id: 'stale', sourceAt: Date.now() - 180000 }); await notice({ id: 'resolved', state: 'resolved' });
   await store.runPushTick(async () => { throw new Error('must not send'); });
   assert.equal((await db.$queryRawUnsafe('SELECT * FROM "WebPushDelivery"')).length, 0);
+}));
+test('idle push maintenance does not contend with a control writer', () => fixture(async ({ db, filename, store, subscribe }) => {
+  const sub = await subscribe();
+  const now = Date.now();
+  await db.$executeRawUnsafe('INSERT INTO "WebPushDelivery" ("id","subscriptionId","agentId","notificationId","revision","status","nextAttemptAt","expiresAt","updatedAt") VALUES (?,?,?,?,?,?,?,?,?)',
+    'closed-delivery', sub.subscription.id, 'agent', 'old-notification', 1, 'closed', now - 1000, now - 1000, now);
+  const writer = new PrismaClient({ datasources: { db: { url: `file:${filename.replaceAll('\\', '/')}` } } });
+  let signalLocked, releaseWriter;
+  const locked = new Promise(resolve => { signalLocked = resolve; });
+  const release = new Promise(resolve => { releaseWriter = resolve; });
+  const transaction = writer.$transaction(async tx => {
+    await tx.$executeRawUnsafe('UPDATE "User" SET "email"="email" WHERE "id"=\'owner\'');
+    signalLocked();
+    await release;
+  }, { timeout: 10000 });
+  await locked;
+  const tick = store.runPushTick(async () => { throw new Error('no push is due'); });
+  let completed = false;
+  tick.then(() => { completed = true; }, () => { completed = true; });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    assert.equal(completed, true, 'an idle tick must not wait for the SQLite write lock');
+    await tick;
+  } finally {
+    releaseWriter();
+    await transaction;
+    await tick.catch(() => {});
+    await writer.$disconnect();
+  }
 }));
 test('display revalidates current account, binding, revocation and notification revision', () => fixture(async ({ db, store, subscribe, notice, device }) => {
   const settings = await subscribe(); await notice(); let envelope;

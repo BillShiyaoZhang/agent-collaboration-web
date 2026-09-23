@@ -128,12 +128,13 @@ test("actual signed/encrypted control transport interoperates and rejects forged
 });
 
 function serviceFixture() {
-  const rows=new Map(),sent=[],acked=[],projected=[];let mailbox=[],failSend=false,failWrite=false,failProjection=false,retrievals=0;
+  const rows=new Map(),sent=[],acked=[],projected=[];let mailbox=[],failSend=false,failWrite=false,failProjection=false,retrievals=0,cacheDeletes=0;
   const user={id:"owner",virtualUrn:"console"},agent={id:"agent",urn:"agent-urn",userId:user.id};
   const prisma={controlRequest:{
-    deleteMany:async({where})=>{for(const [id,row] of rows)if(row.expiresAt<=where.expiresAt.lte)rows.delete(id);},
-    count:async()=>rows.size,findUnique:async({where})=>rows.get(where.id)||null,
-    findFirst:async({where})=>{const row=rows.get(where.id);return row&&where.agent.userId===user.id&&row.consoleUrn===where.consoleUrn?{...row,agent}:null;},
+    deleteMany:async({where})=>{cacheDeletes++;for(const [id,row] of rows)if(row.expiresAt<=where.expiresAt.lte)rows.delete(id);},
+    count:async({where})=>[...rows.values()].filter(row=>!where?.expiresAt||row.expiresAt>where.expiresAt.gt).length,
+    findUnique:async({where})=>rows.get(where.id)||null,
+    findFirst:async({where})=>where.expiresAt?[...rows.values()].find(row=>row.expiresAt<=where.expiresAt.lte)||null:(()=>{const row=rows.get(where.id);return row&&where.agent.userId===user.id&&row.consoleUrn===where.consoleUrn?{...row,agent}:null;})(),
     create:async({data})=>{const row={status:"pending",responseEnvelope:null,...data};rows.set(row.id,row);return row;},
     updateMany:async({where,data})=>{if(failWrite)throw new Error("disk failure");const row=rows.get(where.id);if(row.responseEnvelope===where.responseEnvelope){Object.assign(row,data);return {count:1};}return {count:0};},
   }};
@@ -151,7 +152,7 @@ function serviceFixture() {
     const decoded={envelope:{senderUrn:agent.urn,messageId:"reply-"+id},chat:{inReplyTo:id,deadline:r.deadline},response:response(r),...changes};
     return {message_id:decoded.envelope.messageId,payload_proto:JSON.stringify(decoded)};
   }
-  return {service,rows,sent,acked,projected,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,retrievals:()=>retrievals};
+  return {service,rows,sent,acked,projected,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,retrievals:()=>retrievals,cacheDeletes:()=>cacheDeletes};
 }
 
 test("durable account projection must finish before ACK, including retry after a wire-only save",async()=>{
@@ -167,6 +168,18 @@ test("concurrent browser and worker mailbox reads share one authenticated retrie
   const f=serviceFixture();await f.service.createControlCall(f.user,f.agent,f.call);f.setMailbox([f.reply()]);
   await Promise.all([f.service.pollControlResponses(f.user),f.service.pollControlResponses(f.user),f.service.pollControlResponses(f.user)]);
   assert.equal(f.retrievals(),1);assert.equal(f.projected.length,1);assert.equal(f.acked.length,1);
+});
+
+test("control calls and mailbox polls do not run cache DELETE in the request path",async()=>{
+  const f=serviceFixture();
+  for(let index=0;index<70;index++)f.rows.set(`expired-${index}`,{expiresAt:new Date(Date.now()-1000)});
+  await f.service.createControlCall(f.user,f.agent,f.call);
+  f.setMailbox([f.reply()]);await f.service.pollControlResponses(f.user);
+  assert.equal(f.rows.get(f.call.request_id).status,"complete");
+  assert.equal(f.cacheDeletes(),0,"expired cache rows cannot make a live control poll wait for a SQLite writer");
+  await f.service.cleanupControlCache();
+  assert.equal(f.cacheDeletes(),1);assert.equal(f.rows.size,1);
+  await f.service.cleanupControlCache();assert.equal(f.cacheDeletes(),1,"idle cleanup is read-only");
 });
 
 test("concurrent retries of the same write enqueue once and reject a competing payload",async()=>{

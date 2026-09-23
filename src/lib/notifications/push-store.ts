@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import webpush from "web-push";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/shared/db";
 import { ControlError } from "@/lib/control/control-transport";
 import { allowedPushEndpoint, isGonePushStatus, PUSH_FRESH_MS, PUSH_LEASE_MS, PUSH_TTL_MS, pushRetryDelay, pushSubject, type BrowserPushSubscription } from "./push-policy";
@@ -7,7 +8,7 @@ import { allowedPushEndpoint, isGonePushStatus, PUSH_FRESH_MS, PUSH_LEASE_MS, PU
 type Subscription = { id: string; userId: string; deviceId: string; binding: string; endpointHash: string; payload: string; active: number; enabledAt: number; expiresAt: number; visibleUntil: number; lastTestAt: number; lastError: string | null };
 type Delivery = { id: string; subscriptionId: string; agentId: string; notificationId: string; revision: number; kind: string; status: string; attempts: number; claimed: number; nextAttemptAt: number; expiresAt: number; leaseToken: string | null; leaseUntil: number | null; updatedAt: number; lastError: string | null };
 type Vapid = { publicKey: string; privateKey: string };
-const ACTIONABLE = "'owner_decision_required','needs_recovery','connection_action_required','needs_response','new_collaboration_request','friend_request_received'";
+const ACTIONABLE = ["owner_decision_required", "needs_recovery", "connection_action_required", "needs_response", "new_collaboration_request", "friend_request_received"];
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 function storageKey() {
   if (!process.env.NEXTAUTH_SECRET) throw new ControlError("服务器尚未配置推送加密。", 503);
@@ -118,13 +119,22 @@ export async function recordPushReceipt(userId: string, deliveryId: string, bind
 export async function runPushTick(send = webpush.sendNotification.bind(webpush)) {
   const subject = pushSubject(); if (!subject) return;
   const now = Date.now();
-  await prisma.$executeRaw`UPDATE "WebPushSubscription" SET "active" = 0 WHERE "active" = 1 AND "expiresAt" <= ${now}`;
-  await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status" = 'expired', "leaseToken" = NULL, "leaseUntil" = NULL, "updatedAt" = ${now}
+  // SQLite has one writer. An idle push worker used to acquire that write lock
+  // every three seconds for UPDATE/DELETE statements affecting zero rows.
+  const [maintenance] = await prisma.$queryRaw<{ subscriptions: bigint; expired: bigint; stale: bigint; resolved: bigint }[]>`SELECT
+    EXISTS(SELECT 1 FROM "WebPushSubscription" WHERE "active"=1 AND "expiresAt"<=${now}) AS "subscriptions",
+    EXISTS(SELECT 1 FROM "WebPushDelivery" WHERE "status" IN ('pending','sending','sent','received','deferred') AND "expiresAt"<=${now}) AS "expired",
+    EXISTS(SELECT 1 FROM "WebPushDelivery" WHERE "updatedAt"<${now - 7 * 86400000} AND "status" NOT IN ('pending','sending')) AS "stale",
+    EXISTS(SELECT 1 FROM "WebPushDelivery" d WHERE d."kind"='notification' AND d."status" IN ('displayed','sent','received','deferred','expired')
+      AND EXISTS (SELECT 1 FROM "WorkspaceNotification" n WHERE n."agentId"=d."agentId" AND n."id"=d."notificationId"
+        AND (n."state"<>'open' OR n."revision"<>d."revision" OR n."readRevision">=d."revision"))) AS "resolved"`;
+  if (maintenance.subscriptions) await prisma.$executeRaw`UPDATE "WebPushSubscription" SET "active" = 0 WHERE "active" = 1 AND "expiresAt" <= ${now}`;
+  if (maintenance.expired) await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status" = 'expired', "leaseToken" = NULL, "leaseUntil" = NULL, "updatedAt" = ${now}
     WHERE "status" IN ('pending','sending','sent','received','deferred') AND "expiresAt" <= ${now}`;
-  await prisma.$executeRaw`DELETE FROM "WebPushDelivery" WHERE "updatedAt" < ${now - 7 * 86400000} AND "status" NOT IN ('pending','sending')`;
+  if (maintenance.stale) await prisma.$executeRaw`DELETE FROM "WebPushDelivery" WHERE "updatedAt" < ${now - 7 * 86400000} AND "status" NOT IN ('pending','sending')`;
   // Wake closed browsers when an agent resolves a previously displayed item.
   // The browser verifies the saved delivery again before closing its exact notice.
-  await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='close_pending',"attempts"=0,"nextAttemptAt"=${now},"expiresAt"=${now + PUSH_TTL_MS},"updatedAt"=${now}
+  if (maintenance.resolved) await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='close_pending',"attempts"=0,"nextAttemptAt"=${now},"expiresAt"=${now + PUSH_TTL_MS},"updatedAt"=${now}
     WHERE "kind"='notification' AND "status" IN ('displayed','sent','received','deferred','expired')
     AND EXISTS (SELECT 1 FROM "WorkspaceNotification" n WHERE n."agentId"="WebPushDelivery"."agentId" AND n."id"="WebPushDelivery"."notificationId"
       AND (n."state"<>'open' OR n."revision"<>"WebPushDelivery"."revision" OR n."readRevision">="WebPushDelivery"."revision"))`;
@@ -149,16 +159,16 @@ export async function runPushTick(send = webpush.sendNotification.bind(webpush))
       await prisma.$executeRaw`UPDATE "WebPushDelivery" SET "status"='close_pending',"leaseToken"=NULL,"leaseUntil"=NULL,"nextAttemptAt"=${Date.now() + pushRetryDelay(row.attempts + 1)},"updatedAt"=${Date.now()} WHERE "id"=${row.id} AND "leaseToken"=${token}`;
     }
   }
-  // Parameterized constants only; the interpolated actionable list is fixed code.
-  await prisma.$executeRawUnsafe(`INSERT OR IGNORE INTO "WebPushDelivery" ("id","subscriptionId","agentId","notificationId","revision","nextAttemptAt","expiresAt","updatedAt")
-    SELECT lower(hex(randomblob(16))),s."id",n."agentId",n."id",n."revision",?,MIN(COALESCE(n."expiresAt",?),?),?
-    FROM "WebPushSubscription" s JOIN "Agent" a ON a."userId"=s."userId" JOIN "WorkspaceNotification" n ON n."agentId"=a."id"
-    WHERE s."active"=1 AND s."expiresAt">? AND n."state"='open' AND n."readRevision"<n."revision" AND n."systemEligible"=1
-    AND (n."expiresAt" IS NULL OR n."expiresAt">?) AND n."sourceAt">?
-    AND (n."updatedAt">s."enabledAt" OR n."kind" IN (${ACTIONABLE}))
+  const candidates = Prisma.sql`FROM "WebPushSubscription" s JOIN "Agent" a ON a."userId"=s."userId" JOIN "WorkspaceNotification" n ON n."agentId"=a."id"
+    WHERE s."active"=1 AND s."expiresAt">${now} AND n."state"='open' AND n."readRevision"<n."revision" AND n."systemEligible"=1
+    AND (n."expiresAt" IS NULL OR n."expiresAt">${now}) AND n."sourceAt">${now - PUSH_FRESH_MS}
+    AND (n."updatedAt">s."enabledAt" OR n."kind" IN (${Prisma.join(ACTIONABLE)}))
     AND NOT EXISTS (SELECT 1 FROM "WorkspaceNotificationDelivery" c WHERE c."agentId"=n."agentId" AND c."notificationId"=n."id" AND c."revision"=n."revision" AND c."deviceId"=s."deviceId")
-    AND NOT EXISTS (SELECT 1 FROM "WebPushDelivery" d WHERE d."subscriptionId"=s."id" AND d."agentId"=n."agentId" AND d."notificationId"=n."id" AND d."revision"=n."revision")
-    ORDER BY n."seq" DESC LIMIT 100`, now, now + PUSH_TTL_MS, now + PUSH_TTL_MS, now, now, now, now - PUSH_FRESH_MS);
+    AND NOT EXISTS (SELECT 1 FROM "WebPushDelivery" d WHERE d."subscriptionId"=s."id" AND d."agentId"=n."agentId" AND d."notificationId"=n."id" AND d."revision"=n."revision")`;
+  if ((await prisma.$queryRaw<{ found: bigint }[]>(Prisma.sql`SELECT 1 AS "found" ${candidates} LIMIT 1`)).length)
+    await prisma.$executeRaw(Prisma.sql`INSERT OR IGNORE INTO "WebPushDelivery" ("id","subscriptionId","agentId","notificationId","revision","nextAttemptAt","expiresAt","updatedAt")
+      SELECT lower(hex(randomblob(16))),s."id",n."agentId",n."id",n."revision",${now},MIN(COALESCE(n."expiresAt",${now + PUSH_TTL_MS}),${now + PUSH_TTL_MS}),${now}
+      ${candidates} ORDER BY n."seq" DESC LIMIT 100`);
   const due = await prisma.$queryRaw<Delivery[]>`SELECT d.* FROM "WebPushDelivery" d JOIN "WebPushSubscription" s ON s."id"=d."subscriptionId"
     WHERE s."active"=1 AND s."expiresAt">${now} AND (d."kind"='test' OR s."visibleUntil"<=${now}) AND d."expiresAt">${now}
     AND d."attempts"<5 AND d."nextAttemptAt"<=${now} AND (d."status"='pending' OR d."status"='sending' AND d."leaseUntil"<${now}

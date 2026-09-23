@@ -482,7 +482,7 @@ test("projection retries are bounded and ordinary database failures are not retr
   }
 });
 
-test("real SQLite transaction-start contention remains a recoverable P1008 failure without automatic replay", () => fixture(async ({ db, filename, user, agent, store, row }) => {
+test("real SQLite transaction-start contention retries only before projection begins", () => fixture(async ({ db, filename, user, agent, store, row }) => {
   await store.ensureWorkspaceState(agent.id);
   const other = new PrismaClient({ datasources: { db: { url: "file:" + filename.replaceAll("\\", "/") } } });
   const otherStore = load("../../src/lib/workspace/workspace-store.ts", { "@/lib/shared/db": { prisma: other }, "@/lib/control/control-transport": { ControlError }, "@/lib/control/workbench-client": client });
@@ -508,13 +508,13 @@ test("real SQLite transaction-start contention remains a recoverable P1008 failu
     const request = row("conversation.get"), response = {
       result: { conversation_id: "concurrent", turns: [{ turn_id: "concurrent-turn", response: "Actual result", status: "completed" }] },
     };
-    await assert.rejects(otherStore.recordWorkspaceResponse(user, agent, request, response), { code: "P1008" });
-    await lockedWrite;
-    assert.equal(failures.length, 1, "a generic timeout cannot be classified as explicit SQLITE_BUSY");
-    assert.equal(attempts, 1);
-    assert.equal((await store.getWorkspaceAgent(user.id, agent.id, "concurrent")).conversation.turns.length, 0);
     await otherStore.recordWorkspaceResponse(user, agent, request, response);
-    assert.equal(attempts, 2, "the same authenticated response can be saved after the caller retries");
+    await lockedWrite;
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].code, "P1008");
+    assert.equal(attempts, 2, "the rolled-back transaction starts again after its writer is released");
+    await otherStore.recordWorkspaceResponse(user, agent, request, response);
+    assert.equal(attempts, 3, "a replay of the same authenticated result remains safe");
     const result = await store.getWorkspaceAgent(user.id, agent.id, "concurrent");
     assert.equal(result.conversation.turns[0].response, "Actual result");
     assert.equal(result.sync.lastAttemptAt, 123456);
@@ -523,6 +523,33 @@ test("real SQLite transaction-start contention remains a recoverable P1008 failu
     release();
     await lockedWrite;
     await other.$disconnect();
+  }
+}));
+
+test("ensuring an existing workspace state does not acquire a SQLite writer lock", () => fixture(async ({ db, filename, agent, store }) => {
+  await store.ensureWorkspaceState(agent.id);
+  const writer = new PrismaClient({ datasources: { db: { url: "file:" + filename.replaceAll("\\", "/") } } });
+  let signalLocked, releaseWriter;
+  const locked = new Promise(resolve => { signalLocked = resolve; });
+  const release = new Promise(resolve => { releaseWriter = resolve; });
+  const transaction = writer.$transaction(async tx => {
+    await tx.$executeRaw`UPDATE "WorkspaceState" SET "lastAttemptAt" = ${123456} WHERE "agentId" = ${agent.id}`;
+    signalLocked();
+    await release;
+  }, { timeout: 10000 });
+  await locked;
+  const ensuring = store.ensureWorkspaceState(agent.id);
+  let completed = false;
+  ensuring.then(() => { completed = true; }, () => { completed = true; });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    assert.equal(completed, true, "the existing row is checked without a no-op INSERT");
+    await ensuring;
+  } finally {
+    releaseWriter();
+    await transaction;
+    await ensuring.catch(() => {});
+    await writer.$disconnect();
   }
 }));
 
