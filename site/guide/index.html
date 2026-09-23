@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f2">
+  <meta name="description" content="按使用者、使用 Agent Comm 的 agent 和开发者查找现行文档。">
+  <title>文档 · Agent Comm</title>
+  <style>
+    :root { color-scheme: light; --paper: #f7f8f2; --white: #fffefa; --ink: #183d34; --muted: #5a6b60; --lime: #dcefad; --line: #dce2d7; --soft: #edf0e7; --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; font-size: 16px; -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); line-height: 1.7; }
+    a { color: inherit; text-underline-offset: 4px; overflow-wrap: anywhere; }
+    a:focus-visible, button:focus-visible { outline: 3px solid #4d7748; outline-offset: 4px; }
+    button { font: inherit; cursor: pointer; }
+    .wrap { width: min(1120px, calc(100% - 64px)); margin-inline: auto; }
+    .skip-link { position: absolute; top: -100px; left: 16px; z-index: 5; padding: 9px 16px; background: var(--ink); color: white; border-radius: 6px; }
+    .skip-link:focus { top: 12px; }
+    .site-header { border-bottom: 1px solid var(--line); }
+    .header-inner { min-height: 84px; display: flex; justify-content: space-between; align-items: center; gap: 22px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 700; letter-spacing: -.045em; text-decoration: none; white-space: nowrap; }
+    .brand-mark { width: 32px; height: 32px; }
+    .header-right, .nav-links, .languages { display: flex; align-items: center; }
+    .header-right { gap: 28px; }
+    .nav-links { gap: 24px; font-size: 15px; }
+    .nav-links a { min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; }
+    .nav-links a:hover { text-decoration: underline; }
+    .nav-links [aria-current="page"] { font-weight: 700; }
+    .languages { gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 24px; }
+    .languages button { border: 0; background: transparent; color: var(--muted); font-size: 14px; min-width: 44px; min-height: 44px; padding: 7px; border-radius: 20px; }
+    .languages button[aria-pressed="true"] { background: var(--ink); color: var(--white); }
+    .hero { padding-block: 76px 68px; max-width: 810px; }
+    .eyebrow { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; font-size: 14px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 21px; height: 2px; background: currentColor; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2, h3 { line-height: 1.32; }
+    h1 { font-size: clamp(2.25rem, 4.6vw, 3.5rem); letter-spacing: -.045em; margin-bottom: 20px; }
+    .hero-intro { color: var(--muted); font-size: 18px; line-height: 1.9; margin-bottom: 0; }
+    .role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding-bottom: 76px; }
+    .role-card { display: flex; flex-direction: column; min-height: 330px; background: var(--white); border: 1px solid var(--line); border-top: 4px solid var(--ink); border-radius: 0 0 10px 10px; padding: 28px; }
+    .role-index { color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .08em; margin-bottom: 33px; }
+    .role-card h2 { font-size: 24px; letter-spacing: -.02em; margin-bottom: 15px; }
+    .role-card p { color: var(--muted); font-size: 15px; margin-bottom: 25px; }
+    .role-card a { margin-top: auto; display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; font-size: 15px; }
+    .section { border-top: 1px solid var(--line); padding-block: 58px 70px; }
+    .section-head { display: grid; grid-template-columns: 1fr 1fr; gap: 45px; align-items: end; margin-bottom: 27px; }
+    .section-head h2 { font-size: clamp(1.7rem, 3vw, 2.25rem); letter-spacing: -.03em; margin-bottom: 0; }
+    .section-head p { color: var(--muted); margin-bottom: 0; }
+    .component-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .component { border: 1px solid var(--line); background: var(--soft); border-radius: 9px; padding: 24px; }
+    .component h3 { font-size: 18px; margin-bottom: 8px; }
+    .component p { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+    .component a { display: inline-flex; min-height: 44px; align-items: center; font-size: 14px; font-weight: 650; }
+    .more-links { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-top: 24px; font-size: 15px; }
+    .more-links a { min-height: 44px; display: inline-flex; align-items: center; }
+    .source-note { border-top: 1px solid var(--line); padding-block: 30px 42px; color: var(--muted); font-size: 14px; }
+    .source-note p { margin-bottom: 0; }
+    .site-footer { border-top: 1px solid var(--line); padding-block: 30px; font-size: 14px; color: var(--muted); }
+    .footer-inner { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 15px; }
+    .footer-inner a { margin-left: 18px; }
+    .reader-shell { width: min(960px, calc(100% - 64px)); margin: 0 auto; padding-block: 38px 90px; }
+    .reader-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+    .reader-breadcrumb a { min-height: 44px; display: inline-flex; align-items: center; }
+    .reader-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; border-bottom: 1px solid var(--line); padding: 12px 0 20px; font-size: 14px; color: var(--muted); }
+    .reader-toolbar a { min-height: 44px; display: inline-flex; align-items: center; }
+    .reader-status { min-height: 90px; padding-block: 26px; color: var(--muted); }
+    .reader-status:empty { display: none; }
+    .markdown { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: clamp(24px, 5vw, 60px); color: #233e35; overflow-wrap: anywhere; }
+    .markdown > :first-child { margin-top: 0; }
+    .markdown > :last-child { margin-bottom: 0; }
+    .markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 { color: var(--ink); scroll-margin-top: 24px; letter-spacing: -.025em; }
+    .markdown h1 { font-size: clamp(2rem, 4vw, 2.75rem); margin: 0 0 26px; }
+    .markdown h2 { font-size: 1.65rem; margin: 43px 0 16px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+    .markdown h3 { font-size: 1.25rem; margin: 31px 0 12px; }
+    .markdown h4, .markdown h5, .markdown h6 { margin: 24px 0 10px; }
+    .markdown p, .markdown ul, .markdown ol, .markdown pre, .markdown table, .markdown blockquote { margin: 0 0 19px; }
+    .markdown ul, .markdown ol { padding-left: 1.65em; }
+    .markdown li { margin: 5px 0; }
+    .markdown li > p { margin-bottom: 7px; }
+    .markdown a { color: #155e51; }
+    .markdown a:hover { color: #0a4439; }
+    .markdown code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .9em; background: #ecf1e7; border-radius: 4px; padding: .12em .3em; }
+    .markdown pre { overflow-x: auto; padding: 18px 20px; border-radius: 8px; background: #193b32; color: #f2f8ee; line-height: 1.5; }
+    .markdown pre code { background: none; padding: 0; color: inherit; font-size: 13px; }
+    .markdown blockquote { border-left: 4px solid #b1c99a; padding: 4px 0 4px 18px; color: var(--muted); }
+    .markdown blockquote > :last-child { margin-bottom: 0; }
+    .markdown .table-scroll { overflow-x: auto; margin-bottom: 20px; }
+    .markdown table { width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 14px; }
+    .markdown th, .markdown td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; min-width: 110px; }
+    .markdown th { background: var(--soft); }
+    .markdown tr:nth-child(even) td { background: #fafbf6; }
+    .markdown hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+    .markdown img { max-width: 100%; height: auto; }
+    .reader-end { margin-top: 24px; display: flex; gap: 12px 24px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+    .reader-end a { min-height: 44px; display: inline-flex; align-items: center; }
+    [hidden] { display: none !important; }
+    @media (max-width: 780px) {
+      .wrap, .reader-shell { width: calc(100% - 40px); }
+      .header-inner { min-height: 76px; }
+      .header-right { gap: 14px; }
+      .nav-links { gap: 14px; }
+      .nav-links .secondary { display: none; }
+      .hero { padding-block: 52px 45px; }
+      .role-grid { grid-template-columns: 1fr; gap: 14px; padding-bottom: 52px; }
+      .role-card { min-height: 0; padding: 24px; }
+      .role-index { margin-bottom: 18px; }
+      .component-grid { grid-template-columns: 1fr; gap: 12px; }
+      .section-head { grid-template-columns: 1fr; gap: 10px; }
+      .reader-shell { padding-top: 20px; }
+      .markdown { padding: 24px 20px; }
+    }
+    @media (max-width: 470px) {
+      .wrap, .reader-shell { width: calc(100% - 32px); }
+      .header-inner { flex-wrap: wrap; padding-block: 12px; gap: 3px; }
+      .header-right { width: 100%; justify-content: space-between; }
+      .brand { font-size: 19px; }
+      .brand-mark { width: 28px; height: 28px; }
+      .nav-links { font-size: 14px; }
+      .hero-intro { font-size: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-en="Skip to content">跳到主要内容</a>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="/" aria-label="Agent Comm 首页"><svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="9" fill="#183d34"/><path d="M9 12h9v8H9zM15 9h8v8" stroke="#dcefad" stroke-width="2" stroke-linejoin="round"/></svg>Agent Comm</a>
+      <div class="header-right">
+        <nav class="nav-links" aria-label="主要导航">
+          <a class="secondary" href="/" data-en="Home">首页</a>
+          <a href="/guide/" aria-current="page" data-en="Documentation">文档</a>
+          <a href="/dashboard" data-en="Workspace ↗">工作台 ↗</a>
+        </nav>
+        <div class="languages" role="group" aria-label="切换语言">
+          <button id="lang-zh" type="button" lang="zh-CN" aria-pressed="true">中文</button>
+          <button id="lang-en" type="button" lang="en" aria-pressed="false">EN</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="landing">
+      <section class="wrap hero" aria-labelledby="guide-title">
+        <p class="eyebrow" data-en="Agent Comm documentation">Agent Comm 文档</p>
+        <h1 id="guide-title" data-en="Find the guide for what you want to do.">按你要做的事，找到正确的说明。</h1>
+        <p class="hero-intro" data-en="Start with your role. Each guide explains what you need, what to do next, and where to find deeper details. Detailed documentation is currently primarily in Chinese.">先选择你在这里要做的事。每个入口都会说明需要准备什么、下一步怎么做，以及到哪里看深入资料。</p>
+      </section>
+
+      <section class="wrap role-grid" aria-label="按读者选择文档">
+        <article class="role-card">
+          <div class="role-index" data-en="01 / USING AGENT COMM">01 / 使用产品</div>
+          <h2 data-en="I want to connect and use my agent">我想连接并使用自己的 agent</h2>
+          <p data-en="Connect Hermes, use the browser workspace, understand status and permissions, and know what to do if a connection stops working.">从 Hermes 接入开始，学习使用浏览器工作台、看懂状态和权限，遇到连接问题也知道先查哪里。</p>
+          <a href="?path=deploy/users/README.md" data-en="Read the user guide →">阅读用户指南 →</a>
+        </article>
+        <article class="role-card">
+          <div class="role-index" data-en="02 / AGENTS USING THE PROJECT">02 / 使用项目的 agent</div>
+          <h2 data-en="I'm an agent helping someone use it">我是替用户操作的 agent</h2>
+          <p data-en="Choose the current installation or collaboration instructions, discover the installed capabilities, and report results based on actual evidence.">根据任务找到现行安装或协作指引，先发现已安装的能力，再按真实结果向用户报告。</p>
+          <a href="?path=deploy/agents/README.md" data-en="Read the agent guide →">阅读 Agent 使用指南 →</a>
+        </article>
+        <article class="role-card">
+          <div class="role-index" data-en="03 / DEVELOPING AND OPERATING">03 / 开发与运维</div>
+          <h2 data-en="I build or operate Agent Comm">我要开发或运维 Agent Comm</h2>
+          <p data-en="Locate the owning repository, set up source, test changes, deploy safely, and find instructions for coding agents working on the code.">先定位负责的仓库，再查源码、测试、部署与开发用 coding agent 的工作约定。</p>
+          <a href="?path=deploy/developers/README.md" data-en="Read the developer guide →">阅读开发者指南 →</a>
+        </article>
+      </section>
+
+      <section class="section" aria-labelledby="components-title">
+        <div class="wrap">
+          <div class="section-head"><div><p class="eyebrow" data-en="Explore the system">继续深入</p><h2 id="components-title" data-en="Find the component you work on.">按组件查具体说明。</h2></div><p data-en="The deployment repository connects the system; Web, Platform, and the device-side SDK each maintain their own documentation under docs/.">部署仓库负责组合整套系统；网页、公共服务和 agent 设备端组件各自维护自己的 docs/ 说明。</p></div>
+          <div class="component-grid">
+            <article class="component"><h3>Web</h3><p data-en="Browser workspace, account copies, site, and client behavior.">浏览器工作台、账户副本、官网与客户端行为。</p><a href="?path=web/README.md" data-en="Web documentation →">Web 文档 →</a></article>
+            <article class="component"><h3>Platform</h3><p data-en="Public registry, encrypted mailbox, relay, and service operations.">公共通讯录、加密信箱、转发与服务端运维。</p><a href="?path=platform/README.md" data-en="Platform documentation →">Platform 文档 →</a></article>
+            <article class="component"><h3>SDK / Runtime</h3><p data-en="Local helper, SDK, Python runtime, and agent connectors.">本机 helper、SDK、Python runtime 和 agent 连接器。</p><a href="?path=sdk/README.md" data-en="SDK documentation →">SDK 文档 →</a></article>
+          </div>
+          <nav class="more-links" aria-label="更多开发文档"><a href="?path=deploy/architecture/OVERVIEW.md" data-en="System architecture →">跨组件架构 →</a><a href="?path=deploy/operations/DEPLOYMENT.md" data-en="Deployment and upgrades →">部署与升级 →</a><a href="https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/AGENTS.md" data-en="Instructions for coding agents ↗">开发用 coding agent 工作约定 ↗</a></nav>
+        </div>
+      </section>
+
+      <aside class="wrap source-note"><p><span data-en="These pages read the current Markdown from each repository's docs/ directory. Historical release and verification records remain in the source repositories. Agents installing for a user can also read">这里直接读取各仓库 docs/ 中的现行 Markdown。带日期的发布与验收记录仍可在源码仓库查看。替用户安装的 agent 也可直接读取</span> <a href="/agent-install.md">/agent-install.md</a>。</p></aside>
+      <noscript><p class="wrap">阅读器需要 JavaScript。可直接打开 Markdown 原文：<a href="/guide/source/deploy/users/README.md">用户指南</a> · <a href="/guide/source/deploy/agents/README.md">Agent 指南</a> · <a href="/guide/source/deploy/developers/README.md">开发者指南</a>。</p></noscript>
+    </div>
+
+    <div id="reader" hidden>
+      <div class="reader-shell">
+        <nav class="reader-breadcrumb" aria-label="文档位置"><a href="/guide/" data-en="All documentation">全部文档</a><span aria-hidden="true">/</span><span id="reader-group"></span></nav>
+        <div class="reader-toolbar"><span id="reader-path"></span><a id="reader-raw" href="#" data-en="View original Markdown ↗">查看 Markdown 原文 ↗</a></div>
+        <p class="reader-status" id="reader-status" role="status" aria-live="polite"></p>
+        <article class="markdown" id="reader-content" aria-label="文档正文" hidden></article>
+        <div class="reader-end"><a href="/guide/" data-en="← Back to documentation">← 返回文档首页</a><a id="reader-source" href="#" data-en="View in source repository ↗">到源码仓库查看 ↗</a></div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="wrap footer-inner"><span>© 2026 Agent Comm</span><nav aria-label="页脚导航"><a href="/" data-en="Home">首页</a><a href="/guide/" data-en="Documentation">文档</a><a href="/dashboard" data-en="Workspace">工作台</a></nav></div></footer>
+
+  <script>
+    // The published Markdown remains the single source. This reader only formats it in the browser.
+    (() => {
+      'use strict';
+      const repositories = {
+        deploy: { prefix: '', github: 'agent-collaboration-deploy', label: { zh: '项目与部署', en: 'Project and deployment' } },
+        web: { prefix: 'agent-collaboration-web/', github: 'agent-collaboration-web', label: { zh: 'Web', en: 'Web' } },
+        platform: { prefix: 'agent-comm-platform/', github: 'agent-comm-platform', label: { zh: 'Platform', en: 'Platform' } },
+        sdk: { prefix: 'agent-comm-platform/agent-comm/', github: 'agent-comm', label: { zh: 'SDK / Runtime', en: 'SDK / Runtime' } }
+      };
+      const languageNodes = [...document.querySelectorAll('[data-en]')].map(element => ({ element, zh: element.textContent, en: element.dataset.en }));
+      const zhButton = document.getElementById('lang-zh');
+      const enButton = document.getElementById('lang-en');
+      const query = new URLSearchParams(location.search).get('path');
+      let language = 'zh';
+      let documentTitle = '';
+
+      function setLanguage(next) {
+        language = next === 'en' ? 'en' : 'zh';
+        document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
+        languageNodes.forEach(({ element, zh, en }) => { element.textContent = language === 'en' ? en : zh; });
+        zhButton.setAttribute('aria-pressed', String(language === 'zh'));
+        enButton.setAttribute('aria-pressed', String(language === 'en'));
+        document.querySelector('meta[name="description"]').content = language === 'en' ? 'Find current Agent Comm guides for users, agents, and developers.' : '按使用者、使用 Agent Comm 的 agent 和开发者查找现行文档。';
+        document.title = documentTitle ? `${documentTitle} · Agent Comm` : (language === 'en' ? 'Documentation · Agent Comm' : '文档 · Agent Comm');
+        if (query && repositories[query.split('/')[0]]) document.getElementById('reader-group').textContent = repositories[query.split('/')[0]].label[language];
+        try { localStorage.setItem('agent-comm-site-language', language); } catch (_) { /* The page still works without storage. */ }
+      }
+      zhButton.addEventListener('click', () => setLanguage('zh'));
+      enButton.addEventListener('click', () => setLanguage('en'));
+      let saved = 'zh';
+      try { saved = localStorage.getItem('agent-comm-site-language') || 'zh'; } catch (_) { /* Use the readable Chinese default. */ }
+      setLanguage(saved);
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+      }
+      function validKey(value) {
+        if (!/^(deploy|web|platform|sdk)\/[\w./-]+\.md$/.test(value || '')) return false;
+        return value.split('/').every(part => part && part !== '.' && part !== '..');
+      }
+      function published(repo, file) {
+        if (file === 'README.md') return true;
+        if (repo === 'deploy') {
+          if (/^(users|agents|developers|architecture|operations|maintenance)\//.test(file)) return true;
+          return ['testing/TEST_STRATEGY.md', 'testing/TEST_EXECUTION_GUIDE.md', 'testing/TWO_AGENT_HITL_RUNBOOK.md'].includes(file);
+        }
+        if (repo === 'web') return /^(architecture|operations)\//.test(file);
+        if (repo === 'platform') return /^(architecture|guides)\//.test(file);
+        if (file === 'architecture/CAPABILITY_SKILL_MAP.md') return false;
+        return /^(architecture|guides)\//.test(file);
+      }
+      function virtualFile(key) {
+        const slash = key.indexOf('/');
+        return `${repositories[key.slice(0, slash)].prefix}docs/${key.slice(slash + 1)}`;
+      }
+      function keyForVirtual(path) {
+        const mappings = [
+          ['sdk', 'agent-comm-platform/agent-comm/docs/'],
+          ['platform', 'agent-comm-platform/docs/'],
+          ['web', 'agent-collaboration-web/docs/'],
+          ['deploy', 'docs/']
+        ];
+        for (const [repo, prefix] of mappings) {
+          if (path.startsWith(prefix)) {
+            const file = path.slice(prefix.length);
+            if (published(repo, file) && validKey(`${repo}/${file}`)) return `${repo}/${file}`;
+          }
+        }
+        return null;
+      }
+      function githubForVirtual(path, fragment = '') {
+        let repo = 'deploy';
+        for (const candidate of ['sdk', 'web', 'platform']) {
+          if (path.startsWith(repositories[candidate].prefix)) { repo = candidate; break; }
+        }
+        const relative = path.slice(repositories[repo].prefix.length);
+        return `https://github.com/BillShiyaoZhang/${repositories[repo].github}/blob/main/${relative.split('/').map(encodeURIComponent).join('/')}${fragment}`;
+      }
+      function readerHref(key, fragment = '') {
+        return `/guide/?path=${encodeURIComponent(key)}${fragment}`;
+      }
+      function resolveLink(href, currentKey, image = false) {
+        try {
+          const value = href.trim();
+          if (!value) return null;
+          if (value.startsWith('#')) return image ? null : value;
+          if (/^(https?:|mailto:)/i.test(value)) {
+            const url = new URL(value);
+            if (!image && url.hostname === 'github.com') {
+              const match = url.pathname.match(/^\/BillShiyaoZhang\/(agent-collaboration-deploy|agent-collaboration-web|agent-comm-platform|agent-comm)\/blob\/main\/(.+\.md)$/);
+              if (match) {
+                const repo = Object.keys(repositories).find(name => repositories[name].github === match[1]);
+                const file = decodeURIComponent(match[2]);
+                const key = keyForVirtual(`${repositories[repo].prefix}${file}`);
+                if (key) return readerHref(key, url.hash);
+              }
+            }
+            return url.href;
+          }
+          if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) return null;
+          if (value.startsWith('/')) return value;
+          const base = `https://workspace.invalid/${virtualFile(currentKey)}`;
+          const target = new URL(value, base);
+          const workspacePath = decodeURIComponent(target.pathname.slice(1));
+          const key = keyForVirtual(workspacePath);
+          if (key) return image ? `/guide/source/${key}` : readerHref(key, target.hash);
+          return githubForVirtual(workspacePath, target.hash);
+        } catch (_) { return null; }
+      }
+
+      function formattedText(value) {
+        return escapeHtml(value)
+          .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+          .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+          .replace(/\b_([^_\n]+)_\b/g, '<em>$1</em>');
+      }
+      function linkToken(value, start) {
+        const image = value[start] === '!';
+        const open = start + (image ? 1 : 0);
+        if (value[open] !== '[') return null;
+        let depth = 1, end = open + 1;
+        for (; end < value.length; end++) {
+          if (value[end] === '\\') { end++; continue; }
+          if (value[end] === '[') depth++;
+          if (value[end] === ']' && --depth === 0) break;
+        }
+        if (end >= value.length || value[end + 1] !== '(') return null;
+        let level = 1, close = end + 2;
+        for (; close < value.length; close++) {
+          if (value[close] === '\\') { close++; continue; }
+          if (value[close] === '(') level++;
+          if (value[close] === ')' && --level === 0) break;
+        }
+        if (close >= value.length) return null;
+        return { image, label: value.slice(open + 1, end), href: value.slice(end + 2, close).trim(), next: close + 1 };
+      }
+      function renderInline(value, currentKey) {
+        let html = '', plain = '';
+        const flush = () => { html += formattedText(plain); plain = ''; };
+        for (let index = 0; index < value.length;) {
+          if (value[index] === '`') {
+            const run = value.slice(index).match(/^`+/)[0];
+            const close = value.indexOf(run, index + run.length);
+            if (close !== -1) {
+              flush();
+              html += `<code>${escapeHtml(value.slice(index + run.length, close))}</code>`;
+              index = close + run.length;
+              continue;
+            }
+          }
+          if (value[index] === '[' || (value[index] === '!' && value[index + 1] === '[')) {
+            const token = linkToken(value, index);
+            if (token) {
+              const target = resolveLink(token.href, currentKey, token.image);
+              if (target) {
+                flush();
+                html += token.image
+                  ? `<img src="${escapeHtml(target)}" alt="${escapeHtml(token.label)}" loading="lazy">`
+                  : `<a href="${escapeHtml(target)}">${renderInline(token.label, currentKey)}</a>`;
+                index = token.next;
+                continue;
+              }
+            }
+          }
+          plain += value[index++];
+        }
+        flush();
+        return html;
+      }
+      function splitTableRow(line) {
+        const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+        const cells = []; let cell = '', escaped = false, inCode = false;
+        for (const character of trimmed) {
+          if (escaped) { cell += character; escaped = false; continue; }
+          if (character === '\\') { escaped = true; cell += character; continue; }
+          if (character === '`') inCode = !inCode;
+          if (character === '|' && !inCode) { cells.push(cell.trim()); cell = ''; }
+          else cell += character;
+        }
+        cells.push(cell.trim());
+        return cells;
+      }
+      function tableDelimiter(line) {
+        return splitTableRow(line).every(cell => /^:?-{3,}:?$/.test(cell));
+      }
+      function listMatch(line) {
+        return line.match(/^(\s{0,3})([-+*]|\d+[.)])\s+(.*)$/);
+      }
+      function slug(value, counts) {
+        const text = value.replace(/!?(\[([^\]]+)\]\([^)]*\))/g, '$2').replace(/[`*_~]/g, '').normalize('NFKC').toLowerCase();
+        const base = text.replace(/[^\p{L}\p{N}\s_-]/gu, '').trim().replace(/\s+/g, '-') || 'section';
+        const count = counts.get(base) || 0;
+        counts.set(base, count + 1);
+        return count ? `${base}-${count}` : base;
+      }
+      function renderMarkdown(markdown, currentKey, counts = new Map()) {
+        const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+        const output = [];
+        const isBlock = line => /^\s{0,3}(?:#{1,6}\s|>|`{3,}|~{3,}|(?:[-*_]\s*){3,}$)/.test(line) || !!listMatch(line);
+        for (let index = 0; index < lines.length;) {
+          const line = lines[index];
+          if (!line.trim()) { index++; continue; }
+          const fence = line.match(/^\s{0,3}(`{3,}|~{3,})([^`]*)$/);
+          if (fence) {
+            const marker = fence[1][0], length = fence[1].length;
+            const language = fence[2].trim().split(/\s+/)[0].replace(/[^\w-]/g, '');
+            const code = []; index++;
+            while (index < lines.length && !new RegExp(`^\\s{0,3}${marker}{${length},}\\s*$`).test(lines[index])) code.push(lines[index++]);
+            if (index < lines.length) index++;
+            output.push(`<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ''}>${escapeHtml(code.join('\n'))}</code></pre>`);
+            continue;
+          }
+          const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+          if (heading) {
+            const level = heading[1].length;
+            output.push(`<h${level} id="${escapeHtml(slug(heading[2], counts))}">${renderInline(heading[2], currentKey)}</h${level}>`);
+            index++; continue;
+          }
+          if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { output.push('<hr>'); index++; continue; }
+          if (line.trimStart().startsWith('>')) {
+            const quote = [];
+            while (index < lines.length && /^\s{0,3}>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^\s{0,3}>\s?/, ''));
+            output.push(`<blockquote>${renderMarkdown(quote.join('\n'), currentKey, counts)}</blockquote>`);
+            continue;
+          }
+          if (index + 1 < lines.length && line.includes('|') && tableDelimiter(lines[index + 1])) {
+            const headers = splitTableRow(line);
+            const rows = [];
+            index += 2;
+            while (index < lines.length && lines[index].trim() && lines[index].includes('|')) rows.push(splitTableRow(lines[index++]));
+            output.push(`<div class="table-scroll"><table><thead><tr>${headers.map(cell => `<th>${renderInline(cell, currentKey)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${headers.map((_, cell) => `<td>${renderInline(row[cell] || '', currentKey)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+            continue;
+          }
+          const firstItem = listMatch(line);
+          if (firstItem) {
+            const ordered = /^\d/.test(firstItem[2]);
+            const tag = ordered ? 'ol' : 'ul';
+            const items = [];
+            while (index < lines.length) {
+              const item = listMatch(lines[index]);
+              if (!item || /^\d/.test(item[2]) !== ordered || item[1].length !== firstItem[1].length) break;
+              const body = [item[3]]; index++;
+              while (index < lines.length) {
+                const next = lines[index];
+                const nextItem = listMatch(next);
+                if (nextItem && nextItem[1].length === firstItem[1].length) break;
+                if (!next.trim() && (index + 1 === lines.length || !/^\s{2,}\S/.test(lines[index + 1]))) break;
+                if (next.trim() && !/^\s{2,}/.test(next)) break;
+                body.push(next.replace(/^\s{2,}/, '')); index++;
+              }
+              items.push(`<li>${renderMarkdown(body.join('\n'), currentKey, counts)}</li>`);
+              if (index < lines.length && !lines[index].trim()) { index++; if (!listMatch(lines[index] || '')) break; }
+            }
+            output.push(`<${tag}>${items.join('')}</${tag}>`);
+            continue;
+          }
+          const paragraph = [line.trim()]; index++;
+          while (index < lines.length && lines[index].trim() && !isBlock(lines[index]) && !(index + 1 < lines.length && lines[index].includes('|') && tableDelimiter(lines[index + 1]))) paragraph.push(lines[index++].trim());
+          output.push(`<p>${renderInline(paragraph.join(' '), currentKey)}</p>`);
+        }
+        return output.join('\n');
+      }
+
+      async function showDocument(key) {
+        document.getElementById('landing').hidden = true;
+        document.getElementById('reader').hidden = false;
+        const status = document.getElementById('reader-status');
+        const content = document.getElementById('reader-content');
+        if (!validKey(key) || !published(...[key.split('/')[0], key.slice(key.indexOf('/') + 1)])) {
+          status.textContent = language === 'en' ? 'This document is not available from the public guide.' : '此文档不在公开指南中。';
+          return;
+        }
+        const raw = `/guide/source/${key}`;
+        document.getElementById('reader-raw').href = raw;
+        document.getElementById('reader-source').href = githubForVirtual(virtualFile(key));
+        document.getElementById('reader-path').textContent = `${repositories[key.split('/')[0]].github}/docs/${key.slice(key.indexOf('/') + 1)}`;
+        document.getElementById('reader-group').textContent = repositories[key.split('/')[0]].label[language];
+        status.textContent = language === 'en' ? 'Loading documentation…' : '正在读取文档…';
+        try {
+          const response = await fetch(raw, { credentials: 'same-origin' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const markdown = await response.text();
+          content.innerHTML = renderMarkdown(markdown, key);
+          content.hidden = false;
+          status.textContent = '';
+          const title = markdown.match(/^#\s+(.+)$/m);
+          documentTitle = title ? title[1].replace(/[*_`]/g, '').trim() : key.split('/').pop();
+          document.title = `${documentTitle} · Agent Comm`;
+          if (location.hash) requestAnimationFrame(() => document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView());
+        } catch (_) {
+          status.textContent = language === 'en' ? 'Unable to load this guide. Open the source repository or try again later.' : '暂时无法读取此文档。可打开源码仓库查看，或稍后重试。';
+        }
+      }
+      if (query) showDocument(query);
+    })();
+  </script>
+</body>
+</html>

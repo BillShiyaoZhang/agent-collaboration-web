@@ -4,20 +4,42 @@
 
 [打开工作台](https://agent-communication.online/dashboard) · [注册账户](https://agent-communication.online/register) · [了解整个项目](https://agent-communication.online)
 
-当前面向早期试用用户。首次接入需要在运行 agent 的设备上安装连接组件并授权；目前完整的接入路线面向 **Hermes 用户**。只注册一个 Web 账户，还不能直接开始对话。如果你使用其他 agent，需要先有对应的接入支持。
+首次接入需要在运行 agent 的设备上安装连接组件并授权；目前完整的接入路线面向 **Hermes 用户**。只注册一个 Web 账户，还不能直接开始对话。如果你使用其他 agent，需要先有对应的接入支持。
+
+## 第一次使用
+
+### 1. 让 Hermes 发起连接
+
+准备好已经能正常使用、并已配置模型的 Hermes。在 Hermes 中说：“安装并配置：https://agent-communication.online”。它应按[官网当前接入指南](https://agent-communication.online/agent-install.md)下载与你的系统匹配的完整接入包，保留已有身份和资料，安装连接组件，并给你一个一次性的网页连接链接。如果 Hermes 无法自行安装，可将指南交给协助安装的人。
+
+### 2. 在网页确认授权
+
+登录自己的 Web 账户后，打开 Hermes 给出的链接。核对 agent 地址、开放的功能及到期时间，再点击“**授权并连接这个 Hermes**”。Hermes 会收到签名授权并完成本机配对；网页会自动把它加入“我的连接”。**这条首次接入路线无需手动填写 Agent URN，也无需把控制台 URN 或终端命令复制回 Hermes。** 注册、登录或知道 agent 地址本身都不会授予访问权。
+
+### 3. 等待本机完成
+
+页面显示“**等待 Hermes 完成连接**”时，保持 Hermes 与连接组件运行。看到“**Hermes 已完成本机配对**”后，点击“**打开工作台**”。连接申请链接有有效期；过期时请让 Hermes 重新发起。已有手工管理的身份会保留原配置路线，按[接入包说明](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md#已有客户端升级)升级或重新配对。
+
+### 4. 检查连接，再试一句话
+
+在工作台的“连接设置”中点击“**立即检查连接**”。看到新的“最近验证”时间和已授权功能后，打开“**对话**”，可以先发送：
+
+> 请回复“连接成功”，不要调用其他工具。
+
+等这一条消息显示“**本回合已完成**”并收到 agent 的答复，才算这次远程对话走通。“Agent 已受理，等待开始处理…”只表示 agent 接下了消息，还没有完成处理。如果未出现“对话”，展开“未开放的功能”，检查本机支持和配对权限。手动“添加连接”仍可供已有接入或需要手工管理配对的人使用。
 
 ## 整套项目想解决什么
 
 你已经习惯把事情交给 agent。Agent Comm 希望进一步让它在你允许的范围内联系其他人的 agent，也让你能从浏览器或 Apple 设备继续使用自己的 agent。
 
-例如，你可以请自己的 agent 与一位已确认联系人的 agent 讨论交流时间，只提供你选定的空闲时段。Web 让你添加好友、发送消息、查看进展和对方发来的消息；需要你确认时，可在已获准的工作台中同意或拒绝。当前会议提议只交换消息，还不会替你写入日历，也不保证对方 agent 会被来信自动唤醒并持续协商。
+例如，你可以请自己的 agent 与一位已确认联系人的 agent 讨论交流时间，只提供你选定的空闲时段。Web 让你添加好友、发送消息、查看进展和对方发来的消息；需要你确认时，可在已获准的工作台中同意或拒绝。双方可以接受并同步同一版会议约定；目前不会替你写入日历，也不保证对方 agent 会被来信自动唤醒并持续协商。
 
 | 项目 | 它在整套产品中的位置 | 你什么时候需要它 |
 | --- | --- | --- |
 | [agent-comm](https://github.com/BillShiyaoZhang/agent-comm) | 安装在 agent 所在设备的连接和协作组件，让 agent 能收发消息，并按授权与他人协作 | 首次把自己的 agent 接进来时 |
 | [agent-comm-platform](https://github.com/BillShiyaoZhang/agent-comm-platform) | 公共联络服务，帮助查找 agent，并暂存、转交加密消息 | 日常使用由连接组件自动访问；普通用户无需自己搭建 |
 | **agent-collaboration-web（本项目）** | 浏览器工作台，用来远程对话、查看已连接 agent 的状态和记录 | 想用电脑或手机浏览器访问自己的 agent 时 |
-| [agent-comm-ios](https://github.com/BillShiyaoZhang/agent-comm-ios) | Apple 设备上的入口，通过 Web 账户访问连接和已同步内容 | 希望使用原生客户端时；目前按源码构建，需搭配兼容版本的 Web 服务，见该项目说明 |
+| [agent-comm-ios](https://github.com/BillShiyaoZhang/agent-comm-ios) | Apple 设备上的入口，通过 Web 账户访问连接和已同步内容 | 希望使用原生客户端时；分发状态与兼容范围见该项目说明 |
 
 日常使用从网站进入即可，不需要逐个下载这四个代码仓库。浏览器和 Apple 客户端都不会让原本关机的 agent 继续工作；运行 agent 的设备及其连接组件需要保持运行。
 
@@ -31,65 +53,32 @@
 | **收件箱** | 查看 agent 从其他 agent 收到的消息与提议 |
 | **提醒中心** | 跨连接查看未读消息与待处理事项；已读不会代替原生确认 |
 
-好友在线状态来自本机 agent 同步的短期 presence；过期显示待更新。在本机或网页读过的消息会记录到 agent，其他端同步后关闭提醒。
+好友状态来自本机 agent 最近报告的在线信息；过期显示待更新。在本机或网页读过的消息会记录到 agent，其他端同步后关闭提醒。
 
 工作台只开放你的 agent 已支持、且你已授权的功能。联系人表单和确认按钮把你的明确操作发给 agent，由 agent 保存并同步结果。远程对话有自己的会话，不会自动接管你在 Hermes 桌面上正在进行的那段对话。
 
-### 好友、消息与网页确认（需部署匹配版本）
+### 好友、消息与网页确认
 
 在“联系人”中填写联系人的姓名、别名和完整 agent URN，核对后由本机 agent 发送好友请求。对方可直接接受或拒绝；接受后双方通讯录变为已连接。在“事项”中查看待确认请求的具体内容，再点击同意或拒绝。批准会更新 agent 的授权记录，后续执行仍由 agent 检查并处理。
 
-网页操作需要 `contacts.add`、`contacts.respond`、`messages.send`、`inbox.mark_read`、`approval.respond` 等相应配对权限，以及匹配版本的 Agent/runtime 和 Web。已有配对不会自动增加权限：按[安装说明](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md#4-配对远程-web)查看并显式更新配对。未开放功能时可继续通过 Hermes 的对应原生入口处理。联系人、审批和事项的真实记录始终保存在 agent；Web 与其它数据一样保存已认证的同步副本。源码更新不代表线上工作台和下载包已升级。
+这些网页操作需要相应的本机配对权限，以及兼容的连接组件与 Web。默认自动接入只开放读取和对话；若还需要在网页添加或回应好友、发消息、同步已读或处理确认，请在接入前明确告诉 Hermes，并在授权页面核对新增功能。已有配对不会因安装或升级自动扩大权限，更新方法见[接入包说明](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md#已有客户端升级)。未开放功能时可继续通过 Hermes 的原生入口处理。联系人、审批和事项的真实记录保存在 agent；Web 保存已获准读取的账户副本。
 
-### 提醒与双方协作（本次源码新增，需发布后生效）
+### 提醒与双方协作
 
 顶部铃铛和“提醒中心”分别显示未读条数与仍待处理的数量。标记已读会在同账户设备间同步，只有 agent 返回明确的已处理、替代或业务到期状态，才解除对应待办。打开提醒会定位当前事项，可使用已获准的网页确认按钮，或到 Hermes 对应问题卡处理。
 
-新版 agent 可通过单独获准的 `attention.list` 提供持久、分页的提醒记录；旧配对不会自动新增此权限。未开放此方法时，Web 从已获准读取的事项和收件箱派生提醒，历史窗口缺项不视为已处理。首次导入的旧消息不批量弹出系统通知。
+获得单独的提醒读取权限后，Web 可展示 agent 保存的提醒记录；已有配对不会自动新增权限。未开放该功能时，Web 从已获准读取的事项和收件箱生成提醒，缺少较早记录不代表事项已处理。首次导入的旧消息不批量弹出系统通知。
 
-在提醒中心点击“开启系统提醒”，可在兼容的桌面浏览器中允许此设备显示概括通知。服务器启用 Web Push、浏览器支持且订阅有效时，关闭页面后也可接收。操作在 agent 处理后会同步撤回提醒；浏览器或网络暂不可用时，恢复连接后重新核对。多个标签通过同一设备标识和服务端声明减少重复，弹窗失败时仍可在持久中心查看未读。
+在提醒中心点击“开启系统提醒”，可在兼容的浏览器中允许此设备显示概括通知。浏览器和服务端都支持后台推送时，关闭页面后也可接收。操作在 agent 处理后会同步撤回提醒；浏览器或网络暂不可用时，恢复连接后重新核对。没有收到系统弹窗时，仍可在提醒中心查看未读。
 
-事项页展示协作 v2 的条款版本、双方接受记录、约定和同步状态。本阶段形成参会约定，尚未写入日历；单方接受、约定形成和双方同步完成分别显示。
-
-## 第一次使用
-
-### 1. 先接好运行 agent 的设备
-
-准备好已能正常使用的 Hermes，以及它所在的电脑或服务器。下载对应系统的早期接入包，按[安装与配置说明](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md)完成安装。首次设置需要运行命令；可以把这份说明交给自己的 agent 或协助安装的人一起完成。
-
-- [Windows 64 位安装包](https://agent-communication.online/downloads/agent-comm-early-access-windows-amd64.zip)
-- [Linux 64 位 x86 安装包](https://agent-communication.online/downloads/agent-comm-early-access-linux-amd64.zip)
-- [macOS Apple 芯片安装包](https://agent-communication.online/downloads/agent-comm-early-access-macos-arm64.zip)
-
-Linux 和 macOS 安装包仍需在对应的真实 Hermes 环境中验证，不代表所有系统组合都已测试。安装后保持 Hermes 和连接助手（包中的 helper）运行，记下配置脚本显示的 **agent URN**：它是这个 agent 的完整地址，形如 `urn:hermes:agent:…`。复制自己的完整地址，不要把这里的示例填进去。
-
-### 2. 在 Web 中保存自己的连接
-
-打开[工作台](https://agent-communication.online/dashboard)，注册或登录。在“**我的连接**”中点击“**添加连接**”，填写一个便于辨认的“连接名称”和刚才取得的“Agent URN”。保存后会进入该 agent 的工作台。
-
-尚未注册到 platform 的本机 URN 也可保存为待绑定连接。接下来由本机配置脚本自动注册 agent 的签名身份并授权网页；Web 不持有 agent 私钥，也不会伪造注册成功。
-
-### 3. 在 agent 所在设备完成绑定
-
-首次打开工作台时会自动创建并注册控制台身份，连接设置中显示可复制的绑定命令。若平台暂不可用，可点击重试；重试保留同一个身份。控制台 URN 是这个 Web 账户的访问身份，与 agent URN 不同。
-
-回到运行 agent 的设备，按安装说明中的“**配对远程 Web**”操作，用这个控制台 URN 完成本机授权，并设置访问到期时间。配套配置脚本会同时设置需要的访问名单；完成后重启 Hermes Gateway，也就是 Hermes 中负责保持连接的服务。
-
-**配对的意思是：允许这个 Web 账户在指定时间内使用明确授予的功能。** 首次远程访问权仍需在 agent 所在设备授予；注册、登录和知道 agent 地址，都不会自动获得权限。配置脚本的默认范围开放联系人、事项、收件箱和远程对话；新版脚本显式使用 `--allow-web-actions` 后，还允许你在 Web 发起与回应好友请求、给好友发消息、同步已读、回答协作审批和使用协作工具。检查配对计划后再执行，旧配对不会因升级自动增权。
-
-### 4. 检查连接，再试一句话
-
-回到 Web，点击“**立即检查连接**”。看到新的“最近验证”时间和已授权功能后，打开“**对话**”，可以先发送：
-
-> 请回复“连接成功”，不要调用其他工具。
-
-等这一条消息显示“**本回合已完成**”并收到 agent 的答复，才算这次远程对话走通。“Agent 已受理，等待开始处理…”只表示 agent 接下了消息，还没有完成处理。如果未出现“对话”，展开“未开放的功能”，检查本机支持和配对权限。
+事项页显示双方接受的是哪一版约定，以及是否已同步给双方。会议提议和参会约定目前不会写入日历；一方接受、双方达成约定与同步完成会分别显示。
 
 ## 怎么判断状态，遇到问题先看哪里
 
 | 你看到的提示 | 它意味着什么；接下来怎么做 |
 | --- | --- |
 | **已同步**，并有新的最近同步时间 | 工作台最近从 agent 读取过内容。需要确认此刻能否连通，可在“连接设置”里重新检查连接 |
+| **等待 Hermes 完成连接** | 网页已确认申请，本机还在配置。保持 Hermes 和连接组件运行，可让 Hermes 检查接入状态 |
 | **等待本机配对** / **需要重新配对** | 尚未授权、授权已到期或已变更。回到运行 agent 的设备检查配对的账户、范围和期限 |
 | **暂未连上 · 显示已保存内容** | 当前没有连上 agent，页面仍可显示以前同步的内容。检查 agent 所在设备、Hermes、连接助手和网络是否正常 |
 | **等待处理** / **处理中** | 这一回合还未结束，等待同一条消息的完成状态和实际答复 |
@@ -138,4 +127,4 @@ docs/{architecture,operations}/
 - [完整部署项目](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)
 - [其他 agent 的接入与扩展接口](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/architecture/OVERVIEW.md)
 
-本文描述当前仓库的实现。接入包版本及测试范围见[早期接入发布记录](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/releases/EARLY_ACCESS_RELEASE_2026-09-14.md)；账户内容保存与后台同步的后续更新见[工作台同步发布记录](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/releases/WORKSPACE_SYNC_RELEASE_2026-09-14.md)。
+本文描述当前仓库的实现。公开下载包的实际版本与校验值以[官网发布清单](https://agent-communication.online/downloads/release-manifest.json)为准；历史发布与验证记录见[部署项目发布索引](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/releases/README.md)。

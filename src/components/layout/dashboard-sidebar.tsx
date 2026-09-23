@@ -11,15 +11,16 @@ export function ConnectionGuide() {
   return <Dialog>
     <DialogTrigger asChild><Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground"><CircleHelp className="h-4 w-4" />连接指南<ArrowUpRight className="ml-auto h-3.5 w-3.5" /></Button></DialogTrigger>
     <DialogContent>
-      <DialogHeader><DialogTitle>把自己的 agent 带到这里</DialogTitle><DialogDescription>首次连接只需完成以下三步，之后就可以直接打开工作台。</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>把 Hermes 连接到工作台</DialogTitle><DialogDescription>让已经能正常使用的 Hermes 发起连接，再在网页核对并授权。</DialogDescription></DialogHeader>
       <ol className="my-2 space-y-6">
         {[
-          { icon: Terminal, title: "准备 agent", text: "在 agent 所在的设备上安装 agent-comm、对应 connector 与 helper，保持它们运行，并取得完整的 agent URN。" },
-          { icon: Cable, title: "添加连接", text: "点击“添加连接”，给它起一个容易识别的名字，粘贴 URN。验证身份后会进入工作台。" },
-          { icon: LockKeyhole, title: "在本机完成配对", text: "按照工作台的配对引导创建控制台身份，在 agent 本机授权该身份，再回到工作台读取可用功能。" },
+          { icon: Terminal, title: "让 Hermes 发起连接", text: "在 Hermes 中说“安装并配置：https://agent-communication.online”。它会按官网指南准备组件，并给你一次性网页连接链接。" },
+          { icon: LockKeyhole, title: "在网页核对并授权", text: "登录后打开 Hermes 给出的链接，核对 agent、功能和到期时间，再确认授权。连接会自动加入“我的连接”。" },
+          { icon: Cable, title: "检查连接和真实回复", text: "等 Hermes 完成本机配对，打开工作台检查连接，发送测试消息；收到完成状态和实际答复才算连通。" },
         ].map((step, index) => <li key={step.title} className="flex gap-4"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary text-primary"><step.icon className="h-5 w-5" /></span><div><h3 className="text-sm font-semibold"><span className="mr-2 text-muted-foreground">0{index + 1}</span>{step.title}</h3><p className="mt-1.5 text-sm leading-6 text-muted-foreground">{step.text}</p></div></li>)}
       </ol>
-      <p className="rounded-xl bg-muted/70 p-3 text-xs leading-5 text-muted-foreground">联系人、事项和对话来自你的 agent。可使用的功能由本机授权决定。</p>
+      <p className="rounded-xl bg-muted/70 p-3 text-xs leading-5 text-muted-foreground">已手工安装连接组件的 agent，仍可在“我的连接”中使用“添加连接”，并在本机配对。注册账户本身不会创建 agent。</p>
+      <Button asChild variant="outline" className="w-full"><Link href="https://agent-communication.online/#start">查看官网接入步骤<ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button>
     </DialogContent>
   </Dialog>;
 }

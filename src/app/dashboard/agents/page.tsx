@@ -201,15 +201,16 @@ export default function AgentsPage() {
                 <div className="relative flex h-16 w-16 items-center justify-center rounded-[1.3rem] bg-primary text-primary-foreground shadow-[0_8px_24px_hsl(var(--primary)/0.2)]"><Bot className="h-8 w-8" strokeWidth={1.5} /></div>
               </div>
               <h2 id="empty-title" className="relative text-xl font-semibold tracking-tight sm:text-2xl">连接你的第一个 agent</h2>
-              <p className="relative mt-3 max-w-sm text-sm leading-7 text-muted-foreground">添加第一个连接，把联系人、事项和对话<br className="hidden sm:block" />带到一个随时可以回来的工作台。</p>
-              <Button onClick={() => changeOpen(true)} className="relative mt-7 h-11 gap-2 rounded-xl px-6"><Plus className="h-4 w-4" aria-hidden="true" />连接我的第一个 agent<ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" /></Button>
+              <p className="relative mt-3 max-w-sm text-sm leading-7 text-muted-foreground">让已经能正常使用的 Hermes 从官网发起连接，<br className="hidden sm:block" />在网页核对授权后，它会自动出现在这里。</p>
+              <Button asChild className="relative mt-7 h-11 gap-2 rounded-xl px-6"><Link href="https://agent-communication.online/#start">查看 Hermes 首次接入步骤<ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" /></Link></Button>
+              <Button variant="ghost" onClick={() => changeOpen(true)} className="relative mt-2 h-11 rounded-xl text-sm">已手工安装？添加连接</Button>
             </div>
             <div className="border-t bg-muted/30 px-6 py-6 sm:px-8">
               <ol className="grid gap-5 md:grid-cols-3">
                 {[
-                  { title: "准备好 agent", detail: "在 agent 所在设备启动 agent-comm helper" },
-                  { title: "添加连接", detail: "填入本机 URN，尚未注册也可开始绑定" },
-                  { title: "配对并开始", detail: "在本机确认配对，进入远程工作台" },
+                  { title: "让 Hermes 发起连接", detail: "让 Hermes 按官网指南安装并提供一次性链接" },
+                  { title: "在网页确认授权", detail: "核对 agent、功能和期限，连接会自动加入" },
+                  { title: "检查真实回复", detail: "本机配对完成后，发送测试消息并等待答复" },
                 ].map((step, index) => (
                   <li key={step.title} className="flex items-start gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-card text-xs font-medium text-muted-foreground">{index + 1}</span><div><p className="text-xs font-medium leading-6">{step.title}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.detail}</p></div></li>
                 ))}
@@ -222,7 +223,7 @@ export default function AgentsPage() {
       <DialogContent className="gap-0 rounded-2xl p-0 sm:max-w-[460px]" hideCloseButton={busy} onCloseAutoFocus={(event) => { event.preventDefault(); (dialogOpener.current?.isConnected ? dialogOpener.current : addButton.current)?.focus(); }}>
         <div className="p-6 sm:p-7">
           <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Fingerprint className="h-6 w-6" strokeWidth={1.7} aria-hidden="true" /></div>
-          <DialogHeader className="text-left"><DialogTitle className="text-xl">添加一个新连接</DialogTitle><DialogDescription className="pt-2 text-sm leading-6">先在 agent 所在设备启动 helper，然后复制它的完整 URN。</DialogDescription></DialogHeader>
+          <DialogHeader className="text-left"><DialogTitle className="text-xl">手动添加连接</DialogTitle><DialogDescription className="pt-2 text-sm leading-6">适用于已在 agent 所在设备安装连接组件、并取得完整 URN 的情况。首次接入 Hermes 可使用官网自动连接。</DialogDescription></DialogHeader>
           <form onSubmit={connect} className="mt-6 space-y-5" aria-busy={busy}>
             <div className="space-y-2"><label htmlFor="connection-name" className="text-sm font-medium">连接名称</label><Input id="connection-name" maxLength={100} placeholder="例如：我的 Hermes" value={name} onChange={(event) => setName(event.target.value)} className="h-11 rounded-xl" disabled={busy} required /></div>
             <div className="space-y-2">
