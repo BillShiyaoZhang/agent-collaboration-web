@@ -3,6 +3,7 @@ import type { User, Agent, ControlRequest } from "@prisma/client";
 import { prisma } from "@/lib/shared/db";
 import { CONTROL_PROTOCOL, validateControlResponse } from "@/lib/control/control-protocol";
 import { ControlError, consoleKeys, encodeControl, decodeControl, verifyConsoleEnvelope, submitEnvelope, retrieveEnvelopes, acknowledgeEnvelopes } from "@/lib/control/control-transport";
+import type { ControlPollTimings } from "@/lib/control/control-poll-metrics";
 import { reserveWorkspaceSubmission, markWorkspaceSubmissionUncertain, clearWorkspaceSubmission, recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
 
 import { CONTROL_RETENTION_MS as RETENTION_MS, CONTROL_REQUEST_MS as REQUEST_MS, canonicalJSON } from "@agent-comm/client-contract";
@@ -132,8 +133,17 @@ export function controlCallResult(user: User, agent: Agent, row: ControlRequest)
     deadline: row.deadline.toISOString(), message: "请求已入队，等待 agent 的认证响应。" };
 }
 
-async function retrieveControlResponses(user: User) {
-  const items = await retrieveEnvelopes(user), ack: string[] = [];
+async function measured<T>(timings: ControlPollTimings | undefined,
+  phase: "mqRetrieveMs" | "responseDbMs" | "workspaceProjectionMs" | "acknowledgeMs",
+  operation: () => Promise<T>): Promise<T> {
+  if (!timings) return operation();
+  const started = performance.now();
+  try { return await operation(); }
+  finally { timings[phase] = (timings[phase] || 0) + performance.now() - started; }
+}
+
+async function retrieveControlResponses(user: User, timings?: ControlPollTimings) {
+  const items = await measured(timings, "mqRetrieveMs", () => retrieveEnvelopes(user, timings)), ack: string[] = [];
   const keys = consoleKeys(user);
   for (const item of items) {
     // This identity is a dedicated console mailbox. Consume authenticated unrelated
@@ -144,7 +154,7 @@ async function retrieveControlResponses(user: User) {
     let decoded: ReturnType<typeof decodeControl>;
     try { decoded = decodeControl(user, item.payload_proto, keys); } catch { ack.push(item.message_id); continue; }
     if (typeof decoded.response?.request_id !== "string") { ack.push(item.message_id); continue; }
-    const row = await prisma.controlRequest.findFirst({ where: { id: decoded.response.request_id, consoleUrn: user.virtualUrn!, agent: { userId: user.id } }, include: { agent: true } });
+    const row = await measured(timings, "responseDbMs", () => prisma.controlRequest.findFirst({ where: { id: decoded.response.request_id, consoleUrn: user.virtualUrn!, agent: { userId: user.id } }, include: { agent: true } }));
     if (!row || decoded.envelope.senderUrn !== row.agent.urn) { ack.push(item.message_id); continue; }
     try {
       validateControlResponse(decoded.response, expected(row, row.agent));
@@ -155,26 +165,29 @@ async function retrieveControlResponses(user: User) {
       // Save both authenticated wire bytes and the account's durable projection before ACK.
       // Repeating the projection after an interrupted write is safe and keeps its original source ordering.
       if (!row.responseEnvelope) {
-        const saved = await prisma.controlRequest.updateMany({ where: { id: row.id, responseEnvelope: null }, data: { responseEnvelope: item.payload_proto, status: "complete" } });
+        const saved = await measured(timings, "responseDbMs", () => prisma.controlRequest.updateMany({ where: { id: row.id, responseEnvelope: null }, data: { responseEnvelope: item.payload_proto, status: "complete" } }));
         if (!saved.count) {
-          const accepted = await prisma.controlRequest.findUnique({ where: { id: row.id } });
+          const accepted = await measured(timings, "responseDbMs", () => prisma.controlRequest.findUnique({ where: { id: row.id } }));
           if (!accepted || accepted.responseEnvelope !== item.payload_proto) { ack.push(item.message_id); continue; }
         }
       }
-      await recordWorkspaceResponse(user, row.agent, row, decoded.response);
+      await measured(timings, "workspaceProjectionMs", () => recordWorkspaceResponse(user, row.agent, row, decoded.response));
     }
     // A late, correctly correlated response can be discarded, but can never turn an expired call into success.
     ack.push(item.message_id);
   }
-  await acknowledgeEnvelopes(user, ack);
+  await measured(timings, "acknowledgeMs", () => acknowledgeEnvelopes(user, ack));
 }
 
 const mailboxGlobal = globalThis as typeof globalThis & { __agentControlMailboxPolls?: Map<string, Promise<void>> };
-export async function pollControlResponses(user: User): Promise<void> {
+export async function pollControlResponses(user: User, timings?: ControlPollTimings): Promise<void> {
   const polls = mailboxGlobal.__agentControlMailboxPolls ||= new Map();
   const previous = polls.get(user.id);
-  if (previous) return previous;
-  const pending = retrieveControlResponses(user);
+  if (previous) {
+    if (timings) timings.sharedPoll = true;
+    return previous;
+  }
+  const pending = retrieveControlResponses(user, timings);
   polls.set(user.id, pending);
   try { await pending; } finally { if (polls.get(user.id) === pending) polls.delete(user.id); }
 }

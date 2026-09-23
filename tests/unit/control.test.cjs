@@ -19,6 +19,7 @@ const auth = load("../../src/lib/protocol/protocol-auth.ts",{"@/lib/protocol/pro
 const keys = load("../../src/lib/protocol/crypto.ts");
 const ecies = load("../../src/lib/protocol/ecies.ts");
 const transport = load("../../src/lib/control/control-transport.ts",{"@/lib/protocol/proto":proto,"@/lib/protocol/protocol-auth":auth,"@/lib/protocol/crypto":keys,"@/lib/protocol/ecies":ecies});
+const pollMetrics = load("../../src/lib/control/control-poll-metrics.ts");
 const request = () => ({protocol:protocol.CONTROL_PROTOCOL,type:"request",request_id:crypto.randomUUID(),method:"capabilities",params:{},agent_urn:"urn:agent:one",console_urn:"urn:console:one",deadline:new Date(Date.now()+120000).toISOString()});
 const response = r => {const {params,...rest}=r;return {...rest,type:"response",result:{methods:[]}};};
 
@@ -64,6 +65,7 @@ test("the actual RPC route enforces session, saved connection and origin before 
     "next-auth":{getServerSession:async()=>session},"@/lib/auth/auth":{authOptions:{}},
     "@/lib/shared/db":{prisma:{agent:{findFirst:async({where})=>where.id===agent.id&&where.userId===agent.userId?agent:null},user:{findUnique:async()=>user}}},
     "@/lib/control/control-protocol":protocol,"@/lib/control/control-transport":transport,
+    "@/lib/control/control-poll-metrics":pollMetrics,
     "@/lib/workspace/workspace-store":{recordWorkspaceResponse:async()=>{}},
     "@/lib/control/control-service":{createControlCall:async(_user,target,call)=>{called++;assert.equal(target.urn,agent.urn);return {request_id:call.request_id,status:"pending"};}},
   });
@@ -168,6 +170,16 @@ test("concurrent browser and worker mailbox reads share one authenticated retrie
   const f=serviceFixture();await f.service.createControlCall(f.user,f.agent,f.call);f.setMailbox([f.reply()]);
   await Promise.all([f.service.pollControlResponses(f.user),f.service.pollControlResponses(f.user),f.service.pollControlResponses(f.user)]);
   assert.equal(f.retrievals(),1);assert.equal(f.projected.length,1);assert.equal(f.acked.length,1);
+});
+
+test("slow control poll logs contain only bounded phase timings",()=>{
+  assert.equal(pollMetrics.slowControlPollMetric({totalMs:1999,request_id:"secret-id"}),null);
+  const result=pollMetrics.slowControlPollMetric({totalMs:10001,sessionMs:12.6,mqRetrieveMs:9999,mqHttpMs:9980,
+    workspaceProjectionMs:NaN,sharedPoll:true,request_id:"secret-id",urn:"secret-urn",ciphertext:"secret-wire"});
+  assert.equal(result.event,"slow_control_poll");
+  assert.equal(result.total_ms,10001);assert.equal(result.session_ms,13);assert.equal(result.mq_http_ms,9980);
+  assert.equal(result.workspace_projection_ms,null);assert.equal(result.shared_poll,true);
+  assert.doesNotMatch(JSON.stringify(result),/secret-id|secret-urn|secret-wire/);
 });
 
 test("control calls and mailbox polls do not run cache DELETE in the request path",async()=>{

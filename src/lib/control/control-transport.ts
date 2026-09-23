@@ -5,6 +5,7 @@ import { decodeEncryptedEnvelope, encodeEncryptedEnvelope, encodeChatMessage, de
 import { signEnvelope, verifyEnvelope, verifyRegistration, peerIdFromEd25519PublicKey, buildRegistrationSigningBytes } from "@/lib/protocol/protocol-auth";
 import { computeSharedSecret, encryptWithSharedSecret, decryptWithSharedSecret } from "@/lib/protocol/ecies";
 import type { ControlRequestBody } from "@/lib/control/control-protocol";
+import type { ControlPollTimings } from "@/lib/control/control-poll-metrics";
 
 export class ControlError extends Error {
   constructor(message: string, readonly status = 502, readonly platformStatus?: number) { super(message); }
@@ -105,13 +106,19 @@ export async function submitEnvelope(user: User, envelope: string, recipientUrn:
   if (result.ok !== true || result.message_id !== decodeEncryptedEnvelope(Buffer.from(envelope, "base64")).messageId) throw new ControlError("平台未确认请求入队。");
 }
 
-export async function retrieveEnvelopes(user: User) {
+export async function retrieveEnvelopes(user: User, timings?: ControlPollTimings) {
   const keys = consoleKeys(user), timestamp = Math.floor(Date.now() / 1000), bytes = Buffer.alloc(8);
   bytes.writeBigInt64BE(BigInt(timestamp));
   const signature = crypto.sign(null, Buffer.concat([Buffer.from(`mq-retrieve|${keys.urn}|`), bytes]), keys.signingKey);
-  const data = await (await platformFetch("/api/v1/mq/retrieve", { headers: {
-    "X-URN": keys.urn, "X-Timestamp": String(timestamp), "X-Pubkey": keys.publicKey, "X-Signature": signature.toString("hex"),
-  } })).json();
+  const started = performance.now();
+  let data: { messages?: unknown };
+  try {
+    data = await (await platformFetch("/api/v1/mq/retrieve", { headers: {
+      "X-URN": keys.urn, "X-Timestamp": String(timestamp), "X-Pubkey": keys.publicKey, "X-Signature": signature.toString("hex"),
+    } })).json();
+  } finally {
+    if (timings) timings.mqHttpMs = performance.now() - started;
+  }
   if (!Array.isArray(data.messages)) throw new ControlError("平台返回了无效信箱数据。");
   return data.messages.slice(0, 100) as Array<{message_id: string; payload_proto: string}>;
 }

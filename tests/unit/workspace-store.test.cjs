@@ -156,9 +156,10 @@ test("expired, completed, and recovery items keep separate actionable meanings a
   assert.equal((await store.getWorkspaceNotifications(user.id)).items.length, 0);
   assert.equal(Number((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceNotificationBaseline"'))[0].n), 0);
 }));
-async function fixture(run) {
+async function fixture(run, options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "workspace-store-")), filename = path.join(directory, "test.db");
-  const db = new PrismaClient({ datasources: { db: { url: "file:" + filename.replaceAll("\\", "/") } } });
+  const url = "file:" + filename.replaceAll("\\", "/") + (options.singleConnection ? "?connection_limit=1" : "");
+  const db = new PrismaClient({ datasources: { db: { url } } });
   const priorSecret = process.env.NEXTAUTH_SECRET; process.env.NEXTAUTH_SECRET = "isolated-workspace-fixture-secret";
   const makeStore = () => load("../../src/lib/workspace/workspace-store.ts", { "@/lib/shared/db": { prisma: db }, "@/lib/control/control-transport": { ControlError }, "@/lib/control/workbench-client": client });
   try {
@@ -185,6 +186,32 @@ async function fixture(run) {
     fs.rmdirSync(directory);
   }
 }
+
+test("concurrent projections and account reads remain correct with one SQLite connection", () => fixture(async ({ user, other, agent, otherAgent, store, row }) => {
+  const sourceAt = Date.now() - 100;
+  const writes = Array.from({ length: 8 }, (_, index) => [
+    store.recordWorkspaceResponse(user, agent, row("contacts.list", sourceAt + index, `a-${index}`),
+      { result: { contacts: [{ contact_id: `a-${index}` }] } }),
+    store.recordWorkspaceResponse(other, otherAgent,
+      { ...row("contacts.list", sourceAt + index, `b-${index}`), agentId: otherAgent.id, consoleUrn: other.virtualUrn },
+      { result: { contacts: [{ contact_id: `b-${index}` }] } }),
+  ]).flat();
+  await Promise.all([
+    ...writes,
+    store.scheduleWorkspaceSync(user.id, agent.id),
+    store.scheduleWorkspaceSync(other.id, otherAgent.id),
+    store.getWorkspaceOverview(user.id),
+    store.getWorkspaceOverview(other.id),
+  ]);
+  const [a, b] = await Promise.all([
+    store.getWorkspaceAgent(user.id, agent.id),
+    store.getWorkspaceAgent(other.id, otherAgent.id),
+  ]);
+  assert.equal(a.snapshots["contacts.list"].data.contacts[0].contact_id, "a-7");
+  assert.equal(b.snapshots["contacts.list"].data.contacts[0].contact_id, "b-7");
+  assert.deepEqual(new Set(await store.listDueSyncAgents(Date.now(), 10)), new Set([agent.id, otherAgent.id]));
+  assert.equal(await store.getWorkspaceAgent(user.id, otherAgent.id), null);
+}, { singleConnection: true }));
 
 test("workspace retains encrypted snapshots across process reload and isolates accounts", () => fixture(async ({ db, user, other, agent, otherAgent, store, save, makeStore }) => {
   await save("contacts.list", { contacts: [{ contact_id: "contact-1", aliases: ["Private contact text"], urn: "urn:private:contact" }] });
