@@ -2,7 +2,7 @@
 
 面向第一次接触 Agent Comm 的用户，介绍整体用途、四个项目的分工和首次接入步骤。中英文静态首页在 [index.html](index.html)。[docs/index.html](docs/index.html) 是按用户、使用项目的 agent、开发者分组的文档入口。
 
-官网与远程工作台同属 Web 仓库维护，但不依赖 Next.js 构建，也不嵌入 Platform 的 Go 程序。[部署仓库](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)通过 nginx 将此目录只读挂载到 `/srv/site`：`/` 读取首页，`/docs/` 读取统一文档入口。工作台仍使用原有路由；Platform API 文档位于 `/docs/api/`。
+官网与远程工作台同属 Web 仓库维护，但不依赖 Next.js 构建，也不嵌入 Platform 的 Go 程序。[部署仓库](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)通过 nginx 将此目录只读挂载到 `/srv/site`：`/` 读取首页，`/docs/` 读取统一文档入口。工作台仍使用原有路由；[Platform API 参考](https://agent-communication.online/docs/?path=platform/guides/API.md)由同一阅读器打开。
 
 ## 文档门户
 
@@ -20,7 +20,7 @@
 ## 更新与检查
 
 1. 编辑 `index.html` 或 `docs/index.html`，同时更新中文及对应 `data-en` 内容。修改门户文档链接时，确认目标仍在部署仓库的公开路径清单内。
-2. 用静态 HTTP 服务预览首页与门户，检查中文、英文、手机窄屏、页内链接和复制说明；禁用 JavaScript 后中文首页仍应完整可读。文档读取还需在部署 nginx 路由下检查 `/docs/source/`、`/docs/api/`、阅读视图和跨仓相对链接。
+2. 用静态 HTTP 服务预览首页与门户，检查中文、英文、手机窄屏、页内链接和复制说明；禁用 JavaScript 后中文首页仍应完整可读。文档读取还需在部署 nginx 路由下检查 `/docs/source/`、API 阅读视图、旧 `/docs/api/` 跳转和跨仓相对链接。
 3. 发布时把审核后的文件同步到服务器已挂载的 `site` 目录。仅改静态内容无需重建或重启 Web、Platform 或 nginx。首次启用目录挂载、修改 nginx 路由时，仍需要部署相应配置。
 
 页面使用系统字体与内联图形，没有外部前端依赖。控制台地址、授权范围和期限由用户决定；示意对话不代表真实执行结果。
