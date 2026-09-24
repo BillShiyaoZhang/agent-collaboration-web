@@ -71,6 +71,16 @@ test("v2 policy is pinned, canonical, current and rejects signature or disclosur
   assert.throws(() => v2.decodeV2Policy(Buffer.from(f.rawPolicy.toString().replace('"epoch":7', '"epoch":7,"extra":true'))));
 });
 
+test("v2 policy accepts the cross-platform long-lived expiry without changing signature rules", () => {
+  const f = fixture();
+  const persistent = { ...f.policy, epoch: 8, expires_at: 32503680000 };
+  persistent.signature = signJSON("agent-comm-v2-policy\0", persistent, f.root.privateKey);
+  const raw = v2.encodeV2Policy(persistent), root = edRaw(f.root.privateKey);
+  assert.equal(v2.verifyV2Policy(raw, root, 4102444800).expires_at, 32503680000); // 2100-01-01 UTC
+  assert.equal(new Date(persistent.expires_at * 1000).toISOString(), "3000-01-01T00:00:00.000Z");
+  assert.throws(() => v2.verifyV2Policy(raw, root, persistent.expires_at));
+});
+
 test("v2 HPKE opens the same CEK at recipient and gateway, then authenticates one body", () => {
   const f = fixture();
   const header = { version: 2, platform_id: f.policy.platform_id, policy_epoch: 7, policy_hash: v2.v2Hash(f.rawPolicy),

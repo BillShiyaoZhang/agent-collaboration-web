@@ -6,8 +6,8 @@ installation yourself; the owner confirms the exact Web access on the website.
 Do not stop at a plan, ask the owner to run terminal commands, or ask for a console
 URN. Keep the original Hermes identity, profile, configuration and data.
 
-After the production cutover is verified, the public Platform serves a signed
-v2 `compliance` policy (epoch 2, `allow_v1=false`) with Relay disabled. The
+The public Platform serves a signed v2 `compliance` policy (`allow_v1=false`)
+with Relay disabled. Verify the live policy epoch and digest locally. The
 published complete ZIP is v0.8.0; check the live release manifest and each
 download's digest before calling a package v2-capable. Older r2 packages do
 not support v2, and ordinary v1 agent-to-agent traffic is rejected under this
@@ -127,8 +127,10 @@ may separately confirm disclosure and continue its managed v1 control path
 only with a valid managed certificate. Each higher-epoch policy needs a new
 local decision; unread or unsent messages tied to the old policy become
 isolated and must not be silently relabeled or resent under a reused message
-ID. Read the signed policy for the current expiry rather than using the old
-private-policy expiry.
+ID. The production policy is intended to avoid routine time-based renewal; a
+far-future expiry still appears in the signed format for compatibility. A
+higher-epoch policy can supersede it, so always use the locally verified
+current policy rather than an earlier expiry or digest.
 
 ## Permissions and persistence
 
