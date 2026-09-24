@@ -22,6 +22,40 @@ model User {
   agents Agent[]
   pushSubscriptions WebPushSubscription[]
   onboardingTickets OnboardingTicket[]
+  managedCertificate ManagedConsoleCertificate?
+  policyConsent UserPolicyConsent?
+  controlPause UserControlPause?
+}
+// Signed platform-policy rollback guard and short-lived managed console grant.
+model PlatformPolicyState {
+  platformId String @id
+  epoch BigInt
+  policyHash String
+}
+model ManagedConsoleCertificate {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformId String
+  issuerHash String
+  certificate String
+  expiresAt DateTime
+}
+// An account must explicitly acknowledge the exact signed compliance policy.
+// Identity and agent pairing are retained when the policy changes.
+model UserPolicyConsent {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformId String
+  epoch BigInt
+  policyHash String
+  gatewayKeyId String
+  confirmedAt DateTime @default(now())
+}
+// A user can suspend new Web control traffic without removing saved history.
+model UserControlPause {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pausedAt DateTime @default(now())
 }
 // A connection record is not ownership; the agent must pair the console locally.
 model Agent {

@@ -18,7 +18,11 @@ const proto = load("../../src/lib/protocol/proto.ts");
 const auth = load("../../src/lib/protocol/protocol-auth.ts",{"@/lib/protocol/proto":proto});
 const keys = load("../../src/lib/protocol/crypto.ts");
 const ecies = load("../../src/lib/protocol/ecies.ts");
-const transport = load("../../src/lib/control/control-transport.ts",{"@/lib/protocol/proto":proto,"@/lib/protocol/protocol-auth":auth,"@/lib/protocol/crypto":keys,"@/lib/protocol/ecies":ecies});
+const managedGateCalls=[];
+class PolicyConsentRequiredError extends Error {}
+let managedGateFailure=null;
+const transport = load("../../src/lib/control/control-transport.ts",{"@/lib/protocol/proto":proto,"@/lib/protocol/protocol-auth":auth,"@/lib/protocol/crypto":keys,"@/lib/protocol/ecies":ecies,
+  "@/lib/control/v2-policy":{PolicyConsentRequiredError,requireManagedV1:async(_user,_keys,force=false)=>{managedGateCalls.push(force);if(managedGateFailure)throw managedGateFailure;}}});
 const pollMetrics = load("../../src/lib/control/control-poll-metrics.ts");
 const request = () => ({protocol:protocol.CONTROL_PROTOCOL,type:"request",request_id:crypto.randomUUID(),method:"capabilities",params:{},agent_urn:"urn:agent:one",console_urn:"urn:console:one",deadline:new Date(Date.now()+120000).toISOString()});
 const response = r => {const {params,...rest}=r;return {...rest,type:"response",result:{methods:[]}};};
@@ -129,8 +133,59 @@ test("actual signed/encrypted control transport interoperates and rejects forged
   } finally {global.fetch=originalFetch;if(originalSecret===undefined)delete process.env.NEXTAUTH_SECRET;else process.env.NEXTAUTH_SECRET=originalSecret;}
 });
 
+test("a missing managed grant re-enrolls once and resends the identical v1 envelope", async () => {
+  const originalSecret=process.env.NEXTAUTH_SECRET, originalFetch=global.fetch;
+  process.env.NEXTAUTH_SECRET="managed-grant-retry-test";
+  managedGateCalls.length=0;
+  try {
+    const owner=identity(), user=userFor(owner), recipient="urn:agent-comm:agent:recipient";
+    const signed=auth.signEnvelope({senderUrn:owner.urn,recipientUrn:recipient,
+      senderStaticPubkey:owner.xRaw,ephemeralPubkey:Buffer.alloc(32,1),nonce:Buffer.alloc(12,2),
+      ciphertext:Buffer.from("same wire"),tag:Buffer.alloc(16,3),messageId:"managed-retry"},owner.ed.privateKey);
+    const envelope=proto.encodeEncryptedEnvelope(signed).toString("base64"), bodies=[];
+    global.fetch=async(url,init)=>{
+      assert.ok(url.endsWith("/api/v1/mq/store"));
+      bodies.push(init.body);
+      return bodies.length===1 ? Response.json({error:"grant not registered"},{status:400})
+        : Response.json({ok:true,message_id:"managed-retry"});
+    };
+    await transport.submitEnvelope(user,envelope,recipient,new Date(Date.now()+60000));
+    assert.deepEqual(managedGateCalls,[false,true]);
+    assert.equal(bodies.length,2);
+    assert.equal(bodies[0],bodies[1]);
+    assert.equal(JSON.parse(bodies[0]).payload_proto,envelope);
+  } finally {
+    global.fetch=originalFetch;
+    if(originalSecret===undefined)delete process.env.NEXTAUTH_SECRET;else process.env.NEXTAUTH_SECRET=originalSecret;
+  }
+});
+
+test("managed transport marks consent and certificate faults without contacting MQ", async () => {
+  const originalSecret=process.env.NEXTAUTH_SECRET, originalFetch=global.fetch;
+  process.env.NEXTAUTH_SECRET="managed-gate-fault-test";
+  let requests=0;
+  global.fetch=async()=>{requests++;throw new Error("MQ should not be contacted");};
+  try {
+    const user=userFor(identity());
+    for(const [failure,reason,status] of [
+      [new PolicyConsentRequiredError("confirm policy"),"policy_paused",409],
+      [new Error("issuer mismatch"),"policy_unavailable",503],
+    ]) {
+      managedGateFailure=failure;
+      await assert.rejects(transport.retrieveEnvelopes(user),error=>error instanceof transport.ControlError &&
+        error.reason===reason && error.status===status);
+    }
+    assert.equal(requests,0);
+  } finally {
+    managedGateFailure=null;global.fetch=originalFetch;
+    if(originalSecret===undefined)delete process.env.NEXTAUTH_SECRET;else process.env.NEXTAUTH_SECRET=originalSecret;
+  }
+});
+
 function serviceFixture() {
   const rows=new Map(),sent=[],acked=[],projected=[];let mailbox=[],failSend=false,failWrite=false,failProjection=false,retrievals=0,cacheDeletes=0;
+  let policyAllowed=true;
+  class PolicyConsentRequiredError extends Error {}
   const user={id:"owner",virtualUrn:"console"},agent={id:"agent",urn:"agent-urn",userId:user.id};
   const prisma={controlRequest:{
     deleteMany:async({where})=>{cacheDeletes++;for(const [id,row] of rows)if(row.expiresAt<=where.expiresAt.lte)rows.delete(id);},
@@ -147,15 +202,24 @@ function serviceFixture() {
     acknowledgeEnvelopes:async(_user,ids)=>{acked.push(...ids);mailbox=mailbox.filter(item=>!ids.includes(item.message_id));}};
   const store={reserveWorkspaceSubmission:async()=>{},markWorkspaceSubmissionUncertain:async()=>{},clearWorkspaceSubmission:async()=>{},
     recordWorkspaceResponse:async(_user,_agent,row,result)=>{if(failProjection)throw new Error("projection disk failure");projected.push({id:row.id,result});}};
-  const service=load("../../src/lib/control/control-service.ts",{"@/lib/shared/db":{prisma},"@/lib/control/control-protocol":protocol,"@/lib/control/control-transport":fake,"@/lib/workspace/workspace-store":store});
+  const service=load("../../src/lib/control/control-service.ts",{"@/lib/shared/db":{prisma},"@/lib/control/control-protocol":protocol,"@/lib/control/control-transport":fake,"@/lib/workspace/workspace-store":store,
+    "@/lib/control/v2-policy":{PolicyConsentRequiredError,requirePolicyAcknowledgement:async()=>{if(!policyAllowed)throw new PolicyConsentRequiredError("policy consent required");}}});
   const call={request_id:crypto.randomUUID(),method:"contacts.list",params:{}};
   function reply(id=call.request_id,changes={}) {
     const row=rows.get(id),r=JSON.parse(row.requestEnvelope);
     const decoded={envelope:{senderUrn:agent.urn,messageId:"reply-"+id},chat:{inReplyTo:id,deadline:r.deadline},response:response(r),...changes};
     return {message_id:decoded.envelope.messageId,payload_proto:JSON.stringify(decoded)};
   }
-  return {service,rows,sent,acked,projected,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,retrievals:()=>retrievals,cacheDeletes:()=>cacheDeletes};
+  return {service,rows,sent,acked,projected,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,setPolicyAllowed:value=>policyAllowed=value,retrievals:()=>retrievals,cacheDeletes:()=>cacheDeletes};
 }
+
+test("unacknowledged policy stops a control call before persisting or sending wire bytes",async()=>{
+  const f=serviceFixture();f.setPolicyAllowed(false);
+  await assert.rejects(f.service.createControlCall(f.user,f.agent,f.call),error=>error.status===409);
+  assert.equal(f.rows.size,0);assert.equal(f.sent.length,0);
+  f.setPolicyAllowed(true);await f.service.createControlCall(f.user,f.agent,f.call);
+  assert.equal(f.sent.length,1);
+});
 
 test("durable account projection must finish before ACK, including retry after a wire-only save",async()=>{
   const f=serviceFixture();await f.service.createControlCall(f.user,f.agent,f.call);

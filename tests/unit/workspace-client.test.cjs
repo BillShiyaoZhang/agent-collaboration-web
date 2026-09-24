@@ -48,6 +48,8 @@ test("offline and revoked pairing cannot be described as currently connected", (
   const state = { lastAttemptAt: 100, lastSuccessAt: 50, nextSyncAt: 200, error: null };
   assert.match(syncLabel({ ...state, status: "offline" }, true), /暂未连上.*已保存/);
   assert.match(syncLabel({ ...state, status: "needs_pairing" }, true), /重新配对.*已保存/);
+  assert.match(syncLabel({ ...state, status: "policy_paused" }, true), /政策待确认或已暂停.*已保存/);
+  assert.match(syncLabel({ ...state, status: "policy_unavailable" }, true), /政策或托管授权不可用.*已保存/);
   assert.match(syncLabel({ ...state, status: "syncing" }, true), /后台同步/);
   assert.equal(syncLabel({ ...state, status: "ready" }, true), "已同步");
 });
@@ -59,5 +61,7 @@ test("cached capabilities cannot permit sending after pairing expires or require
   assert.equal(pairingAllowsSend({ pairing: { expires_at: "1970-01-01T00:00:10.000Z" } }, sync, 10000), false);
   assert.equal(pairingAllowsSend({ pairing: { expires_at: "invalid" } }, sync, 10000), false);
   assert.equal(pairingAllowsSend({}, { ...sync, status: "needs_pairing" }, 10000), false);
+  assert.equal(pairingAllowsSend({}, { ...sync, status: "policy_paused" }, 10000), false);
+  assert.equal(pairingAllowsSend({}, { ...sync, status: "policy_unavailable" }, 10000), false);
   assert.equal(pairingAllowsSend({}, sync, 10000), true, "legacy capabilities without an expiry still defer to their method authorization");
 });

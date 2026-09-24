@@ -10,6 +10,10 @@
 | NEXTAUTH_URL | 用户实际访问的 HTTPS Origin；同源校验使用此值 |
 | NEXTAUTH_SECRET | 登录会话、控制台私钥及工作台内容的保护密钥，须保留旧值 |
 | AGENT_PLATFORM_URL | 服务端访问 Registry/MQ 的地址，如 http://platform:8080 |
+| AGENT_V2_POLICY_ROOT_PUBLIC_KEY | 连接 v2 Platform 时预置的策略根 Ed25519 公钥，64 位十六进制；设置后策略端点不可用时停止旧控制流 |
+| AGENT_V2_PLATFORM_ID | 与已签 v2 策略一致的平台 ID；连接 v2 Platform 时必填 |
+| AGENT_MANAGED_ISSUER_PRIVATE_KEY | 托管控制台发行者 Ed25519 私钥种子（64 位十六进制）或 Go 64 字节私钥（128 位十六进制）；其公钥须列入已签策略 |
+| AGENT_MANAGED_ISSUER_PRIVATE_KEY_FILE | 可改用 Go `managed-issuer.private` 原始二进制文件路径，与上一项二选一；Web 验证后半段公钥后使用种子 |
 | WEB_PUSH_SUBJECT | 可选，浏览器推送的发送方 HTTPS 或 mailto 地址；默认 NEXTAUTH_URL |
 | WEB_PUSH_DISABLED | 设为 1 停止后台推送；不影响站内提醒 |
 
@@ -18,6 +22,12 @@
 浏览器后台推送还需要到固定厂商推送端点的 HTTPS 出站连接，详见[后台推送部署与验收](WEB_PUSH.md)。它使用现有读取范围中的提醒，不增加 agent 权限。
 
 根部署项目使用其自身 docker-compose.yml 和 deploy/nginx/nginx.conf。当前目录的 Compose 仅用于独立开发；容器里的 platform 地址必须使用服务名而非 localhost。
+
+启用 v2 平台前，先将离线生成的策略根公钥、平台 ID 与托管发行者私钥配置到 Web，并确认平台签名策略包含对应的发行者公钥。配置必须随数据库持久保留；不能靠清空 `PlatformPolicyState` 消除回退错误。新版本的追加迁移创建 `UserPolicyConsent` 与 `UserControlPause`，不修改旧账户密钥、连接、配对或工作台副本。切到合规政策后，旧账户首次打开 Dashboard 会看到模式、epoch 和网关可读范围；在明确确认当前策略前，旧快照可看，但新的控制调用、同步与连接授权暂停。政策 epoch 或内容再次变化会要求重新确认。用户可随时暂停后续 Web 控制与同步，并显式恢复；暂停不会清除旧副本或撤销本机配对。Web 的确认不替代 Agent 本机开启合规模式。
+
+Web 的 JavaScript 策略解析只接受安全整数 epoch（不大于 `2^53-1`）；Go 可表示更大的 `uint64`，但这种政策在 Web 端会验证失败并停止远程控制。上线前将签名政策 epoch 保持在该范围内。确认或恢复使用会立即唤醒账户已有连接的后台同步；未确认、主动暂停、策略验签失败与托管证书故障会显示不同的同步状态，不会提示用户无故重新配对。
+
+上线验收应分别核对：旧账户控制台 URN 和本机配对保持原值；合规披露未确认时旧历史可看但新的 MQ 请求不入队；确认后受管证书登记与控制往返成功；平台政策缺失、回退、过期或签名错误时停止新增控制；新 epoch 再次要求确认。不要将控制台受管 v1 往返写成 Agent ↔ Agent v2 合规收据。正式迁移工作台 RPC 到 v2 还需要 Web 与 Agent/helper 的双向握手和 RemoteBridge 协议改造。
 
 后台同步由 Next.js instrumentation 启动常驻 Node worker，部署必须维持 Node 进程和可写持久 SQLite 卷。只在 HTTP 请求期间运行的环境不能保证浏览器关闭后继续同步。worker 使用租约、去重和失败退避；读取通过既有 Registry/MQ 发往 agent，不需要新的公网监听端口，也不依赖浏览器定时点击。
 
@@ -48,6 +58,7 @@ npm run db:migrate
 - 不删除旧 Contact、Message、HITLRequest、Transaction 表，也不删除旧 Agent 私钥列等历史列。新 Prisma 模型和 API 完全不访问这些旧业务字段。
 - 旧表不会自动导入 agent 联系人/任务，避免误把旧 UI 记录当成当前 agent 授权。需要迁移的历史内容应单独审核，选择性导入 agent 侧接口。
 - 浏览器后台推送追加 WebPushConfig、WebPushSubscription、WebPushDelivery，分别保存加密 VAPID、账户设备订阅和有限期投递；回滚保留这些表及原 NEXTAUTH_SECRET。
+- v2 政策确认追加 UserPolicyConsent 和 UserControlPause；每账户只记录对当前已验签合规策略的确认及自选的后续控制暂停状态，不改写旧身份、配对或历史。回滚时保留这些表，重新升级后仍须按当前策略哈希和暂停状态检查。
 
 迁移验证应在临时真实 SQLite 上重放，校验原密码、旧联系人行、旧凭据列保存，两账户同 URN 不冲突，同账户重复连接被拒绝；同时检查新增副本的静态加密、账户隔离及删除连接后的级联清理。历史验收证据见部署仓库的 verification 目录。
 

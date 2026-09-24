@@ -4,11 +4,13 @@ import { decryptPrivateKey } from "@/lib/protocol/crypto";
 import { decodeEncryptedEnvelope, encodeEncryptedEnvelope, encodeChatMessage, decodeChatMessage } from "@/lib/protocol/proto";
 import { signEnvelope, verifyEnvelope, verifyRegistration, peerIdFromEd25519PublicKey, buildRegistrationSigningBytes } from "@/lib/protocol/protocol-auth";
 import { computeSharedSecret, encryptWithSharedSecret, decryptWithSharedSecret } from "@/lib/protocol/ecies";
+import { PolicyConsentRequiredError, requireManagedV1 } from "@/lib/control/v2-policy";
 import type { ControlRequestBody } from "@/lib/control/control-protocol";
 import type { ControlPollTimings } from "@/lib/control/control-poll-metrics";
 
 export class ControlError extends Error {
-  constructor(message: string, readonly status = 502, readonly platformStatus?: number) { super(message); }
+  constructor(message: string, readonly status = 502, readonly platformStatus?: number,
+    readonly reason?: "policy_paused" | "policy_unavailable") { super(message); }
 }
 
 export async function platformFetch(path: string, init?: RequestInit) {
@@ -82,6 +84,15 @@ export async function encodeControl(user: User, request: ControlRequestBody): Pr
   }, keys.signingKey)).toString("base64");
 }
 
+async function ensureManagedV1(user: User, keys: ReturnType<typeof consoleKeys>, forceEnrollment = false) {
+  try { await requireManagedV1(user, keys, forceEnrollment); }
+  catch (error) {
+    const consent = error instanceof PolicyConsentRequiredError;
+    throw new ControlError(`无法验证平台策略或托管控制台授权：${(error as Error).message}`,
+      consent ? 409 : 503, undefined, consent ? "policy_paused" : "policy_unavailable");
+  }
+}
+
 export function verifyConsoleEnvelope(user: User, encoded: string) {
   if (encoded.length > 1500000) throw new Error("Envelope too large");
   const envelope = decodeEncryptedEnvelope(Buffer.from(encoded, "base64"));
@@ -101,13 +112,23 @@ export function decodeControl(user: User, encoded: string, keys = consoleKeys(us
 
 export async function submitEnvelope(user: User, envelope: string, recipientUrn: string, deadline: Date) {
   const keys = consoleKeys(user);
+  await ensureManagedV1(user, keys);
   const body = JSON.stringify({ recipient_urn: recipientUrn, expiry_unix: Math.ceil(deadline.getTime() / 1000), payload_proto: envelope });
-  const result = await (await platformFetch("/api/v1/mq/store", { method: "POST", headers: signedHeaders(body, keys), body })).json();
+  const send = () => platformFetch("/api/v1/mq/store", { method: "POST", headers: signedHeaders(body, keys), body });
+  let response: Response;
+  try { response = await send(); }
+  catch (error) {
+    if (!(error instanceof ControlError) || ![400, 403].includes(error.platformStatus || 0)) throw error;
+    await ensureManagedV1(user, keys, true); // Restore a lost platform grant; retry the identical wire body.
+    response = await send();
+  }
+  const result = await response.json();
   if (result.ok !== true || result.message_id !== decodeEncryptedEnvelope(Buffer.from(envelope, "base64")).messageId) throw new ControlError("平台未确认请求入队。");
 }
 
 export async function retrieveEnvelopes(user: User, timings?: ControlPollTimings) {
   const keys = consoleKeys(user), timestamp = Math.floor(Date.now() / 1000), bytes = Buffer.alloc(8);
+  await ensureManagedV1(user, keys);
   bytes.writeBigInt64BE(BigInt(timestamp));
   const signature = crypto.sign(null, Buffer.concat([Buffer.from(`mq-retrieve|${keys.urn}|`), bytes]), keys.signingKey);
   const started = performance.now();

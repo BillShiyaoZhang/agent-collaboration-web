@@ -26,6 +26,12 @@ test("additive migration preserves old accounts and business rows, and supports 
     assert.equal((await db.$queryRawUnsafe('SELECT "encryptedPrivateKey" FROM "Agent"'))[0].encryptedPrivateKey,"preserve-obsolete-key-for-offline-archive");
     await db.controlRequest.create({data:{id:"rpc-test",agentId:"old-agent",consoleUrn:"urn:console:test",method:"capabilities",fingerprint:"hash",requestEnvelope:"encrypted",deadline:new Date(Date.now()+120000),expiresAt:new Date(Date.now()+600000)}});
     assert.equal((await db.controlRequest.findUnique({where:{id:"rpc-test"}})).requestEnvelope,"encrypted");
+    await db.userPolicyConsent.create({data:{userId:"old-owner",platformId:"platform-test",epoch:8n,policyHash:"signed-policy",gatewayKeyId:"gateway-test"}});
+    await db.userControlPause.create({data:{userId:"old-owner"}});
+    await migrate();
+    assert.equal((await db.userPolicyConsent.findUnique({where:{userId:"old-owner"}})).policyHash,"signed-policy");
+    assert.ok((await db.userControlPause.findUnique({where:{userId:"old-owner"}})).pausedAt instanceof Date);
+    assert.equal((await db.user.findUnique({where:{id:"old-owner"}})).passwordHash,"preserved-hash");
     await db.user.create({data:{id:"second-owner",email:"other-fixture@example.invalid",passwordHash:"other"}});
     await db.agent.create({data:{id:"second-connection",userId:"second-owner",name:"Authorized elsewhere",urn:"urn:test:agent",publicKey:"fixture"}});
     assert.equal(await db.agent.count({where:{urn:"urn:test:agent"}}),2,"public URNs cannot be squatted by another Web account");

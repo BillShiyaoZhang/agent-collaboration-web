@@ -87,6 +87,8 @@ test('ambiguous transport failure retries exact ID and payload, terminal pairing
 test('pairing policy vectors normalize seconds, milliseconds, ISO dates and invalid expiry consistently', () => {
   for (const example of policy.pairing) assert.equal(api.pairingAllowsSend({ pairing: { expires_at: example.expiresAt } }, workspace.sync, example.now), example.allowed, JSON.stringify(example));
   assert.equal(api.pairingAllowsSend({}, { ...workspace.sync, status: 'needs_pairing' }), false);
+  assert.equal(api.pairingAllowsSend({}, { ...workspace.sync, status: 'policy_paused' }), false);
+  assert.equal(api.pairingAllowsSend({}, { ...workspace.sync, status: 'policy_unavailable' }), false);
   for (const code of api.PAIRING_ERROR_CODES) assert.equal(api.isPairingError(code), true);
   assert.equal(api.isPairingError('queue_full'), false);
   for (const example of policy.backoff) assert.equal(api.syncBackoff(example.failures), example.milliseconds);

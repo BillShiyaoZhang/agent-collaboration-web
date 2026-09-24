@@ -82,6 +82,8 @@ The request deadline is 120 seconds and encrypted delivery cache retention is 10
 
 `capabilities.methods[].available` must be exactly `true`. An advertised custom method or write cannot be scheduled automatically. `collaboration.state` replaces separate contacts/inbox reads when available. The normal sync interval is 30 seconds, capabilities refresh every 120 seconds, pending conversations every 5 seconds; offline failures back off from 30 seconds to 5 minutes. Pairing errors `not_paired`, `owner_mismatch`, `pairing_expired`, and `pairing_revoked` retain cached data and require authorization on the agent's local host.
 
+`policy_paused` means Web account consent is pending or subsequent control/sync was paused. `policy_unavailable` means the signed policy or managed console enrollment could not be verified. These states retain cached data and never imply that the agent needs re-pairing. Explicit confirmation or resume wakes existing connections; the first recovered read checks `capabilities` again.
+
 ### Explicit Web actions
 
 New agent versions can separately grant `contacts.add` and `approval.respond` in local pairing. Existing pairings gain no permissions automatically. Both methods require an explicit user action and are excluded from every automatic sync plan.

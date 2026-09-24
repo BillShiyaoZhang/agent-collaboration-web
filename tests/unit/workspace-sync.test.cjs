@@ -17,7 +17,10 @@ function load(relative, dependencies = {}) {
 
 const client = load("../../src/lib/control/workbench-client.ts");
 const policy = load("../../src/lib/workspace/workspace-sync-policy.ts", { "@/lib/control/workbench-client": client });
-class ControlError extends Error { constructor(message, status = 502) { super(message); this.status = status; } }
+class ControlError extends Error { constructor(message, status = 502, platformStatus, reason) {
+  super(message); this.status = status; this.platformStatus = platformStatus; this.reason = reason;
+} }
+class PolicyConsentRequiredError extends Error {}
 const clone = value => structuredClone(value);
 const methods = (...names) => ({ methods: names.map(name => ({ name, available: true })) });
 
@@ -35,7 +38,7 @@ function matches(row, where = {}) {
 
 function fixture() {
   const realNow = Date.now, previousWorker = global.__agentWorkspaceSync;
-  let now = realNow(), createBehavior = "pending", recordFailure = false, gate = null, recordGate = null;
+  let now = realNow(), createBehavior = "pending", recordFailure = false, gate = null, recordGate = null, policyFailure = null;
   let immediateResponse = () => ({ result: methods("capabilities") });
   const agents = new Map(), jobs = new Map(), workspaces = new Map(), rows = new Map();
   const calls = [], events = [], polls = [], discoveries = [];
@@ -112,8 +115,10 @@ function fixture() {
   };
   const service = {
     createControlCall: async (_user, agent, call) => {
+      if (createBehavior === "managed-fault") throw new ControlError("托管证书核验失败。", 503, undefined, "policy_unavailable");
       calls.push({ agentId: agent.id, ...clone(call) }); events.push(["enqueue", call.request_id]);
       if (createBehavior === "offline") throw new Error("offline");
+      if (createBehavior === "conflict") throw new ControlError("request conflict", 409);
       const response = createBehavior === "complete" ? immediateResponse(call, agent) : undefined;
       const row = rowFor(call.request_id, agent.id, call.method, call.params, response);
       if (gate) await gate;
@@ -127,6 +132,7 @@ function fixture() {
     },
   };
   const dependencies = { "@/lib/shared/db": { prisma }, "@/lib/control/control-transport": { ControlError }, "@/lib/control/control-service": service,
+    "@/lib/control/v2-policy": { PolicyConsentRequiredError, requirePolicyAcknowledgement: async () => { if (policyFailure) throw policyFailure; } },
     "@/lib/workspace/workspace-store": store, "@/lib/workspace/workspace-sync-policy": policy };
   const reload = () => load("../../src/lib/workspace/workspace-sync.ts", dependencies);
   const ready = (id, capability = methods("capabilities")) => {
@@ -135,7 +141,8 @@ function fixture() {
   };
   return { sync: reload(), reload, agents, jobs, workspaces, rows, calls, events, polls, discoveries, add, ensure, ready, rowFor,
     now: () => now, advance: ms => { now += ms; }, due: id => { jobs.get(id).nextSyncAt = now; },
-    setBehavior: value => { createBehavior = value; }, setResponse: value => { immediateResponse = value; },
+    setBehavior: value => { createBehavior = value; }, setPolicyFailure: value => { policyFailure = value; },
+    setResponse: value => { immediateResponse = value; },
     setRecordFailure: value => { recordFailure = value; }, setGate: value => { gate = value; },
     setRecordGate: value => { recordGate = value; },
     restore: () => { Date.now = realNow; if (previousWorker === undefined) delete global.__agentWorkspaceSync; else global.__agentWorkspaceSync = previousWorker; } };
@@ -326,6 +333,59 @@ test("offline backoff preserves saved data and grows without repeatedly querying
     f.advance(30_000); await f.sync.runAgentSyncStep("agent");
     assert.equal(f.calls[1].method, "capabilities"); assert.equal(f.jobs.get("agent").nextSyncAt, f.now() + 60_000);
     assert.deepEqual(f.workspaces.get("agent").snapshots, original);
+  } finally { f.restore(); }
+});
+
+test("policy consent, pause and verification failures have distinct sync states without MQ reads", async () => {
+  const f = fixture();
+  try {
+    f.add("agent"); f.ready("agent", methods("contacts.list"));
+    f.workspaces.get("agent").snapshots["contacts.list"] = { data: { contacts: [{ contact_id: "cached" }] }, time: f.now() - 60_000 };
+    const saved = clone(f.workspaces.get("agent").snapshots);
+    f.setPolicyFailure(new PolicyConsentRequiredError("请确认当前合规政策。"));
+    await f.sync.runAgentSyncStep("agent");
+    assert.equal(f.jobs.get("agent").status, "policy_paused");
+    assert.match(f.jobs.get("agent").error, /确认/);
+    assert.equal(f.calls.length, 0);
+    f.advance(60_000); f.setPolicyFailure(new Error("bad policy signature"));
+    await f.sync.runAgentSyncStep("agent");
+    assert.equal(f.jobs.get("agent").status, "policy_unavailable");
+    assert.match(f.jobs.get("agent").error, /平台当前政策/);
+    assert.equal(f.calls.length, 0);
+    assert.deepEqual(f.workspaces.get("agent").snapshots, saved);
+    f.setPolicyFailure(null); f.setBehavior("complete"); f.due("agent");
+    await f.sync.runAgentSyncStep("agent");
+    assert.equal(f.calls[0].method, "capabilities", "resuming reconfirms capabilities before other reads");
+  } finally { f.restore(); }
+});
+
+test("managed certificate failures and unrelated 409 conflicts never request local re-pairing", async () => {
+  const f = fixture();
+  try {
+    f.add("agent"); f.ready("agent", methods("contacts.list"));
+    f.setBehavior("managed-fault"); await f.sync.runAgentSyncStep("agent");
+    assert.equal(f.jobs.get("agent").status, "policy_unavailable");
+    assert.equal(f.calls.length, 0, "failed managed enrollment sends no control envelope");
+    f.setBehavior("conflict"); f.due("agent"); await f.sync.runAgentSyncStep("agent");
+    assert.equal(f.jobs.get("agent").status, "offline");
+  } finally { f.restore(); }
+});
+
+test("policy pause retains an in-flight read for same-ID recovery after resume", async () => {
+  const f = fixture();
+  try {
+    f.add("agent"); f.ready("agent", methods("contacts.list"));
+    f.rowFor("in-flight", "agent", "contacts.list");
+    Object.assign(f.jobs.get("agent"), { requestId: "in-flight", plan: [{ method: "contacts.list", params: {} }] });
+    f.setPolicyFailure(new PolicyConsentRequiredError("已暂停同步。"));
+    await f.sync.runAgentSyncStep("agent");
+    assert.equal(f.jobs.get("agent").status, "policy_paused");
+    assert.equal(f.jobs.get("agent").requestId, "in-flight");
+    assert.equal(f.polls.length, 0);
+    f.setPolicyFailure(null); f.advance(60_000);
+    await f.sync.runAgentSyncStep("agent");
+    assert.deepEqual(f.polls, ["owner"]);
+    assert.equal(f.calls.length, 0, "the original read is polled, not resent");
   } finally { f.restore(); }
 });
 

@@ -5,6 +5,7 @@ import { CONTROL_PROTOCOL, validateControlResponse } from "@/lib/control/control
 import { ControlError, consoleKeys, encodeControl, decodeControl, verifyConsoleEnvelope, submitEnvelope, retrieveEnvelopes, acknowledgeEnvelopes } from "@/lib/control/control-transport";
 import type { ControlPollTimings } from "@/lib/control/control-poll-metrics";
 import { reserveWorkspaceSubmission, markWorkspaceSubmissionUncertain, clearWorkspaceSubmission, recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
+import { requirePolicyAcknowledgement, PolicyConsentRequiredError } from "@/lib/control/v2-policy";
 
 import { CONTROL_RETENTION_MS as RETENTION_MS, CONTROL_REQUEST_MS as REQUEST_MS, canonicalJSON } from "@agent-comm/client-contract";
 
@@ -63,6 +64,10 @@ function requestFingerprints(agent: Agent, consoleUrn: string, call: Call) {
 }
 
 async function createControlCallOnce(user: User, agent: Agent, call: Call) {
+  try { await requirePolicyAcknowledgement(user.id); }
+  catch (error) { throw error instanceof PolicyConsentRequiredError
+    ? new ControlError(error.message, 409, undefined, "policy_paused")
+    : new ControlError("无法验证平台当前政策，远程控制已暂停。", 503, undefined, "policy_unavailable"); }
   if (!user.virtualUrn) throw new ControlError("请先创建控制台身份，并在 agent 本机完成配对。", 409);
   const { fingerprint, matches } = requestFingerprints(agent, user.virtualUrn, call);
   let row = await prisma.controlRequest.findUnique({ where: { id: call.request_id } });

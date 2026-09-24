@@ -418,6 +418,17 @@ test("durable sync leases use CAS, survive reload and retain in-flight plans whe
   assert.ok((await store.listDueSyncAgents(now + 11000, 10)).includes(otherAgent.id));
 }));
 
+test("explicit policy confirmation wakes sync even inside the ordinary UI throttle window", () => fixture(async ({ db, user, agent, store }) => {
+  const now = Date.now();
+  await store.ensureWorkspaceState(agent.id);
+  await db.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = ${now + 60000}, "lastWakeAt" = ${now}
+    WHERE "agentId" = ${agent.id}`;
+  await store.scheduleWorkspaceSync(user.id, agent.id);
+  assert.ok((await store.readSyncJob(agent.id)).nextSyncAt > now, "ordinary UI wake remains throttled");
+  await store.scheduleWorkspaceSync(user.id, agent.id, true);
+  assert.ok((await store.readSyncJob(agent.id)).nextSyncAt <= Date.now(), "explicit consent bypasses the wake throttle");
+}));
+
 test("additive reruns preserve legacy data and deleting a connection cascades workspace rows only", () => fixture(async ({ db, user, other, agent, otherAgent, store, save }) => {
   await db.$executeRawUnsafe('CREATE TABLE "LegacyContact" ("id" TEXT PRIMARY KEY,"text" TEXT)');
   await db.$executeRawUnsafe('INSERT INTO "LegacyContact" VALUES (?,?)', "legacy", "preserved");

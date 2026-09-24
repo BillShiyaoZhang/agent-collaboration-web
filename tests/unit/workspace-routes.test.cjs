@@ -15,8 +15,9 @@ function load(relative,deps={}){
 
 test('workspace APIs isolate account data, reject foreign origins, and only schedule reads',async()=>{
   const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
-  let session=null,started=0;const events=[];
-  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{}});
+  let session=null,started=0,policyAllowed=false;const events=[];
+  class PolicyConsentRequiredError extends Error {}
+  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{},'@/lib/control/v2-policy':{}});
   const protocol=load('../../src/lib/control/control-protocol.ts');
   const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
   const state={agent:{id:'own-agent'},activeConversationId:'saved-chat',conversations:[],conversation:null,submission:null};
@@ -27,7 +28,9 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
     selectWorkspaceConversation:async(userId,id,conversation)=>{if(id!=='own-agent')throw new ControlError('not found',404);events.push(['select',userId,id,conversation]);},
     dismissWorkspaceSubmission:async(userId,id,requestId)=>{if(id!=='own-agent')throw new ControlError('not found',404);events.push(['dismiss',userId,id,requestId]);},
   };
-  const deps={'@/lib/workspace/workspace-http':http,'@/lib/workspace/workspace-store':store,'@/lib/workspace/workspace-sync':{startWorkspaceSync:()=>{started++;}}};
+  const deps={'@/lib/workspace/workspace-http':http,'@/lib/workspace/workspace-store':store,'@/lib/workspace/workspace-sync':{startWorkspaceSync:()=>{started++;}},
+    '@/lib/control/v2-policy':{PolicyConsentRequiredError,requirePolicyAcknowledgement:async()=>{if(!policyAllowed)throw new PolicyConsentRequiredError('policy consent required');}},
+    '@/lib/control/control-transport':{ControlError}};
   const overview=load('../../src/app/api/workspace/route.ts',deps);
   const sync=load('../../src/app/api/workspace/sync/route.ts',deps);
   const agent=load('../../src/app/api/agents/[id]/workspace/route.ts',deps);
@@ -48,6 +51,9 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
     const stream=new ReadableStream({pull(controller){pulls++;controller.enqueue(new Uint8Array(2048));},cancel(){cancelled=true;}},{highWaterMark:0});
     assert.equal((await sync.POST(new Request('https://console.example/api/workspace/sync',{method:'POST',headers:{origin:'https://console.example'},body:stream,duplex:'half'}))).status,413);
     assert.equal(pulls,3);assert.equal(cancelled,true);assert.equal(events.some(event=>event[0]==='schedule'),false);
+    assert.equal((await sync.POST(req({}))).status,409,'sync scheduling waits for explicit policy consent');
+    assert.equal(events.some(event=>event[0]==='schedule'),false);
+    policyAllowed=true;
     assert.equal((await sync.POST(req({agentId:'other'}))).status,404);
     assert.equal((await sync.POST(req({}))).status,202);
     assert.deepEqual(events.find(event=>event[0]==='schedule'),['schedule','owner',undefined]);
@@ -65,7 +71,7 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
 test('notification endpoints require account and origin, bind exact read versions, and cannot approve',async()=>{
   const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
   let session=null;const events=[];
-  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{}});
+  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{},'@/lib/control/v2-policy':{}});
   const protocol=load('../../src/lib/control/control-protocol.ts');
   const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
   const store={getWorkspaceNotifications:async(...args)=>{events.push(['list',...args]);return {items:[],unread:0,pending:0,before:null,hasMore:false};},readWorkspaceNotification:async(...args)=>events.push(['read',...args]),claimWorkspaceNotification:async(...args)=>{events.push(['claim',...args]);return false;}};

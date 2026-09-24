@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { NotificationProvider } from "@/components/notification-provider";
 import { getWorkspaceOverview } from "@/lib/workspace/workspace-store";
+import { PolicyDisclosureGate } from "@/components/workbench/policy-disclosure";
 
 export default async function DashboardLayout({
   children,
@@ -27,7 +28,7 @@ export default async function DashboardLayout({
       <DashboardSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardHeader user={session.user} />
-        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 outline-none sm:p-8"><div className="mx-auto w-full max-w-6xl">{children}</div></main>
+        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 outline-none sm:p-8"><div className="mx-auto w-full max-w-6xl space-y-6"><PolicyDisclosureGate>{children}</PolicyDisclosureGate></div></main>
       </div>
     </div>
     </NotificationProvider>

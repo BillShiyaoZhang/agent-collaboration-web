@@ -403,14 +403,14 @@ export async function listDueSyncAgents(now: number, limit: number): Promise<str
     AND (s."leaseUntil" IS NULL OR s."leaseUntil" <= ${now}) ORDER BY COALESCE(s."nextSyncAt",0), a."id" LIMIT ${Math.max(1, Math.min(100, limit))}`;
   return rows.map(row => row.agentId);
 }
-export async function scheduleWorkspaceSync(userId: string, agentId?: string) {
+export async function scheduleWorkspaceSync(userId: string, agentId?: string, force = false) {
   const agents = await prisma.agent.findMany({ where: { userId, ...(agentId === undefined ? {} : { id: agentId }) }, select: { id: true } });
   if (agentId !== undefined && !agents.length) throw new ControlError("连接不存在。", 404);
   const now = Date.now();
   for (const agent of agents) {
     await ensureWorkspaceState(agent.id);
-    await retryStandaloneSQLiteWrite(() => prisma.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${now}), "lastWakeAt" = ${now}
-      WHERE "agentId" = ${agent.id} AND "lastWakeAt" <= ${now - 15000}`);
+    await retryStandaloneSQLiteWrite(() => prisma.$executeRaw(Prisma.sql`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${now}), "lastWakeAt" = ${now}
+      WHERE "agentId" = ${agent.id} ${force ? Prisma.empty : Prisma.sql`AND "lastWakeAt" <= ${now - 15000}`}`));
   }
 }
 export async function getTrackedConversationIds(userId: string, agentId: string): Promise<string[]> {

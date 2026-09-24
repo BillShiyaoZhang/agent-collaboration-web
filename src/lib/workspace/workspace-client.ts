@@ -2,6 +2,8 @@ export { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@agent-comm/clien
 import type { WorkspaceSync } from "@agent-comm/client-contract";
 
 export function syncLabel(sync: WorkspaceSync, hasSaved = false): string {
+  if (sync.status === "policy_paused") return hasSaved ? "政策待确认或已暂停 · 显示已保存内容" : "政策待确认或已暂停";
+  if (sync.status === "policy_unavailable") return hasSaved ? "平台政策或托管授权不可用 · 显示已保存内容" : "平台政策或托管授权不可用";
   if (sync.status === "needs_pairing") return hasSaved ? "需要重新配对 · 显示已保存内容" : "等待本机配对";
   if (sync.status === "offline") return hasSaved ? "暂未连上 · 显示已保存内容" : "暂未收到 agent 响应";
   if (sync.status === "syncing") return hasSaved ? "正在后台同步" : "正在首次同步";

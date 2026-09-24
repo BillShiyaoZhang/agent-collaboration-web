@@ -19,6 +19,8 @@ const needsAgentRead = (item: WorkspaceNotification) => item.target.kind === "in
 
 export function notificationReadBlockedReason(item: WorkspaceNotification, workspace?: ReadSupport): string {
   if (!needsAgentRead(item)) return "";
+  if (workspace?.sync.status === "policy_paused") return "当前账户已暂停同步或尚未确认平台政策，请在工作台的政策提示中处理。";
+  if (workspace?.sync.status === "policy_unavailable") return "平台政策或托管授权暂不可用，核验恢复后才能同步已读。";
   const capabilities = workspace?.snapshots.capabilities?.data;
   if (!capabilities) return "尚未取得本机的已读同步能力，请打开当前事项并检查连接。";
   if (!availableMethods(capabilities).includes("inbox.mark_read"))

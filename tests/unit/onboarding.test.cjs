@@ -40,6 +40,8 @@ test('onboarding proves agent ownership, keeps the polling secret private, and a
     for (const statement of sql.replace(/^\s*--.*$/gm, '').split(';').filter(value => value.trim())) await db.$executeRawUnsafe(statement);
     for (const id of ['owner', 'other']) await db.user.create({ data: { id, email: id + '@example.invalid', passwordHash: 'test-hash' } });
     const agent = identity(), console = identity(), events = [];
+    let policyAllowed = false;
+    class PolicyConsentRequiredError extends Error {}
     let session = null;
     const transport = { ControlError, consoleKeys: () => console, resolveIdentity: async urn => {
       assert.equal(urn, agent.urn); return { ed25519_pubkey: Buffer.from(agent.publicKey, 'hex').toString('base64') };
@@ -48,6 +50,9 @@ test('onboarding proves agent ownership, keeps the polling secret private, and a
     const service = load('../../src/lib/control/onboarding.ts', {
       '@/lib/shared/db': { prisma: db }, '@/lib/protocol/protocol-auth': protocolAuth,
       './control-transport': transport, './console-identity': { ensureConsoleIdentity: async id => ({ id }) },
+      './v2-policy': { PolicyConsentRequiredError, requirePolicyAcknowledgement: async () => {
+        if (!policyAllowed) throw new PolicyConsentRequiredError('Confirm current compliance policy');
+      } },
       '@/lib/workspace/workspace-store': { scheduleWorkspaceSync: async (...args) => events.push(args) },
       '@/lib/workspace/workspace-sync': { startWorkspaceSync: () => events.push('start') },
     });
@@ -98,6 +103,10 @@ test('onboarding proves agent ownership, keeps the polling secret private, and a
     assert.equal((await claimRoute.POST(request({ confirm: true }, '', 'https://attacker.example'), claimContext)).status, 403);
     assert.equal((await claimRoute.POST(request({ confirm: true, methods: ['collaboration.execute'] }), claimContext)).status, 400, 'browser cannot widen the request');
     assert.equal((await claimRoute.POST(request({ confirm: false }), claimContext)).status, 400);
+    assert.equal((await claimRoute.POST(request({ confirm: true }), claimContext)).status, 409,
+      'an onboarding grant cannot be signed before policy acknowledgement');
+    assert.equal((await db.agent.count()), 0);
+    policyAllowed = true;
     const approved = await claimRoute.POST(request({ confirm: true }), claimContext);
     assert.equal(approved.status, 200); assert.equal(events.length, 0, 'reads are not dispatched before the agent applies its grant');
     const approval = await approved.json();

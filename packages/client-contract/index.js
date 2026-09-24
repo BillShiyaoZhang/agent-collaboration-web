@@ -201,7 +201,7 @@ function mergeTurns(earlier, latest) {
     return Array.from(byId.values()).sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0) || string(a.turn_id).localeCompare(string(b.turn_id)));
 }
 function pairingAllowsSend(capabilities, sync, now = Date.now()) {
-    if (sync.status === "needs_pairing")
+    if (["needs_pairing", "policy_paused", "policy_unavailable"].includes(sync.status))
         return false;
     const expiry = record(capabilities?.pairing).expires_at;
     if (expiry === undefined || expiry === null)
@@ -218,7 +218,7 @@ function syncReadPlan(workspace, conversationIds, now) {
     const capability = workspace.snapshots.capabilities;
     const expiry = record(capability?.data.pairing).expires_at;
     const expiresAt = remoteTimestamp(expiry);
-    if (!capability || now - capability.time >= exports.CAPABILITY_INTERVAL_MS || (Number.isFinite(expiresAt) && expiresAt <= now) || ["offline", "needs_pairing"].includes(workspace.sync.status)) {
+    if (!capability || now - capability.time >= exports.CAPABILITY_INTERVAL_MS || (Number.isFinite(expiresAt) && expiresAt <= now) || ["offline", "needs_pairing", "policy_paused", "policy_unavailable"].includes(workspace.sync.status)) {
         return [{ method: "capabilities", params: {} }];
     }
     const allowed = new Set(records(capability.data.methods).filter(item => item.available === true).map(item => string(item.name)));

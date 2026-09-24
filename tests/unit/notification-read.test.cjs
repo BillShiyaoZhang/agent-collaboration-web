@@ -49,6 +49,8 @@ test("missing capability snapshots, expired grants and offline agents cannot ack
     support([], { snapshots: {} }),
     support(undefined, { sync: { status: "needs_pairing" } }),
     support(undefined, { sync: { status: "offline" } }),
+    support(undefined, { sync: { status: "policy_paused" } }),
+    support(undefined, { sync: { status: "policy_unavailable" } }),
     { ...support(), snapshots: { capabilities: { data: { methods: [{ name: "inbox.mark_read", available: true }], pairing: { expires_at: 1 } } } } },
   ]) {
     const f = fixture(workspace);
@@ -56,6 +58,13 @@ test("missing capability snapshots, expired grants and offline agents cannot ack
     await assert.rejects(f.read());
     assert.equal(f.calls.length, 1);
   }
+});
+
+test("policy-blocked notification reads direct users to policy recovery instead of re-pairing", () => {
+  const paused = support(undefined, { sync: { status: "policy_paused" } });
+  const unavailable = support(undefined, { sync: { status: "policy_unavailable" } });
+  assert.match(fixture(paused).notificationReadBlockedReason(message, paused), /政策提示/);
+  assert.match(fixture(unavailable).notificationReadBlockedReason(message, unavailable), /平台政策或托管授权/);
 });
 
 test("supported reads require the agent receipt before syncing and acknowledging the exact notification revision", async () => {

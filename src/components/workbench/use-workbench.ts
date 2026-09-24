@@ -6,6 +6,7 @@ import { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@/lib/workspace/w
 import type { WorkspaceAgent, WorkspaceSubmission } from "@/lib/workspace/workspace-types";
 import { useWorkspace, workspaceRequest } from "@/components/workspace-provider";
 import { useWorkbenchMutations } from "./use-workbench-mutations";
+import { usePolicyAccess } from "./policy-disclosure";
 
 export type Connection = { id: string; name: string; urn: string };
 type Outcome = { result?: RemoteRecord; error?: WorkbenchError };
@@ -16,6 +17,7 @@ async function expectedTurnId(consoleUrn: string, requestId: string) {
 }
 
 export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
+  const policyAllowed = usePolicyAccess();
   const { getCachedAgent, cacheAgent, requestSync, getDraft, saveDraft, error: workspaceError } = useWorkspace();
   const [seed] = useState(() => {
     const saved = getCachedAgent(agent.id) || initial;
@@ -112,6 +114,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   }, [refreshSaved, seed]);
 
   const invoke = useCallback(async (method: RpcMethod, params: RemoteRecord = {}, original?: PendingCall): Promise<Outcome> => {
+    if (!policyAllowed) return {};
     if (activeCalls.current.has(method)) return {};
     activeCalls.current.add(method);
     const signal = lifecycle.current.signal, call = original || client.prepare(method, params);
@@ -143,11 +146,11 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
       setErrors(previous => ({ ...previous, [method]: failure }));
       return { error: failure };
     } finally { activeCalls.current.delete(method); if (!signal.aborted) setBusy(previous => ({ ...previous, [method]: undefined })); }
-  }, [agent.id, client, refreshSaved, requestSync]);
+  }, [agent.id, client, refreshSaved, requestSync, policyAllowed]);
 
   const capabilitySnapshot = snapshots.capabilities;
   const methods = records(capabilitySnapshot?.data.methods);
-  const available = (name: string) => methods.some(method => method.name === name && method.available === true);
+  const available = (name: string) => policyAllowed && methods.some(method => method.name === name && method.available === true);
   const canSend = available("conversation.send") && pairingAllowsSend(capabilitySnapshot?.data, sync);
   const canAddContact = available("contacts.add") && pairingAllowsSend(capabilitySnapshot?.data, sync);
   const canRespondApproval = available("approval.respond") && pairingAllowsSend(capabilitySnapshot?.data, sync);
@@ -184,6 +187,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   }, [reconciled, submission]);
 
   async function createIdentity() {
+    if (!policyAllowed) return;
     setIdentityBusy(true); setIdentityError("");
     const signal = lifecycle.current.signal;
     try {
@@ -195,13 +199,13 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
 
   const identityAttempted = useRef(false);
   useEffect(() => {
-    if (!identity.virtualUrn && !identityAttempted.current) {
+    if (policyAllowed && !identity.virtualUrn && !identityAttempted.current) {
       identityAttempted.current = true;
       void createIdentity();
     }
     // Create the console identity once on first binding; a failed registration remains explicitly retryable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity.virtualUrn]);
+  }, [identity.virtualUrn, policyAllowed]);
 
   async function selectConversation(id: string) {
     if (selecting.current || sending.current || submission) return false;
@@ -303,7 +307,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   }
 
   function newConversation() { void selectConversation("").then(saved => { if (saved) composer.current?.focus(); }); }
-  return { identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
+  return { policyAllowed, identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
     capabilitySnapshot, methods, available, canSend, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
     setConversationInput, conversationError, submission, turns, currentSnapshot, watching,
     sendMessage, inspectSubmission, readConversation, newConversation, conversations, selectConversation, selectingConversation,

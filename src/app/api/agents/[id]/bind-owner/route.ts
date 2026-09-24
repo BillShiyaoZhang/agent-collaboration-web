@@ -7,6 +7,7 @@ import { ensureConsoleIdentity } from "@/lib/control/console-identity";
 import { requireSameOrigin } from "@/lib/control/control-protocol";
 import { scheduleWorkspaceSync } from "@/lib/workspace/workspace-store";
 import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
+import { requirePolicyAcknowledgement, PolicyConsentRequiredError } from "@/lib/control/v2-policy";
 
 function publicIdentity(user: {virtualUrn:string|null;virtualEd25519PublicKey:string|null;virtualX25519PublicKey:string|null}) {
   return {virtualUrn:user.virtualUrn,virtualEd25519PublicKey:user.virtualEd25519PublicKey,virtualX25519PublicKey:user.virtualX25519PublicKey};
@@ -28,6 +29,9 @@ export async function POST(request:Request,{params}:{params:Promise<{id:string}>
   try {
     let user = await owner((await params).id);
     try {requireSameOrigin(request);} catch {throw new ControlError("Forbidden origin",403);}
+    try { await requirePolicyAcknowledgement(user.id); }
+    catch (error) { throw error instanceof PolicyConsentRequiredError
+      ? new ControlError(error.message, 409) : new ControlError("无法验证平台当前政策，身份注册已暂停。", 503); }
     user = await ensureConsoleIdentity(user.id);
     await scheduleWorkspaceSync(user.id);
     startWorkspaceSync();

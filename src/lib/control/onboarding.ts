@@ -4,6 +4,7 @@ import { prisma } from "@/lib/shared/db";
 import { urnMatchesPublicKey } from "@/lib/protocol/protocol-auth";
 import { ControlError, consoleKeys, resolveIdentity } from "./control-transport";
 import { ensureConsoleIdentity } from "./console-identity";
+import { requirePolicyAcknowledgement, PolicyConsentRequiredError } from "./v2-policy";
 import { scheduleWorkspaceSync } from "@/lib/workspace/workspace-store";
 import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
 
@@ -110,6 +111,10 @@ export async function approveOnboarding(code: string, userId: string) {
     return { status: ticket.completedAt ? "completed" : "approved", agent_id: ticket.agentId };
   }
   if (Date.parse(ticket.grantExpiresAt) <= Date.now()) throw missing();
+  try { await requirePolicyAcknowledgement(userId); }
+  catch (error) { throw error instanceof PolicyConsentRequiredError
+    ? new ControlError("请先阅读并确认当前合规政策，再授权连接。", 409)
+    : new ControlError("无法验证平台政策，连接授权已暂停。", 503); }
   const user = await ensureConsoleIdentity(userId), keys = consoleKeys(user);
   // Sign the exact string returned to the agent; JSON reserialization is unnecessary.
   const grant = JSON.stringify({ protocol: ONBOARDING_PROTOCOL, request_id: ticket.id, agent_urn: ticket.agentUrn,

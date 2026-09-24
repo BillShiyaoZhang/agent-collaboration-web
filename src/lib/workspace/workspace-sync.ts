@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { Agent, ControlRequest, User } from "@prisma/client";
 import { prisma } from "@/lib/shared/db";
 import { ControlError, resolveIdentity } from "@/lib/control/control-transport";
+import { PolicyConsentRequiredError, requirePolicyAcknowledgement } from "@/lib/control/v2-policy";
 import { createControlCall, pollControlResponses, controlCallResult } from "@/lib/control/control-service";
 import { ensureWorkspaceState, listDueSyncAgents, claimSyncJob, readSyncJob, updateSyncJob,
   getWorkspaceAgent, getTrackedConversationIds, recordWorkspaceResponse, type SyncJob } from "@/lib/workspace/workspace-store";
@@ -65,6 +66,12 @@ export async function runAgentSyncStep(agentId: string): Promise<void> {
     const agent = await prisma.agent.findUnique({ where: { id: agentId }, include: { user: true } });
     if (!agent) return;
     const user = agent.user;
+    try { await requirePolicyAcknowledgement(user.id); }
+    catch (error) {
+      throw error instanceof PolicyConsentRequiredError
+        ? new ControlError(error.message, 409, undefined, "policy_paused")
+        : new ControlError("无法验证平台当前政策，后台同步已暂停。", 503, undefined, "policy_unavailable");
+    }
     if (!user.virtualUrn) {
       await updateSyncJob(agentId, { status: "needs_pairing", error: "请先创建控制台身份，再在 agent 本机配对。",
         nextSyncAt: now + 60_000, leaseToken: null, leaseUntil: null }, token);
@@ -130,13 +137,20 @@ export async function runAgentSyncStep(agentId: string): Promise<void> {
     // Poll ambiguous submissions by ID; an accepted response can keep retrying its
     // durable projection until cache expiry even after the original request deadline.
     const row = job.requestId ? await prisma.controlRequest.findFirst({ where: { id: job.requestId, agentId } }) : null;
+    if (error instanceof ControlError && (error.reason === "policy_paused" || error.reason === "policy_unavailable")) {
+      const unavailable = error.reason === "policy_unavailable", failures = unavailable ? job.failures + 1 : job.failures;
+      await updateSyncJob(agentId, { status: error.reason, error: error.message, failures,
+        ...(row ? {} : { requestId: null, plan: [] }),
+        nextSyncAt: Date.now() + (unavailable ? syncBackoff(failures) : 60_000), leaseToken: null, leaseUntil: null }, token);
+      return;
+    }
     if (row && (row.responseEnvelope ? row.expiresAt : row.deadline).getTime() > Date.now()) {
       await updateSyncJob(agentId, { nextSyncAt: Date.now() + 5_000,
         error: row.responseEnvelope ? "已收到同步结果，正在重试保存。" : "连接暂时不稳定，正在等待本次同步结果。",
         leaseToken: null, leaseUntil: null }, token);
     } else {
       const failures = job.failures + 1;
-      await updateSyncJob(agentId, { status: error instanceof ControlError && error.status === 409 ? "needs_pairing" : "offline",
+      await updateSyncJob(agentId, { status: "offline",
         error: "暂时无法连接 agent，已保存的内容仍然可用，稍后会自动重试。", failures,
         requestId: null, plan: [], nextSyncAt: Date.now() + syncBackoff(failures), leaseToken: null, leaseUntil: null }, token);
     }

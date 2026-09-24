@@ -53,7 +53,7 @@ export type WorkspaceSnapshot = {
     requestId?: string;
 };
 export type WorkspaceSync = {
-    status: "waiting" | "syncing" | "ready" | "offline" | "needs_pairing";
+    status: "waiting" | "syncing" | "ready" | "offline" | "needs_pairing" | "policy_paused" | "policy_unavailable";
     lastAttemptAt: number | null;
     lastSuccessAt: number | null;
     nextSyncAt: number | null;

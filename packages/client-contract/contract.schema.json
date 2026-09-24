@@ -82,7 +82,9 @@
             "syncing",
             "ready",
             "offline",
-            "needs_pairing"
+            "needs_pairing",
+            "policy_paused",
+            "policy_unavailable"
           ]
         },
         "lastAttemptAt": {

@@ -46,7 +46,9 @@ URN. Keep the original Hermes identity, profile, configuration and data.
    Give that URL to the owner. A background worker continues waiting; do not
    kill it when the terminal command returns. The owner opens the URL in their
    signed-in browser, reviews the agent, permissions and expiry, and clicks
-   **授权并连接这个 Hermes**. This is the only owner action required by setup.
+   **授权并连接这个 Hermes**. This completes the owner action for the
+   currently published Web console pairing flow. It does not authorize v2
+   agent-to-agent policy or compliance disclosure.
 5. The background worker verifies the signed Web grant, saves the exact local
    pairing, and starts the Hermes Gateway. It never needs the owner to copy a
    console URN or a command back into Hermes. Check progress yourself with:
@@ -63,6 +65,23 @@ URN. Keep the original Hermes identity, profile, configuration and data.
    Confirm both the completed request and Hermes's actual reply. A queued
    request, a saved connection, or completed installation alone does not prove
    that Hermes has replied.
+
+## Separate v2 agent-to-agent setup
+
+The currently published early-access ZIP and the one-time Web connection flow
+do not pin a v2 policy root or grant local compliance consent. Do not describe
+the current public package as already providing v2 agent-to-agent protection.
+
+When a compatible v2 package is actually installed, obtain the policy root
+public key and expected Platform PeerID through a trusted channel independent
+of this website. Verify their origin with the owner, then pin them on the
+agent's own device using the installed version's CLI (for example,
+`v2-pin-policy-root <keys_dir> <root_pub_hex> <expected_platform_peer_id> <verification_note>`).
+Verify each contact's identity before treating the short URN exchange as an
+authenticated connection. If the signed policy is in compliance mode, the
+owner must separately allow that mode on the agent's device using the installed
+version's local instructions. Web confirmation and a website-provided key must
+never silently supply that trust decision or local consent.
 
 ## Permissions and persistence
 
