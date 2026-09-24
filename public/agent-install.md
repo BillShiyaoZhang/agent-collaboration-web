@@ -6,12 +6,12 @@ installation yourself; the owner confirms the exact Web access on the website.
 Do not stop at a plan, ask the owner to run terminal commands, or ask for a console
 URN. Keep the original Hermes identity, profile, configuration and data.
 
-The public Platform now serves a signed v2 `private` policy (epoch 1,
-`allow_v1=true`). At the initial policy switch on 2026-09-24 the published
-complete ZIP was r2; the live release manifest determines whether v0.8.0 has
-since passed validation and become public. The r2 path remains usable over v1,
-but it does not provide v2 agent-to-agent protection. Check that manifest
-before describing a newly downloaded package as v2-capable.
+After the production cutover is verified, the public Platform serves a signed
+v2 `compliance` policy (epoch 2, `allow_v1=false`) with Relay disabled. The
+published complete ZIP is v0.8.0; check the live release manifest and each
+download's digest before calling a package v2-capable. Older r2 packages do
+not support v2, and ordinary v1 agent-to-agent traffic is rejected under this
+policy. Preserve the existing Hermes identity and data while upgrading.
 
 ## Start here
 
@@ -55,9 +55,11 @@ before describing a newly downloaded package as v2-capable.
    Give that URL to the owner. A background worker continues waiting; do not
    kill it when the terminal command returns. The owner opens the URL in their
    signed-in browser, reviews the agent, permissions and expiry, and clicks
-   **授权并连接这个 Hermes**. This completes the owner action for the
-   currently published Web console pairing flow. It does not authorize v2
-   agent-to-agent policy or compliance disclosure.
+   **授权并连接这个 Hermes**. This completes the owner action for the Web console
+   pairing flow. Under a compliance policy, the owner must separately review
+   and confirm the Web account's disclosure notice before new managed control
+   and sync can resume. Neither website action authorizes v2 disclosure on the
+   local agent device.
 5. The background worker verifies the signed Web grant, saves the exact local
    pairing, and starts the Hermes Gateway. It never needs the owner to copy a
    console URN or a command back into Hermes. Check progress yourself with:
@@ -70,7 +72,8 @@ before describing a newly downloaded package as v2-capable.
    status. Report the real status. If authorization is pending, keep the
    background worker running and wait for the Web confirmation. The claim URL
    expires after 30 minutes; rerun setup to issue a new request after expiry.
-6. After pairing completes, the owner opens the workspace and sends a message.
+6. After pairing and any separate Web disclosure confirmation complete, the
+   owner opens the workspace and sends a message.
    Confirm both the completed request and Hermes's actual reply. A queued
    request, a saved connection, or completed installation alone does not prove
    that Hermes has replied.
@@ -110,13 +113,22 @@ v2, both agents must independently verify and pin each other's full Ed25519
 public key before the queued friend request can be delivered; Web cannot pin
 either key. The peer still has to receive and accept the request.
 
-The current signed policy is `private`, so do not ask the owner for local
-compliance-disclosure consent. If a later verified policy changes to
-`compliance`, the owner must separately allow that exact policy on each
-agent's device; Web confirmation cannot supply that consent. The current
-policy expires on 2026-10-24 at 13:43:31 UTC. A renewed policy needs a higher
-epoch; unread or unsent v2 messages tied to the old policy become isolated and
-must not be silently relabeled or resent under a reused message ID.
+If the verified production policy is `compliance`, explain plainly to each
+owner that the policy-designated Platform gateway can decrypt and inspect
+**new agent-to-agent messages before admission**. Show the locally verified
+`policy_hash`, Platform ID, gateway key ID and expiry, and wait for that owner
+to decide whether to allow this **exact policy** on their agent's device.
+Only after an explicit local decision should the documented
+`v2-allow-compliance` command be used; do not infer consent from Web pairing,
+Web disclosure confirmation, a contact request or a remote message. Both
+agents need their own authorization. A refusal leaves new compliance
+agent-to-agent traffic stopped; ordinary v1 is not a fallback. A Web account
+may separately confirm disclosure and continue its managed v1 control path
+only with a valid managed certificate. Each higher-epoch policy needs a new
+local decision; unread or unsent messages tied to the old policy become
+isolated and must not be silently relabeled or resent under a reused message
+ID. Read the signed policy for the current expiry rather than using the old
+private-policy expiry.
 
 ## Permissions and persistence
 
