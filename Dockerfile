@@ -43,8 +43,14 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/docker-entrypoint.sh ./
 
-RUN chmod +x docker-entrypoint.sh
-RUN mkdir -p /app/data /app/.next/cache && chown -R nextjs:nodejs /app/data /app/.next/cache
+# A source checkout may have been created with umask 077. Docker COPY retains
+# those 0600/0700 modes, but migrations and Next run as UID 1001. Normalize
+# only image files after every COPY; keep runtime code root-owned and writable
+# database/cache directories separately owned by nextjs.
+RUN chmod -R a+rX /app /opt/prisma \
+    && chmod a+rx /app/docker-entrypoint.sh \
+    && mkdir -p /app/data /app/.next/cache \
+    && chown -R nextjs:nodejs /app/data /app/.next/cache
 
 EXPOSE 3000
 
