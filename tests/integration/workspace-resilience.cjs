@@ -7,12 +7,13 @@ const post=async(route,data={})=>{const r=await fetch(base+route,{method:'POST',
 async function until(check,timeout=60000){const end=Date.now()+timeout;while(Date.now()<end){try{const r=await check();if(r)return r;}catch{}await new Promise(r=>setTimeout(r,500));}throw new Error('Timed out waiting for fixture condition');}
 async function main(){
  const checks=[];
+ await post('/fixture/mode',{offline:false,due:true,expireCapabilities:true});
  await until(async()=>{const s=await get('/fixture/db');return s.states.every(row=>row.status==='ready');});
  await post('/fixture/mode',{offline:true,due:true,expireCapabilities:true});
- await until(async()=>{const s=await get('/fixture/db');return s.states.every(row=>row.status==='offline');});
+ await until(async()=>{const s=await get('/fixture/db');return s.states.every(row=>row.status==='policy_unavailable');});
  const before=await get('/fixture/account-check');
  assert.equal(before.status,200);assert.equal(before.otherAccountStatus,404);assert.ok(before.hasContacts&&before.inboxCount>0&&before.conversationCount>=2&&before.completedTurns>0);
- assert.equal(before.sync.status,'offline');checks.push('Agent platform offline: authenticated API retains contacts, messages and conversations; other account remains inaccessible');
+ assert.equal(before.sync.status,'policy_unavailable');checks.push('Platform policy unavailable: new synchronization fails closed while authenticated API retains contacts, messages and conversations; other account remains inaccessible');
  await post('/fixture/restart');
  const after=await until(async()=>{const state=await get('/fixture/account-check');return state.status===200&&state;});
  assert.ok(after.hasContacts&&after.inboxCount===before.inboxCount&&after.conversationCount===before.conversationCount&&after.completedTurns===before.completedTurns);

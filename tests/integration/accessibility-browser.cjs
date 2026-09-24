@@ -133,10 +133,16 @@ async function assertAxeContrast(page, label) {
     checks.push(`${label}: axe-core unavailable, contrast scan skipped`);
     return;
   }
+  // Scan the settled colors, not a partially transparent page-enter frame.
+  await page.evaluate(async () => {
+    const animations = [...document.querySelectorAll(".page-enter")].flatMap(element => element.getAnimations());
+    await Promise.all(animations.map(animation => animation.finished.catch(() => {})));
+  });
   if (!await page.evaluate(() => Boolean(window.axe))) await page.addScriptTag({ path: axePath });
   const violations = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["color-contrast"] });
-    return result.violations.map(item => ({ id: item.id, impact: item.impact, nodes: item.nodes.length }));
+    return result.violations.map(item => ({ id: item.id, impact: item.impact,
+      nodes: item.nodes.map(node => ({ target: node.target, html: node.html.slice(0, 180), reason: node.failureSummary })) }));
   });
   assert.deepEqual(violations, [], `${label}: color contrast violations ${JSON.stringify(violations)}`);
   checks.push(`${label}: axe color-contrast scan passed`);

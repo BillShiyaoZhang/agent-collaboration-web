@@ -13,8 +13,8 @@ export function AuthShell({ title, description, children }: {
 }) {
   return (
     <main className="mx-auto grid min-h-full w-full max-w-[1600px] lg:grid-cols-[1fr_0.95fr]">
-      <section className="flex flex-col px-6 py-6 sm:px-12 lg:px-16 lg:py-8 xl:px-24">
-        <div className="flex items-center justify-between gap-4">
+      <section className="flex min-w-0 flex-col px-6 py-6 sm:px-12 lg:px-16 lg:py-8 xl:px-24">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <Link href="/" aria-label="Agent Comm 首页" className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4">
             <Brand />
           </Link>
@@ -24,7 +24,7 @@ export function AuthShell({ title, description, children }: {
           </Link>
         </div>
 
-        <div className="mx-auto flex w-full max-w-[380px] flex-1 flex-col justify-center py-12 sm:py-16 lg:py-12">
+        <div className="mx-auto flex min-w-0 w-full max-w-[380px] flex-1 flex-col justify-center py-12 sm:py-16 lg:py-12">
           <div className="mb-8">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">你的协作空间</p>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-[34px]">{title}</h1>

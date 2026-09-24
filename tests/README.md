@@ -36,6 +36,13 @@ node tests/integration/workspace-resilience.cjs
 断线后保留原请求、请求过期后显式恢复、审批同意/拒绝、Agent 终态同步、权限撤回和手机布局。
 报告与截图写入 `build/workspace-mutations-preview/`。
 
+### 提醒与无障碍浏览器检查
+
+构建后，以 `ATTENTION_FIXTURE=1` 启动同一 fixture，再运行
+`node tests/integration/notifications-browser.cjs`。脚本用浏览器通知桩检查跨连接待办、已读与待处理计数、并发标签投递声明、跨源拒绝和 390px 页面；不发送真实系统通知。结果写入 `build/notifications-preview/`。
+
+普通 fixture 启动后运行 `node tests/integration/accessibility-browser.cjs`。它检查官网、登录/注册、工作台和提醒中心的键盘入口、触控目标、文字与输入字号、320px 回流及 200% 根字号；安装了 `axe-core` 时也运行颜色对比检查。报告写入 `build/accessibility-preview/`，真实设备的通知效果和文字理解仍需另行验收。
+
 ## 真实本地组合检查
 
 `integration/full_stack_smoke.py` 使用部署仓库的相邻 Platform/SDK 源码，需完整递归克隆，
@@ -48,6 +55,26 @@ python tests/integration/full_stack_smoke.py --helper PATH_TO_HELPER --platform 
 输出位于 `build/full-stack-smoke/`，测试只使用临时本地身份和数据库。
 此检查同时验证新操作的显式配对范围、直接添加与重复联系人、审批同意/拒绝，以及
 Agent 事实同步回 Web 账户；不调用语言模型。
+
+### 双账户签名政策与旧快照
+
+构建 Web、当前 Platform/helper、`v2-policy` 后，另备公开 r2 版本的 v1 helper，运行：
+
+```sh
+python tests/integration/web_policy_two_accounts.py --platform PATH_TO_PLATFORM --helper PATH_TO_CURRENT_HELPER --legacy-helper PATH_TO_PUBLISHED_R2_HELPER --policy-tool PATH_TO_V2_POLICY --node PATH_TO_NODE
+```
+
+此检查在本机随机端口和独立临时 SQLite/密钥上启动真实 Web 与 Platform。两个独立账户先在签名私密模式下与旧 helper 完成加密控制往返并保留快照，随后验证严格私密模式的托管控制台证书、合规模式的逐账户政策确认与暂停/恢复，以及政策服务中断时拒绝新控制而保留旧快照。它发起的确认仅为合成测试数据，不能代表真实用户同意。结果和服务日志位于 `build/web-policy-two-accounts/`。
+
+### 本地双 Agent 有界并发与断线恢复
+
+构建 Web 和当前 Platform，准备公开 r2 helper 后运行：
+
+```sh
+python -B tests/integration/web_two_agent_stability.py --platform PATH_TO_PLATFORM --helper PATH_TO_PUBLISHED_R2_HELPER --node PATH_TO_NODE
+```
+
+脚本在负载前写入 `run-config.json`，以真实 Web/Platform、两套旧 helper 和两个独立账户执行各 8 轮、最多 12 个并行 HTTP 请求；Web SQLite URL 固定使用 `connection_limit=1`。负载混合控制往返、工作台/提醒/Push 设置读取及同步调度，并注入一次本地 Platform 停启，核对原请求 ID 的恢复与 Agent 业务副作用去重。逐请求时间线、p95/p99、5xx、SQLite Code 5/P2024、数据库完整性和服务日志位于 `build/web-two-agent-stability/`。这只覆盖 E1 本机 HTTP；真实 HTTPS/TLS、Nginx、容器重启和外部 Push 投递须分别验收。
 
 ### 好友请求、消息与跨端状态
 

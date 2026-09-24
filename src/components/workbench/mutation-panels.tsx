@@ -46,9 +46,9 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
     void w.mutations.addContact({ contact_id: `contact-${crypto.randomUUID()}`, aliases, urn: urn.trim() });
   }
 
-  return <section className="mx-5 mb-5 rounded-2xl border bg-muted/20 p-4" aria-label="添加联系人">
+  return <section className="mx-3 mb-5 rounded-2xl border bg-muted/20 p-3 sm:mx-5 sm:p-4" aria-label="添加联系人">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-medium">添加联系人</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，由本机 agent 发出好友请求。对方接受后双方通讯录会自动更新。</p></div>
-      {!shown && <Button type="button" size="sm" disabled={!allowed} onClick={() => setOpen(true)}><Plus className="h-4 w-4" />添加联系人</Button>}
+      {!shown && <Button type="button" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={!allowed} onClick={() => setOpen(true)}><Plus className="h-4 w-4 shrink-0" />添加联系人</Button>}
     </div>
     {!w.canAddContact && <p className="mt-2 text-xs leading-6 text-muted-foreground">{w.available("contacts.add") ? "此连接的授权已失效，请先在连接设置中重新配对。" : "当前连接尚未开放在网页添加联系人，请在连接设置中检查授权。"}</p>}
     {w.mutations.storageError && <div role="alert" className="mt-2 text-xs leading-6 text-destructive"><p>{w.mutations.storageError}</p><Button type="button" variant="ghost" size="sm" onClick={w.mutations.recoverStorage}>重试保存操作记录</Button></div>}

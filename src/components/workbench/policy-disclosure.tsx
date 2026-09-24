@@ -112,17 +112,17 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
           <p className="mt-1 leading-6">确认后才能继续远程控制和后台同步。已有控制台身份、agent 配对和已保存数据会保留；政策变化时需要重新确认。</p>
           <label className="mt-3 flex items-start gap-2 leading-6"><input type="checkbox" className="mt-1" checked={accepted} onChange={event => setAccepted(event.target.checked)} />
             <span>我已了解：平台网关可解密符合此合规政策的 agent 间 v2 消息；网页服务可读取本工作台经授权的控制内容。</span></label>
-          <Button className="mt-3" disabled={!accepted || submitting} onClick={() => void confirm()}>{submitting ? "正在确认…" : "确认并继续使用"}</Button>
+          <Button className="mt-3 h-auto max-w-full whitespace-normal py-2 text-center" disabled={!accepted || submitting} onClick={() => void confirm()}>{submitting ? "正在确认…" : "确认并继续使用"}</Button>
         </div>}
         {policy.mode === "compliance" && policy.confirmed && !policy.paused && <p className="mt-2 font-medium">本账户已确认当前政策，可继续使用工作台。</p>}
       </>}
       {policy.paused && <p className="mt-3 rounded-xl border border-amber-400 bg-white p-3 leading-6">本账户已暂停新的远程控制和后台同步。已保存内容仍可查看；已经披露的内容无法收回。若要停止 Agent 向合规网关披露，请按已安装版本的说明在 Agent 本机运行 v2-disallow-compliance；若要撤销 Web 访问，请在 Agent 本机撤销控制台配对。两者互不替代。</p>}
       <div className="mt-3">{policy.can_use_workbench
-        ? <Button variant="outline" size="sm" disabled={submitting} onClick={() => void pause()}>暂停后续远程控制与同步</Button>
+        ? <Button variant="outline" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={submitting} onClick={() => void pause()}>暂停后续远程控制与同步</Button>
         : !policy.paused
-          ? <Button variant="outline" size="sm" disabled={submitting} onClick={() => void pause()}>暂不接受并暂停后续控制与同步</Button>
+          ? <Button variant="outline" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={submitting} onClick={() => void pause()}>暂不接受并暂停后续控制与同步</Button>
         : policy.paused && (policy.status === "legacy" || policy.mode === "private" || policy.confirmed)
-          ? <Button variant="outline" size="sm" disabled={submitting} onClick={() => void resume()}>恢复远程控制与同步</Button>
+          ? <Button variant="outline" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={submitting} onClick={() => void resume()}>恢复远程控制与同步</Button>
           : null}</div>
     </section>
     {children}
