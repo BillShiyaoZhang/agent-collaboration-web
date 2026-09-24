@@ -75,7 +75,7 @@ worker 会在读取 Registry 或 MQ 前核验当前政策与账户确认。待�
 | --- | --- |
 | `capabilities` | agent 根据实际适配器和本地配对返回方法列表 |
 | `contacts.list` | agent 本地 Store 的联系人 |
-| `contacts.add` | 用户提交稳定 ID、别名和 URN，由本机发出好友请求，接受后才连接 |
+| `contacts.add` | 用户提交稳定 ID、别名和 URN，本机记录并排队好友请求；实际投递和对端接受是后续阶段 |
 | `contacts.requests` / `contacts.respond` | 查看与接受/拒绝好友请求 |
 | `messages.send` / `inbox.mark_read` | 本机发消息及记录跨端已读 |
 | `collaboration.execute` | 使用本机 Runtime 同一协作动作，describe 返回表单字段 |
@@ -88,7 +88,7 @@ worker 会在读取 Registry 或 MQ 前核验当前政策与账户确认。待�
 
 未提供的方法隐藏，显式不支持的方法展示原因。发送对话的 `submitted` 仅表示受理；`conversation.get` 中的最终回合状态和答复来自 agent。新增联系人与审批回答分别受 `contacts.add` 和 `approval.respond` 配对权限约束，不能由远程对话权限推导。
 
-`contacts.add` 接受 `{contact_id, aliases, urn}`，表单提交会发出好友请求，返回 agent 的请求与联系人状态。仅对方接受后，connection_status 才会变为 connected。`approval.respond` 接受 `{approval_id, decision: "approve" | "deny"}`；审批内容来自 agent，Web 无法覆盖主人主体或提交任意批准内容。Agent 从已验证控制台的本地配对导出主人身份，并检查请求、事项、内容版本与期限；批准只更新授权/审批状态，不直接发送业务消息。写操作均通过用户操作触发，后台同步仍只读取；联系人与审批事实继续通过 agent 的已认证读取结果保存到账户副本。
+`contacts.add` 接受 `{contact_id, aliases, urn}`，表单提交只让 agent 记录联系人并把好友请求排入本机持久队列；返回的 `requested` 与 `connection_status=pending` 都不证明 helper 已接收或对方已收到。v2 双方必须各自通过独立渠道核对并固定对方完整 Ed25519 公钥，Web 不能代为固定。仅对方收到并接受后，`connection_status` 才会变为 `connected`。`approval.respond` 接受 `{approval_id, decision: "approve" | "deny"}`；审批内容来自 agent，Web 无法覆盖主人主体或提交任意批准内容。Agent 从已验证控制台的本地配对导出主人身份，并检查请求、事项、内容版本与期限；批准只更新授权/审批状态，不直接发送业务消息。写操作均通过用户操作触发，后台同步仍只读取；联系人与审批事实继续通过 agent 的已认证读取结果保存到账户副本。
 
 此新增能力需要发布匹配的 Agent/runtime 和 Web；仓库文档更新不代表线上服务或公开安装包已包含。
 

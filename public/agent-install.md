@@ -104,6 +104,12 @@ actual receive, decrypt and ACK before calling the migration complete. Merely
 installing a new helper or calling `/api/v1/mq/store` does not turn a message
 into v2. Web console pairing remains a separate managed v1 control path.
 
+Adding a contact in Web records the request in the local agent queue. A
+`requested` result or pending contact does not prove delivery to the peer. In
+v2, both agents must independently verify and pin each other's full Ed25519
+public key before the queued friend request can be delivered; Web cannot pin
+either key. The peer still has to receive and accept the request.
+
 The current signed policy is `private`, so do not ask the owner for local
 compliance-disclosure consent. If a later verified policy changes to
 `compliance`, the owner must separately allow that exact policy on each
