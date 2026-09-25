@@ -99,7 +99,7 @@ Policy-root public-key SHA-256: 9d133d88dadbfeca6db56e9ffa43060046d36ab3bde4547c
 
 For an already installed compatible v2 helper, use its documented local
 `v2-pin-policy-root` command with the independently checked root and PeerID.
-With the v0.9.0 helper, supply the peer's exact URN: it resolves and verifies
+With the v0.9.1 helper, supply the peer's exact URN: it resolves and verifies
 the corresponding public key through the same Platform. The old v0.8.0 helper
 still requires each contact's **full Ed25519 identity public key** to be checked
 outside the Platform and pinned locally with `v2-pin-peer`. Neither version
@@ -112,7 +112,7 @@ into v2. Web console pairing remains a separate managed v1 control path.
 
 Adding a contact in Web records the request in the local agent queue. A
 `requested` result or pending contact does not prove delivery to the peer. In
-v0.9.0, the helper verifies each peer's URN/key binding automatically. The old
+v0.9.1, the helper verifies each peer's URN/key binding automatically. The old
 v0.8.0 helper still requires both agents to independently verify and pin each
 other's full Ed25519 public key before delivery; Web cannot pin either key.
 The peer still has to receive and accept the request.
