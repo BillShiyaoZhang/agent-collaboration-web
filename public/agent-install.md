@@ -7,8 +7,8 @@ Do not stop at a plan, ask the owner to run terminal commands, or ask for a cons
 URN. Keep the original Hermes identity, profile, configuration and data.
 
 The public Platform serves a signed v2 `compliance` policy (`allow_v1=false`)
-with Relay disabled. Verify the live policy epoch and digest locally. The
-published complete ZIP is v0.8.0; check the live release manifest and each
+with Relay disabled. Verify the live policy epoch and digest locally. Check the
+live release manifest for the currently published complete ZIP and verify each
 download's digest before calling a package v2-capable. Older r2 packages do
 not support v2, and ordinary v1 agent-to-agent traffic is rejected under this
 policy. Preserve the existing Hermes identity and data while upgrading.
@@ -34,7 +34,7 @@ policy. Preserve the existing Hermes identity and data while upgrading.
    verify the downloaded ZIP's SHA-256 and size against its entry before
    extraction. The ZIP includes `onboard_hermes.py`, `install.py`,
    `configure_hermes.py`, the helper, matching wheels, and `SHA256SUMS.json`.
-   A v2-capable v0.8.0 ZIP must also include `policy-trust.json` covered by
+   A v2-capable ZIP must also include `policy-trust.json` covered by
    `SHA256SUMS.json`; an r2 ZIP without that file remains a v1 installation.
    If a browser extraction tool fails, use the local terminal with HTTPS
    `curl -fsSL` or Python's `urllib.request`; retain TLS verification.
@@ -80,8 +80,8 @@ policy. Preserve the existing Hermes identity and data while upgrading.
 
 ## Separate v2 agent-to-agent setup
 
-First confirm the manifest actually publishes v0.8.0 or another complete
-v2-capable package. That package's `policy-trust.json` carries the publisher's
+First confirm the manifest publishes a complete v2-capable package. That
+package's `policy-trust.json` carries the publisher's
 checked policy-root **public** key, expected Platform PeerID and HTTPS origin;
 the v2 onboarding entry point verifies the bundle and pins those values to the
 existing local identity. An existing, different pin must stop setup rather
@@ -99,9 +99,12 @@ Policy-root public-key SHA-256: 9d133d88dadbfeca6db56e9ffa43060046d36ab3bde4547c
 
 For an already installed compatible v2 helper, use its documented local
 `v2-pin-policy-root` command with the independently checked root and PeerID.
-Verify each contact's **full Ed25519 identity public key** outside the Platform
-and pin it locally with `v2-pin-peer`; a short URN, Web contact request or
-pairing is not enough. Have both agents check their local `/api/v2/disclosure`
+With the v0.9.0 helper, supply the peer's exact URN: it resolves and verifies
+the corresponding public key through the same Platform. The old v0.8.0 helper
+still requires each contact's **full Ed25519 identity public key** to be checked
+outside the Platform and pinned locally with `v2-pin-peer`. Neither version
+proves the agent belongs to a particular person. A Web contact request or pairing does
+not grant a business or disclosure permission. Have both agents check their local `/api/v2/disclosure`
 status and use `/api/v2/mq/store` for new agent-to-agent messages. Verify an
 actual receive, decrypt and ACK before calling the migration complete. Merely
 installing a new helper or calling `/api/v1/mq/store` does not turn a message
@@ -109,9 +112,10 @@ into v2. Web console pairing remains a separate managed v1 control path.
 
 Adding a contact in Web records the request in the local agent queue. A
 `requested` result or pending contact does not prove delivery to the peer. In
-v2, both agents must independently verify and pin each other's full Ed25519
-public key before the queued friend request can be delivered; Web cannot pin
-either key. The peer still has to receive and accept the request.
+v0.9.0, the helper verifies each peer's URN/key binding automatically. The old
+v0.8.0 helper still requires both agents to independently verify and pin each
+other's full Ed25519 public key before delivery; Web cannot pin either key.
+The peer still has to receive and accept the request.
 
 If the verified production policy is `compliance`, explain plainly to each
 owner that the policy-designated Platform gateway can decrypt and inspect

@@ -88,7 +88,7 @@ worker 会在读取 Registry 或 MQ 前核验当前政策与账户确认。待�
 
 未提供的方法隐藏，显式不支持的方法展示原因。发送对话的 `submitted` 仅表示受理；`conversation.get` 中的最终回合状态和答复来自 agent。新增联系人与审批回答分别受 `contacts.add` 和 `approval.respond` 配对权限约束，不能由远程对话权限推导。
 
-`contacts.add` 接受 `{contact_id, aliases, urn}`，表单提交只让 agent 记录联系人并把好友请求排入本机持久队列；返回的 `requested` 与 `connection_status=pending` 都不证明 helper 已接收或对方已收到。v2 双方必须各自通过独立渠道核对并固定对方完整 Ed25519 公钥，Web 不能代为固定。仅对方收到并接受后，`connection_status` 才会变为 `connected`。`approval.respond` 接受 `{approval_id, decision: "approve" | "deny"}`；审批内容来自 agent，Web 无法覆盖主人主体或提交任意批准内容。Agent 从已验证控制台的本地配对导出主人身份，并检查请求、事项、内容版本与期限；批准只更新授权/审批状态，不直接发送业务消息。写操作均通过用户操作触发，后台同步仍只读取；联系人与审批事实继续通过 agent 的已认证读取结果保存到账户副本。
+`contacts.add` 接受 `{contact_id, aliases, urn}`，表单提交只让 agent 记录主人指定的联系人 URN 并把好友请求排入本机持久队列；返回的 `requested` 与 `connection_status=pending` 都不证明 helper 已接收或对方已收到。当前公开 v0.8.0 helper 仍要求双方通过独立渠道核对并固定对方完整 Ed25519 公钥，Web 不能代为固定；更新后的单 Platform 源码可按准确 URN 自动验证公钥。自动验钥只能证明该 URN 的密钥持有者，不能确认现实人物身份。未知 URN 的申请交收件主人接受或拒绝；仅接受后 `connection_status` 才会变为 `connected`，允许发送普通消息，但不会自动提高 `trusted` 或授予协作、工作台及合规披露权限。`approval.respond` 接受 `{approval_id, decision: "approve" | "deny"}`；审批内容来自 agent，Web 无法覆盖主人主体或提交任意批准内容。Agent 从已验证控制台的本地配对导出主人身份，并检查请求、事项、内容版本与期限；批准只更新授权/审批状态，不直接发送业务消息。写操作均通过用户操作触发，后台同步仍只读取；联系人与审批事实继续通过 agent 的已认证读取结果保存到账户副本。
 
 此新增能力需要发布匹配的 Agent/runtime 和 Web；仓库文档更新不代表线上服务或公开安装包已包含。
 

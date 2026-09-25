@@ -120,7 +120,7 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
       if (accepted) replace({ ...pending, result, phase: "succeeded", retryable: false, message: method === "contacts.add"
         ? ["already_connected", "confirmed", "already_confirmed"].includes(string(result?.status)) ? "Agent 已确认连接，通讯录正在同步。" : "Agent 已在本机排队好友请求，正在尝试投递；对方收到并接受后才会建立连接。"
         : method === "collaboration.execute" ? result?.status === "approval_required" ? "请在下方待确认请求中核对并授权。" : "Agent 已返回执行结果，数据正在同步。"
-        : method === "contacts.respond" ? call.params.decision === "accept" ? "已接受好友请求，通讯录正在同步。" : "已拒绝好友请求。"
+        : method === "contacts.respond" ? call.params.decision === "accept" ? "Agent 已记录接受好友请求，通讯录正在同步；协作权限需另行授权。" : "已拒绝好友请求。"
         : method === "inbox.mark_read" ? "Agent 已记录已读，其他端的提醒将同步关闭。"
         : method === "messages.send" ? "Agent 已受理消息，发送记录正在同步。"
         : call.params.decision === "approve" ? "Agent 已记录你的同意，事项进展正在同步。" : "Agent 已记录你的拒绝，事项进展正在同步。" });
