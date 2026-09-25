@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { displayTime, records, RemoteRecord, string } from "@/lib/control/workbench-client";
+import { records, RemoteRecord, string } from "@/lib/control/workbench-client";
+import { useLocalTime } from "@/components/local-time";
 import { ActionFeedback } from "./mutation-panels";
 import type { Workbench } from "./use-workbench";
 import type { MutationMethod } from "./use-workbench-mutations";
@@ -15,6 +16,7 @@ export function SocialFeedback({ workbench: w, method, subject }: { workbench: W
 }
 
 export function FriendRequests({ workbench: w }: { workbench: Workbench }) {
+  const displayTime = useLocalTime();
   const requests = records(w.snapshots["contacts.requests"]?.data.contact_requests ?? w.snapshots["contacts.requests"]?.data.requests);
   if (!requests.length) return null;
   return <section className="mx-5 mb-5 rounded-2xl border p-4" aria-label="好友请求"><h3 className="text-sm font-medium">好友请求</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">接受后建立通讯录连接，可互发普通消息；这不代表已核实对方现实身份或授予协作权限。</p><div className="mt-3 space-y-3">{requests.slice().reverse().map(request => {
@@ -46,6 +48,7 @@ export function MessageReadAction({ message, workbench: w }: { message: RemoteRe
 }
 
 export function SentMessages({ workbench: w }: { workbench: Workbench }) {
+  const displayTime = useLocalTime();
   const messages = records(w.snapshots["collaboration.state"]?.data.sent_messages);
   if (!messages.length) return null;
   return <section className="mx-5 mb-5 rounded-2xl border p-4" aria-label="已发送消息"><h3 className="text-sm font-medium">已发送消息</h3><div className="mt-3 space-y-3">{messages.slice().reverse().map(message => <article key={string(message.message_id)} className="rounded-xl bg-muted/40 p-3"><div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground"><span className="break-all">发给 {string(message.recipient_urn)}</span><span>{message.status === "accepted" ? "本机已接收发送" : message.status === "queued" ? "等待投递" : string(message.status)}</span></div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{string(message.text)}</p><time className="mt-2 block text-xs text-muted-foreground">{displayTime(message.created_at)}</time></article>)}</div></section>;

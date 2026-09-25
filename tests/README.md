@@ -38,6 +38,14 @@ node tests/integration/workspace-resilience.cjs
 
 ### 提醒与无障碍浏览器检查
 
+服务端以 UTC、浏览器分别以 UTC 和 Asia/Shanghai 运行的首屏水合回归需跑两轮：
+先用 `TZ=UTC ATTENTION_FIXTURE=1 node tests/integration/workspace-fixture.cjs` 启动隔离服务，
+以相同环境运行 `node tests/integration/time-zone-hydration-browser.cjs`；停止 fixture 后，
+改用 `TZ=UTC SOCIAL_FIXTURE=1` 启动 fixture 并运行同一浏览器脚本。
+两种 fixture 的 `collaboration.state` 数据互斥，所以分别覆盖事项页和带 `received_at`
+的收件箱来信。脚本强制加载服务端 HTML，核对连接、事项/来信和提醒时间按浏览器
+本地时区显示，且没有 React 水合错误。按上文设置 Playwright/Chromium 路径。
+
 构建后，以 `ATTENTION_FIXTURE=1` 启动同一 fixture，再运行
 `node tests/integration/notifications-browser.cjs`。脚本用浏览器通知桩检查跨连接待办、已读与待处理计数、并发标签投递声明、跨源拒绝和 390px 页面；不发送真实系统通知。结果写入 `build/notifications-preview/`。
 

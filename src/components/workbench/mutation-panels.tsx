@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Check, Loader2, Plus, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { displayTime, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { useHydrated, useLocalTime } from "@/components/local-time";
 import { cn } from "@/lib/shared/utils";
 import type { Workbench } from "./use-workbench";
 import type { MutationState } from "./use-workbench-mutations";
@@ -66,6 +67,8 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
 }
 
 export function ApprovalRequests({ approvals, workbench: w }: { approvals: RemoteRecord[]; workbench: Workbench }) {
+  const displayTime = useLocalTime();
+  const hydrated = useHydrated();
   const recent = w.mutations.approvalActions.filter(action => !approvals.some(approval => approval.approval_id === action.call.params.approval_id));
   if (!approvals.length && !recent.length) return null;
   return <section className="mx-5 mb-5 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4" aria-label="授权确认">
@@ -76,7 +79,7 @@ export function ApprovalRequests({ approvals, workbench: w }: { approvals: Remot
       const id = string(approval.approval_id), question = string(approval.question), status = string(approval.status);
       const action = w.mutations.approvalActions.find(item => item.call.params.approval_id === id);
       const expiry = typeof approval.expires_at === "number" ? approval.expires_at * (approval.expires_at < 1e12 ? 1000 : 1) : Date.parse(string(approval.expires_at));
-      const expired = status === "expired" || Number.isFinite(expiry) && expiry <= Date.now();
+      const expired = status === "expired" || hydrated && Number.isFinite(expiry) && expiry <= Date.now();
       const canDecide = !!id && !!question.trim() && ["pending", "presenting", "expired"].includes(status) && w.canRespondApproval && w.mutations.ready;
       const locked = w.mutations.approvalBusy || !!action && ["sending", "uncertain", "succeeded"].includes(action.phase);
       return <details id={`subject-${id}`} key={id || String(index)} open className="py-4"><summary className="cursor-pointer break-words text-sm font-medium">{string(approval.subject_id, "待确认请求")}<span className="ml-2 text-xs font-normal text-amber-800">{stateLabel(status)}</span></summary>

@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Bot, ClipboardList, Inbox, MessageCircle, RefreshCw, Settings2, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/shared/utils";
-import { displayTime, RpcMethod } from "@/lib/control/workbench-client";
+import { RpcMethod } from "@/lib/control/workbench-client";
+import { useLocalTime } from "@/components/local-time";
 import { ContactsSnapshot, InboxSnapshot, TasksSnapshot } from "@/components/workbench/snapshot-views";
 import { CollaborationActions } from "@/components/workbench/collaboration-actions";
 import { FriendRequests, SendPeerMessage, SentMessages } from "@/components/workbench/social-panels";
@@ -32,6 +33,7 @@ export function RemoteWorkbench({ agent, initial }: { agent: Connection; initial
 }
 
 function AgentWorkbench({ agent, initial }: { agent: Connection; initial: WorkspaceAgent }) {
+  const displayTime = useLocalTime();
   const w = useWorkbench(agent, initial);
   const { getDraft, saveDraft } = useWorkspace();
   const search = useSearchParams();

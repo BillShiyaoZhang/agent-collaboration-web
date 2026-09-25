@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/shared/utils";
-import { displayTime, string } from "@/lib/control/workbench-client";
+import { string } from "@/lib/control/workbench-client";
+import { useLocalTime } from "@/components/local-time";
 import { CopyValue, RawSnapshot, StatusBadge } from "./snapshot-views";
 import { RequestFeedback } from "./pairing-panel";
 import type { Workbench } from "./use-workbench";
 
 export function ConversationPanel({ workbench: w, agentName }: { workbench: Workbench; agentName: string }) {
+  const displayTime = useLocalTime();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newResult, setNewResult] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);

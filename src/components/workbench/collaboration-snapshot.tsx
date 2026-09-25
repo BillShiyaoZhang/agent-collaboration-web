@@ -1,12 +1,14 @@
 "use client";
 
-import { record, records, string, strings, displayTime, type RemoteRecord } from "@/lib/control/workbench-client";
+import { record, records, string, strings, type RemoteRecord } from "@/lib/control/workbench-client";
+import { useLocalTime } from "@/components/local-time";
 
 const phases: Record<string, string> = { invited: "已发起邀请", negotiating: "正在协商", partially_accepted: "部分接受，等待另一方", agreed: "已形成双方约定", reconciling: "正在核对双方状态", closed: "本轮协作已结束" };
 const waiting: Record<string, string> = { agreement_sync: "等待对方核对约定", agreement_ack: "等待约定同步回执", agreement_ack_delivery: "同步回执正在投递", missing_event: "正在补齐缺失事件", withdrawal_decision: "撤回结果需要核实", cancel_decision: "等待取消决定", maintenance_permission: "需要续期或调整后续同步权限", maintenance_budget: "后续同步预算已用尽，需要本人决定", event_chain_conflict: "双方事件记录存在冲突，需要核对", owner_decision: "等待本人决定", peer_join: "等待对方加入", peer_accept: "等待对方接受" };
 const closed: Record<string, string> = { agreement_only_complete: "双方已同步约定", cancelled: "双方已取消约定", withdrawn: "已撤回接受", expired: "已到期" };
 
 export function CollaborationSnapshot({ data }: { data: RemoteRecord }) {
+  const displayTime = useLocalTime();
   const view = Array.isArray(data.collaborations) ? data : record(data.collaboration ?? data.collaboration_v2);
   const collaborations = records(view.collaborations), invitations = records(view.invitations);
   if (!collaborations.length && !invitations.length) return null;

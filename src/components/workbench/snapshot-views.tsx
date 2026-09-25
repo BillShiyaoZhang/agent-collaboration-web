@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ArrowDownLeft, Check, ChevronDown, ClipboardList, Copy, Inbox, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { displayTime, record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { useHydrated, useLocalTime } from "@/components/local-time";
 import { CollaborationSnapshot } from "@/components/workbench/collaboration-snapshot";
 import { MessageReadAction, SendPeerMessage } from "./social-panels";
 import { ApprovalRequests } from "./mutation-panels";
@@ -70,6 +71,7 @@ function RetryRejectedContact({ contact, workbench: w }: { contact: RemoteRecord
 }
 
 export function ContactsSnapshot({ data, workbench, syncedAt }: { data: RemoteRecord; workbench: Workbench; syncedAt: number }) {
+  const hydrated = useHydrated();
   const [query, setQuery] = useState("");
   const contacts = records(data.contacts);
   const visible = contacts.filter(contact => [string(contact.contact_id), string(contact.urn), string(contact.alias), ...strings(contact.aliases)].join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
@@ -79,7 +81,7 @@ export function ContactsSnapshot({ data, workbench, syncedAt }: { data: RemoteRe
       const aliases = Array.from(new Set([string(contact.alias), ...strings(contact.aliases)].filter(Boolean))), name = aliases[0] || string(contact.contact_id, "未命名联系人"), urn = string(contact.urn);
       const presence = record(contact.presence), status = string(contact.connection_status, "unverified");
       const connected = status === "connected", expiry = typeof presence.expires_at === "number" ? presence.expires_at * 1000 : Date.parse(string(presence.expires_at));
-      const freshPresence = connected && (presence.status === "online" ? Number.isFinite(expiry) && expiry > Date.now() : Date.now() - syncedAt < 60000);
+      const freshPresence = hydrated && connected && (presence.status === "online" ? Number.isFinite(expiry) && expiry > Date.now() : Date.now() - syncedAt < 60000);
       const online = freshPresence && presence.status === "online";
       return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 flex-col items-start gap-3 rounded-2xl border p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}<p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">{urn}</p>{status === "rejected" && <RetryRejectedContact contact={contact} workbench={workbench} />}{connected && <SendPeerMessage workbench={workbench} recipientUrn={urn} compact />}</div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
     })}</div>}
@@ -93,6 +95,7 @@ function ReadableDetail({ label, value }: { label: string; value: string }) {
 }
 
 export function TasksSnapshot({ data, workbench }: { data: RemoteRecord; workbench: Workbench }) {
+  const displayTime = useLocalTime();
   const tasks = records(data.tasks), approvals = records(data.pending_confirmations), operations = records(data.operations);
   return <>
     <CollaborationSnapshot data={data} />
@@ -113,6 +116,7 @@ function messageText(value: unknown): { text: string; structured: boolean } {
 }
 
 export function InboxSnapshot({ data, workbench }: { data: RemoteRecord; workbench: Workbench }) {
+  const displayTime = useLocalTime();
   const messages = records(data.messages).slice().reverse();
   return <>
     {!messages.length ? <EmptySnapshot kind="inbox" /> : <div className="space-y-3 px-5 pb-5"><p className="mb-4 text-xs leading-5 text-muted-foreground">消息来自对端 agent，内容仍需核实；涉及你的授权，可在「事项」中核对并确认。</p>{messages.map((message, index) => {

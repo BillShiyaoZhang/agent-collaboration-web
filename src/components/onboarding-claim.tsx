@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { PolicyDisclosureGate, usePolicyAccess } from "@/components/workbench/policy-disclosure";
+import { useLocalTime } from "@/components/local-time";
 
 type Preview = { name: string; agent_urn: string; methods: string[]; expires_at: string; ticket_expires_at: string;
   status: "pending" | "approved" | "completed"; agent_id: string | null };
@@ -18,6 +19,7 @@ function ApprovalButton({ busy, approve }: { busy: boolean; approve: () => void 
 }
 
 export function OnboardingClaim({ code }: { code: string }) {
+  const displayTime = useLocalTime();
   const [preview, setPreview] = useState<Preview>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,9 +56,9 @@ export function OnboardingClaim({ code }: { code: string }) {
       <ShieldCheck className="mb-4 h-8 w-8 text-primary" />
       <h1 className="text-2xl font-semibold">{preview?.status === "completed" ? "Hermes 已完成本机配对" : preview?.status === "approved" ? "等待 Hermes 完成连接" : "把 Hermes 连接到你的工作台"}</h1>
       <p className="mt-3 text-sm leading-7 text-muted-foreground">{preview?.status === "pending" ? "这是 Hermes 在本机发起的连接申请。确认下面的 agent、可用功能和到期时间后，Hermes 会自动完成本机配置。" : preview?.status === "approved" ? "网页已确认授权。保持 Hermes 运行，它会自动接收结果并完成配对，无需复制命令。" : preview?.status === "completed" ? "本机已保存授权。打开工作台检查连接，并等待 Hermes 对你的消息给出真实回复。" : "正在读取这次连接申请…"}</p>
-      {preview && <><dl className="mt-6 space-y-4 text-sm"><div><dt className="text-muted-foreground">连接名称</dt><dd className="mt-1 font-medium">{preview.name}</dd></div><div><dt className="text-muted-foreground">Agent 地址 · 已验证签名</dt><dd className="mt-1 break-all font-mono text-xs leading-6">{preview.agent_urn}</dd></div><div><dt className="text-muted-foreground">网页授权到期时间</dt><dd className="mt-1">{new Date(preview.expires_at).toLocaleString()}</dd></div></dl>
+      {preview && <><dl className="mt-6 space-y-4 text-sm"><div><dt className="text-muted-foreground">连接名称</dt><dd className="mt-1 font-medium">{preview.name}</dd></div><div><dt className="text-muted-foreground">Agent 地址 · 已验证签名</dt><dd className="mt-1 break-all font-mono text-xs leading-6">{preview.agent_urn}</dd></div><div><dt className="text-muted-foreground">网页授权到期时间</dt><dd className="mt-1">{displayTime(preview.expires_at, { style: "full" })}</dd></div></dl>
         <h2 className="mt-6 text-sm font-medium">本次授权的功能</h2><ul className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">{preview.methods.map(method => <li key={method}>✓ {labels[method] || method}</li>)}</ul>
-        {preview.status === "pending" ? <><p className="mt-6 text-xs leading-6 text-muted-foreground">仅确认你刚刚让 Hermes 发起的申请。确认后，本账户可在上述期限内使用所列功能。申请链接于 {new Date(preview.ticket_expires_at).toLocaleTimeString()} 失效。</p><div className="mt-5 space-y-4"><PolicyDisclosureGate><ApprovalButton busy={busy} approve={approve} /></PolicyDisclosureGate></div></>
+        {preview.status === "pending" ? <><p className="mt-6 text-xs leading-6 text-muted-foreground">仅确认你刚刚让 Hermes 发起的申请。确认后，本账户可在上述期限内使用所列功能。申请链接于 {displayTime(preview.ticket_expires_at, { style: "time" })} 失效。</p><div className="mt-5 space-y-4"><PolicyDisclosureGate><ApprovalButton busy={busy} approve={approve} /></PolicyDisclosureGate></div></>
           : preview.agent_id && <Button asChild className="mt-6 w-full rounded-xl"><Link href={`/dashboard/agents/${preview.agent_id}`}>打开工作台</Link></Button>}
       </>}
       {error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}

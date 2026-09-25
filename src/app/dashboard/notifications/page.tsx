@@ -7,12 +7,13 @@ import type { NotificationPage, WorkspaceNotification } from "@agent-comm/client
 import { useNotifications } from "@/components/notification-provider";
 import { workspaceRequest } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
+import { useLocalTime } from "@/components/local-time";
 
-const time = (value: number) => new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const statusLabels = { open: "待查看", resolved: "已处理", superseded: "已被更新", expired: "已到期" };
 const filterOptions = [["all", "全部"], ["unread", "未读"], ["pending", "待我处理"]] as const;
 
 export default function NotificationsPage() {
+  const displayTime = useLocalTime();
   const notifications = useNotifications();
   const checkReadSupport = notifications.checkReadSupport;
   const [filter, setFilter] = useState<"all" | "unread" | "pending">("all");
@@ -63,7 +64,7 @@ export default function NotificationsPage() {
       <div className="space-y-3">{items.map(item => <article key={`${item.agentId}:${item.id}`} className={`rounded-2xl border bg-card p-5 ${item.requiresAction ? "border-amber-200" : ""}`}>
       <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><span className="text-xs text-muted-foreground">{item.agentName}</span>{item.unread && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-5 text-emerald-900">未读</span>}</div><span className={`text-xs ${item.requiresAction ? "text-amber-800" : "text-muted-foreground"}`}>{item.requiresAction ? "待你处理" : statusLabels[item.state]}</span></div>
       <h2 className="mt-3 break-words font-medium">{item.title || "协作提醒"}</h2><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-muted-foreground">{item.summary}</p>
-      <p className="mt-3 text-xs leading-6 text-muted-foreground">最近同步 {time(item.observedAt)}{item.expiresAt !== null && <> · 截止 {time(item.expiresAt)}</>}{item.source === "snapshot" && " · 来自已保存快照"}</p>
+      <p className="mt-3 text-xs leading-6 text-muted-foreground">最近同步 {displayTime(item.observedAt, { unit: "milliseconds" })}{item.expiresAt !== null && <> · 截止 {displayTime(item.expiresAt, { unit: "milliseconds" })}</>}{item.source === "snapshot" && " · 来自已保存快照"}</p>
       {["offline", "needs_pairing"].includes(item.sync.status) && <p className="mt-1 text-xs text-amber-800">当前连接尚未核实，显示上次同步的状态。请打开事项，恢复连接后核对。</p>}
       {item.requiresAction && <p className="mt-2 text-xs leading-6 text-amber-800">请打开当前事项核对并决定；如网页尚未开放此项确认，可从 agent 的原生渠道回应。标记已读只更新提醒。</p>}
       {item.unread && notifications.readBlockedReason(item) && <p className="mt-2 text-xs leading-6 text-amber-800">{notifications.readBlockedReason(item)}</p>}

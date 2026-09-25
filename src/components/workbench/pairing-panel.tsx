@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Check, ChevronDown, KeyRound, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/shared/utils";
-import { displayTime, string, WorkbenchError } from "@/lib/control/workbench-client";
+import { string, WorkbenchError } from "@/lib/control/workbench-client";
+import { useLocalTime } from "@/components/local-time";
 import { syncLabel } from "@/lib/workspace/workspace-client";
 import { CopyValue } from "./snapshot-views";
 import type { Connection, Workbench } from "./use-workbench";
@@ -18,7 +19,9 @@ export function RequestFeedback({ busy, error, onRetry }: { busy?: string; error
 }
 
 export function PairingPanel({ workbench: w, agent, featureCount }: { workbench: Workbench; agent: Connection; featureCount: number }) {
-  const [expires] = useState(() => new Date(Date.now() + 30 * 86400000).toISOString());
+  const displayTime = useLocalTime();
+  const [expires, setExpires] = useState("");
+  useEffect(() => setExpires(new Date(Date.now() + 30 * 86400000).toISOString()), []);
   const pairCommand = `python configure_hermes.py --remote --pair-console '${w.identity.virtualUrn || ""}' --expires '${expires}' --allow-web-actions`;
   const step = w.capabilitySnapshot ? 3 : w.identity?.virtualUrn ? 2 : 1;
   const policyBlocked = w.sync.status === "policy_paused" || w.sync.status === "policy_unavailable";
@@ -34,7 +37,7 @@ export function PairingPanel({ workbench: w, agent, featureCount }: { workbench:
           {w.identity?.virtualUrn ? <div className="mt-4 rounded-xl border bg-muted/30 p-3"><div className="flex items-center justify-between"><span className="text-xs font-medium text-muted-foreground">控制台 URN</span><CopyValue value={w.identity.virtualUrn} /></div><p className="mt-1 select-all break-all font-mono text-xs leading-6">{w.identity.virtualUrn}</p><details className="mt-3 border-t pt-3"><summary className="cursor-pointer text-xs text-muted-foreground">查看验证公钥</summary><div className="mt-2 flex items-start gap-2"><p className="min-w-0 flex-1 select-all break-all font-mono text-xs leading-5">{w.identity.virtualEd25519PublicKey}</p>{w.identity.virtualEd25519PublicKey && <CopyValue value={w.identity.virtualEd25519PublicKey} label="复制验证公钥" compact />}</div></details></div> : <Button className="mt-4 gap-2 rounded-xl" disabled={w.identityBusy || !w.policyAllowed} onClick={w.createIdentity}>{w.identityBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}{w.identityBusy ? "正在读取身份…" : "创建控制台身份"}</Button>}
           {w.identityError && <p role="alert" className="mt-3 text-sm text-destructive">{w.identityError}</p>}
         </div>
-        <div className="rounded-2xl bg-muted/40 p-4 sm:p-5"><h3 className="text-sm font-medium">在 agent 本机完成配对</h3><p className="mt-2 text-sm leading-7 text-muted-foreground">在部署包目录执行下面的绑定命令，或交给你本机的 agent 执行。它会自动注册本机 agent 到 platform、保存网页授权，并配置连接。保持 agent 与 helper 运行。</p><p className="mt-2 text-xs leading-6 text-muted-foreground">本次网页授权有效期 30 天。命令执行后重启本机 Gateway，使网页连接生效。源码目录运行时，将脚本路径改为 tools/release/early_access/configure_hermes.py。</p>{w.identity.virtualUrn && <div className="mt-3 rounded-xl border bg-background p-3"><div className="flex justify-end"><CopyValue value={pairCommand} label="复制绑定命令" /></div><code className="block select-all break-all text-xs leading-6">{pairCommand}</code></div>}<div className="mt-4 flex flex-wrap gap-2"><Button className="gap-2 rounded-xl" disabled={!w.policyAllowed || w.identityBusy || !w.identity?.virtualUrn || !!w.busy.capabilities} onClick={() => void w.invoke("capabilities")}>{w.busy.capabilities ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}{w.busy.capabilities ? "检查中…" : w.capabilitySnapshot ? "重新检查连接" : "立即检查连接"}</Button>{w.identity?.virtualUrn && <Button variant="ghost" size="sm" className="rounded-xl text-xs" disabled={!w.policyAllowed || w.identityBusy || !!w.busy.capabilities} onClick={w.createIdentity}>{w.identityBusy ? "注册中…" : "重新注册身份"}</Button>}</div></div>
+        <div className="rounded-2xl bg-muted/40 p-4 sm:p-5"><h3 className="text-sm font-medium">在 agent 本机完成配对</h3><p className="mt-2 text-sm leading-7 text-muted-foreground">在部署包目录执行下面的绑定命令，或交给你本机的 agent 执行。它会自动注册本机 agent 到 platform、保存网页授权，并配置连接。保持 agent 与 helper 运行。</p><p className="mt-2 text-xs leading-6 text-muted-foreground">本次网页授权有效期 30 天。命令执行后重启本机 Gateway，使网页连接生效。源码目录运行时，将脚本路径改为 tools/release/early_access/configure_hermes.py。</p>{w.identity.virtualUrn && expires && <div className="mt-3 rounded-xl border bg-background p-3"><div className="flex justify-end"><CopyValue value={pairCommand} label="复制绑定命令" /></div><code className="block select-all break-all text-xs leading-6">{pairCommand}</code></div>}<div className="mt-4 flex flex-wrap gap-2"><Button className="gap-2 rounded-xl" disabled={!w.policyAllowed || w.identityBusy || !w.identity?.virtualUrn || !!w.busy.capabilities} onClick={() => void w.invoke("capabilities")}>{w.busy.capabilities ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}{w.busy.capabilities ? "检查中…" : w.capabilitySnapshot ? "重新检查连接" : "立即检查连接"}</Button>{w.identity?.virtualUrn && <Button variant="ghost" size="sm" className="rounded-xl text-xs" disabled={!w.policyAllowed || w.identityBusy || !!w.busy.capabilities} onClick={w.createIdentity}>{w.identityBusy ? "注册中…" : "重新注册身份"}</Button>}</div></div>
       </div>
       <div className="mt-5 flex items-start gap-2 border-t pt-4"><span className="mt-1 shrink-0 text-xs text-muted-foreground">目标 agent</span><p className="min-w-0 flex-1 break-all font-mono text-xs leading-6 text-muted-foreground">{agent.urn}</p><CopyValue value={agent.urn} label="复制 agent URN" compact /></div>
       {!!unavailable.length && <details className="mt-3"><summary className="cursor-pointer text-xs text-muted-foreground">未开放的功能</summary><ul className="mt-3 space-y-2 text-xs leading-5 text-muted-foreground">{unavailable.map(method => <li key={string(method.name)}><span className="font-medium text-foreground">{methodLabels[string(method.name)] || string(method.name)}</span> · 当前适配器或本机配对尚未开放。{typeof method.reason === "string" && <span className="mt-0.5 block break-words text-xs opacity-80">{method.reason}</span>}</li>)}</ul></details>}
