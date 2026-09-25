@@ -92,14 +92,14 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
     } finally { changingAccess.current = false; setSubmitting(false); }
   };
 
-  if (!policy) return <PolicyAccessContext.Provider value={false}><section role="status" className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+  if (!policy) return <PolicyAccessContext.Provider value={false}><section role="status" className="break-words rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
     <h2 className="font-semibold">正在核验平台政策</h2>
     <p className="mt-2 leading-6">{error || "核验完成前，新的远程控制与后台同步暂不连接 agent。已保存内容仍可查看。"}</p>
     {error && <Button variant="outline" size="sm" className="mt-3" onClick={() => void refresh()}>重新核验</Button>}
   </section>{children}</PolicyAccessContext.Provider>;
 
   return <PolicyAccessContext.Provider value={policy.can_use_workbench}>
-    <section aria-label="平台政策与内容可见范围" className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+    <section aria-label="平台政策与内容可见范围" className="break-words rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
       <h2 className="font-semibold">平台政策与内容可见范围</h2>
       {policy.status === "legacy" ? <p className="mt-2 leading-6">平台尚未提供可验证的 v2 签名政策；此处不能证明 agent 之间使用了隐私或合规模式。工作台沿用托管控制通道，网页服务可读取 agent 授权同步给本账户的内容。</p> : <>
         <p className="mt-2 leading-6">已验证平台签名政策：<strong>{policy.mode === "compliance" ? "合规模式" : "隐私模式"}</strong> · epoch {policy.epoch} · 平台 {policy.platform_id}。</p>
