@@ -80,6 +80,7 @@ python -B tests/integration/web_two_agent_stability.py --platform PATH_TO_PLATFO
 
 构建后，设置 `SOCIAL_FIXTURE=1` 启动 `node tests/integration/workspace-fixture.cjs`，再运行
 `node tests/integration/workspace-social-browser.cjs`。检查真实 React 控件发送的签名控制请求：好友请求接受/拒绝、发送后等待对方接受、在线/离线状态、网页发消息、电脑端与网页已读同步、协作动作结果不明确时禁止换 ID 重放，以及手机布局。
+其中拒绝后重新申请会核对 Web 沿用原联系人 ID、别名和 URN，并生成另一条好友请求；旧拒绝记录保持可见。收件箱用例还核对两条近时消息的完整可复制 ID、已读按钮的精确标签和实际提交的 `message_id`。
 报告与截图保存在 `build/workspace-social-preview/`。`PLAYWRIGHT_MODULE`、`CHROME_EXECUTABLE` 可指定已有浏览器测试工具。
 
 `npm test` 另验证 agent 权威好友快照、旧消息已读更新、已处理通知计数、后台推送撤回和服务工作线程在关闭网页时关闭原通知。

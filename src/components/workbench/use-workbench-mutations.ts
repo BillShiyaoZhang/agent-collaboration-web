@@ -12,6 +12,7 @@ export type MutationState = {
   message: string;
   retryable: boolean;
   result?: RemoteRecord;
+  reusedContact?: boolean;
 };
 type Invoke = (method: RpcMethod, params?: RemoteRecord, original?: PendingCall) => Promise<{ result?: RemoteRecord; error?: WorkbenchError }>;
 
@@ -22,6 +23,7 @@ function restored(value: unknown): MutationState[] {
     if (call.method === "approval.respond" && (!string(params.approval_id) || !["approve", "deny"].includes(string(params.decision)))) return [];
     if (call.method === "contacts.add" && (!string(params.contact_id) || !string(params.urn) || !Array.isArray(params.aliases))) return [];
     return [{ call: call as PendingCall, phase: "uncertain" as const, retryable: item.retryable !== false,
+      ...(item.reusedContact === true ? { reusedContact: true } : {}),
       message: "上次提交的结果尚未核实。页面不会自动重复提交，请先刷新查看最新内容。" }];
   }).slice(-32);
 }
@@ -40,7 +42,7 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
   const save = useCallback((next: MutationState[]) => {
     // Store only the original request needed for a user-initiated retry; never save approval questions.
     const unresolved = next.filter(item => item.phase === "sending" || item.phase === "uncertain")
-      .map(({ call, retryable }) => ({ call, retryable }));
+      .map(({ call, retryable, reusedContact }) => ({ call, retryable, reusedContact }));
     sessionStorage.setItem(key, JSON.stringify(unresolved));
     current.current = next; setItems(next);
   }, [key]);
@@ -63,9 +65,13 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
     // Only an agent-synced contact with this request's exact ID and mapping resolves an ambiguous add.
     for (const item of current.current) {
       if (item.call.method !== "contacts.add" || item.phase !== "uncertain") continue;
+      // This contact predates a rejected-request retry. A refreshed contact or
+      // another local surface's new request cannot prove this exact RPC ran.
+      if (item.reusedContact) continue;
       const params = item.call.params;
-      if (contacts.some(contact => contact.contact_id === params.contact_id && contact.urn === params.urn &&
-        Array.isArray(params.aliases) && params.aliases.every(alias => Array.isArray(contact.aliases) && contact.aliases.includes(alias)))) {
+      const sameContact = contacts.some(contact => contact.contact_id === params.contact_id && contact.urn === params.urn &&
+        Array.isArray(params.aliases) && params.aliases.every(alias => Array.isArray(contact.aliases) && contact.aliases.includes(alias)));
+      if (sameContact) {
         replace({ ...item, phase: "succeeded", retryable: false, message: "好友请求的最新状态已从 agent 同步，请在通讯录查看是否已建立连接。" });
       }
     }
@@ -100,7 +106,9 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
     if (!original && current.current.some(item => item.call.method === method && ["sending", "uncertain"].includes(item.phase) &&
       subject(item.call) === subject({ method, params } as PendingCall))) return;
     const call = original?.call || client.prepare(method, params);
-    const pending: MutationState = { call, phase: "sending", retryable: true, message: "正在提交，等待 agent 确认…" };
+    const reusedContact = original?.reusedContact ?? (method === "contacts.add" && contacts.some(contact =>
+      contact.contact_id === params.contact_id && contact.urn === params.urn && contact.connection_status === "rejected"));
+    const pending: MutationState = { call, phase: "sending", retryable: true, message: "正在提交，等待 agent 确认…", reusedContact };
     // Persist before submitting, so a refresh can recover the same request without replaying it.
     try { save([...current.current.filter(item => item.call.request_id !== call.request_id &&
       !(item.call.method === method && subject(item.call) === subject(call))), pending]); }
@@ -118,7 +126,9 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
         : method === "inbox.mark_read" ? result.message_id === call.params.message_id && (result.status === "read" || result.read === true)
         : result.message_id === call.params.message_id && ["sent", "queued", "accepted"].includes(string(result.status)));
       if (accepted) replace({ ...pending, result, phase: "succeeded", retryable: false, message: method === "contacts.add"
-        ? ["already_connected", "confirmed", "already_confirmed"].includes(string(result?.status)) ? "Agent 已确认连接，通讯录正在同步。" : "Agent 已在本机排队好友请求，正在尝试投递；对方收到并接受后才会建立连接。"
+        ? ["already_connected", "confirmed", "already_confirmed"].includes(string(result?.status)) ? "Agent 已确认连接，通讯录正在同步。"
+          : result?.status === "already_requested" ? "Agent 确认已有待处理的好友请求，本次没有另建申请；请查看好友请求的最新状态。"
+            : "Agent 已在本机排队新的好友请求，正在尝试投递；对方收到并接受后才会建立连接。"
         : method === "collaboration.execute" ? result?.status === "approval_required" ? "请在下方待确认请求中核对并授权。" : "Agent 已返回执行结果，数据正在同步。"
         : method === "contacts.respond" ? call.params.decision === "accept" ? "Agent 已记录接受好友请求，通讯录正在同步；协作权限需另行授权。" : "已拒绝好友请求。"
         : method === "inbox.mark_read" ? "Agent 已记录已读，其他端的提醒将同步关闭。"

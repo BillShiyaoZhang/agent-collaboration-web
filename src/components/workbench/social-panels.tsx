@@ -42,7 +42,7 @@ export function SendPeerMessage({ workbench: w, recipientUrn = "", compact = fal
 export function MessageReadAction({ message, workbench: w }: { message: RemoteRecord; workbench: Workbench }) {
   const id = string(message.message_id), action = w.mutations.actions.find(item => item.call.method === "inbox.mark_read" && item.call.params.message_id === id);
   const pending = action && ["sending", "uncertain", "succeeded"].includes(action.phase);
-  return <div className="mt-3"><div className="flex items-center gap-3"><span className="text-xs text-muted-foreground">{message.read === true ? "已读 · agent 已记录" : "未读"}</span>{message.read !== true && <Button size="sm" variant="outline" disabled={!w.mutations.ready || !w.mutations.canMutate("inbox.mark_read") || !!pending} onClick={() => void w.mutations.run("inbox.mark_read", { message_id: id })}>标为已读并关闭提醒</Button>}</div><SocialFeedback workbench={w} method="inbox.mark_read" subject={id} /></div>;
+  return <div className="mt-3"><div className="flex items-center gap-3"><span className="text-xs text-muted-foreground">{message.read === true ? "已读 · agent 已记录" : "未读"}</span>{message.read !== true && <Button size="sm" variant="outline" aria-label={`将消息 ${id} 标为已读并关闭提醒`} disabled={!w.mutations.ready || !w.mutations.canMutate("inbox.mark_read") || !!pending} onClick={() => void w.mutations.run("inbox.mark_read", { message_id: id })}>标为已读并关闭提醒</Button>}</div><SocialFeedback workbench={w} method="inbox.mark_read" subject={id} /></div>;
 }
 
 export function SentMessages({ workbench: w }: { workbench: Workbench }) {

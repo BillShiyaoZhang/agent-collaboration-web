@@ -44,6 +44,31 @@ export function RawSnapshot({ data }: { data: unknown }) {
   return <details className="group border-t px-5 py-3"><summary className="inline-flex min-h-6 w-fit cursor-pointer list-none items-center gap-1.5 rounded py-1 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />查看原始快照</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-4 text-xs leading-6">{JSON.stringify(data, null, 2)}</pre></details>;
 }
 
+function RetryRejectedContact({ contact, workbench: w }: { contact: RemoteRecord; workbench: Workbench }) {
+  const [confirming, setConfirming] = useState(false);
+  const contactId = string(contact.contact_id), urn = string(contact.urn), aliases = strings(contact.aliases);
+  const action = w.mutations.contactAction;
+  const sameAction = action?.call.params.contact_id === contactId && action.call.params.urn === urn;
+  const busy = !!action && ["sending", "uncertain"].includes(action.phase);
+  const requests = records(w.snapshots["contacts.requests"]?.data.contact_requests ?? w.snapshots["contacts.requests"]?.data.requests);
+  const submittedRequest = sameAction && action?.phase === "succeeded" ? string(action.result?.request_id) : "";
+  const awaitingSync = !!sameAction && action?.phase === "succeeded" &&
+    (!submittedRequest || !requests.some(request => request.request_id === submittedRequest && request.status === "rejected"));
+  const allowed = w.canAddContact && w.mutations.ready && !busy && !awaitingSync && !!contactId && !!urn && !!aliases.length;
+
+  return <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs leading-6">
+    <p>上次好友请求已被拒绝。重新发起会沿用这条本机联系人记录，由 Agent 核对最新状态；若仍无在途请求且尚未连接，才会生成一条独立的新请求。旧请求仍保留“已拒绝”。</p>
+    {awaitingSync && <p role="status" className="mt-1">Agent 已返回当前处理结果，等待联系人和好友请求状态同步。</p>}
+    {sameAction && action?.phase === "failed" && <p role="alert" className="mt-1">{action.message}</p>}
+    {confirming ? <div className="mt-2 space-y-2">
+      <p>请再次核对对方 URN：<span className="block break-all font-mono">{urn}</span></p>
+      <div className="flex flex-wrap gap-2"><Button type="button" size="sm" disabled={!allowed} onClick={() => {
+        void w.mutations.addContact({ contact_id: contactId, aliases, urn }); setConfirming(false);
+      }}>确认并重新发起</Button><Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>取消</Button></div>
+    </div> : <Button type="button" size="sm" variant="outline" className="mt-2" disabled={!allowed} onClick={() => setConfirming(true)}>重新发起好友请求</Button>}
+  </div>;
+}
+
 export function ContactsSnapshot({ data, workbench, syncedAt }: { data: RemoteRecord; workbench: Workbench; syncedAt: number }) {
   const [query, setQuery] = useState("");
   const contacts = records(data.contacts);
@@ -56,7 +81,7 @@ export function ContactsSnapshot({ data, workbench, syncedAt }: { data: RemoteRe
       const connected = status === "connected", expiry = typeof presence.expires_at === "number" ? presence.expires_at * 1000 : Date.parse(string(presence.expires_at));
       const freshPresence = connected && (presence.status === "online" ? Number.isFinite(expiry) && expiry > Date.now() : Date.now() - syncedAt < 60000);
       const online = freshPresence && presence.status === "online";
-      return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 flex-col items-start gap-3 rounded-2xl border p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}<p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">{urn}</p>{connected && <SendPeerMessage workbench={workbench} recipientUrn={urn} compact />}</div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
+      return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 flex-col items-start gap-3 rounded-2xl border p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}<p className="mt-2 break-all font-mono text-xs leading-5 text-muted-foreground">{urn}</p>{status === "rejected" && <RetryRejectedContact contact={contact} workbench={workbench} />}{connected && <SendPeerMessage workbench={workbench} recipientUrn={urn} compact />}</div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
     })}</div>}
     <RawSnapshot data={data} />
   </>;
@@ -91,8 +116,8 @@ export function InboxSnapshot({ data, workbench }: { data: RemoteRecord; workben
   const messages = records(data.messages).slice().reverse();
   return <>
     {!messages.length ? <EmptySnapshot kind="inbox" /> : <div className="space-y-3 px-5 pb-5"><p className="mb-4 text-xs leading-5 text-muted-foreground">消息来自对端 agent，内容仍需核实；涉及你的授权，可在「事项」中核对并确认。</p>{messages.map((message, index) => {
-      const content = messageText(message.text);
-      return <article id={`subject-${string(message.message_id)}`} key={string(message.message_id, String(index))} className="rounded-2xl border p-4"><div className="flex items-start gap-3"><span className="rounded-xl bg-muted p-2"><ArrowDownLeft className="h-4 w-4 text-muted-foreground" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="min-w-0 break-all text-xs font-medium">{string(message.sender_urn, "对端 agent")}</p><time className="shrink-0 text-xs text-muted-foreground">{displayTime(message.received_at)}</time></div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{content.text || "这条消息未提供文本内容。"}</p>{message.unknown_sender === true && <p className="mt-2 text-xs text-amber-800">这位发送者尚未建立好友连接。</p>}<MessageReadAction message={message} workbench={workbench} />{message.unknown_sender !== true && <SendPeerMessage workbench={workbench} recipientUrn={string(message.sender_urn)} compact />}{!!message.task_id && <p className="mt-3 break-all text-xs text-muted-foreground">事项 · {string(message.task_id)}</p>}{content.structured && <p className="mt-2 text-xs text-muted-foreground">协作提议 · 对端声明</p>}</div></div></article>;
+      const content = messageText(message.text), messageId = string(message.message_id);
+      return <article id={`subject-${messageId}`} key={string(message.message_id, String(index))} className="rounded-2xl border p-4"><div className="flex items-start gap-3"><span className="rounded-xl bg-muted p-2"><ArrowDownLeft className="h-4 w-4 text-muted-foreground" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="min-w-0 break-all text-xs font-medium">{string(message.sender_urn, "对端 agent")}</p><time className="shrink-0 text-xs text-muted-foreground">{displayTime(message.received_at)}</time></div><div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"><span className="min-w-0 break-all font-mono">消息 ID · {messageId}</span>{messageId && <CopyValue value={messageId} label={`复制消息 ID ${messageId}`} compact />}</div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{content.text || "这条消息未提供文本内容。"}</p>{message.unknown_sender === true && <p className="mt-2 text-xs text-amber-800">这位发送者尚未建立好友连接。</p>}<MessageReadAction message={message} workbench={workbench} />{message.unknown_sender !== true && <SendPeerMessage workbench={workbench} recipientUrn={string(message.sender_urn)} compact />}{!!message.task_id && <p className="mt-3 break-all text-xs text-muted-foreground">事项 · {string(message.task_id)}</p>}{content.structured && <p className="mt-2 text-xs text-muted-foreground">协作提议 · 对端声明</p>}</div></div></article>;
     })}</div>}
     <RawSnapshot data={data} />
   </>;

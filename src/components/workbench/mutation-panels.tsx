@@ -47,7 +47,7 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
   }
 
   return <section className="mx-3 mb-5 rounded-2xl border bg-muted/20 p-3 sm:mx-5 sm:p-4" aria-label="添加联系人">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-medium">添加联系人</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，本机 agent 会将好友请求排队并尝试投递。对方收到并接受后，双方才建立通讯录连接，可以互发普通消息。</p></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-medium">添加联系人</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，本机 agent 会将好友请求排队并尝试投递。对方收到并接受后，双方才建立通讯录连接，可以互发普通消息。若这个 URN 已在通讯录且上次请求被拒绝，请从该联系人卡片重新发起。</p></div>
       {!shown && <Button type="button" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={!allowed} onClick={() => setOpen(true)}><Plus className="h-4 w-4 shrink-0" />添加联系人</Button>}
     </div>
     {!w.canAddContact && <p className="mt-2 text-xs leading-6 text-muted-foreground">{w.available("contacts.add") ? "此连接的授权已失效，请先在连接设置中重新配对。" : "当前连接尚未开放在网页添加联系人，请在连接设置中检查授权。"}</p>}

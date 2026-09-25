@@ -23,7 +23,7 @@ const mutationMode=process.env.MUTATION_FIXTURE==='1',mutationContacts=new Map()
 const socialMode=process.env.SOCIAL_FIXTURE==='1', socialStates=new Map();
 function socialState(request) {
  const key=request.agent_urn+'|'+request.console_urn;
- if(!socialStates.has(key))socialStates.set(key,{revision:1,contacts:[{contact_id:'friend-online',urn:'urn:fixture:online',aliases:['在线好友'],connection_status:'connected',presence:{status:'online',expires_at:fixtureAt+3600}}],contact_requests:[{request_id:'incoming-accept',direction:'incoming',peer_urn:'urn:fixture:alice',status:'pending',created_at:fixtureAt},{request_id:'incoming-reject',direction:'incoming',peer_urn:'urn:fixture:bob',status:'pending',created_at:fixtureAt}],messages:[{message_id:'social-message',sender_urn:'urn:fixture:online',text:'这条消息需要两端同步已读',read:false,received_at:fixtureAt},{message_id:'social-message-web',sender_urn:'urn:fixture:online',text:'这条消息通过网页标为已读',read:false,received_at:fixtureAt}],sent_messages:[]});
+ if(!socialStates.has(key))socialStates.set(key,{revision:1,contacts:[{contact_id:'friend-online',urn:'urn:fixture:online',aliases:['在线好友'],connection_status:'connected',presence:{status:'online',expires_at:fixtureAt+3600}},{contact_id:'friend-rejected',urn:'urn:fixture:rejected',aliases:['被拒绝的好友'],connection_status:'rejected'},{contact_id:'friend-pending',urn:'urn:fixture:pending',aliases:['等待中的好友'],connection_status:'pending'}],contact_requests:[{request_id:'incoming-accept',direction:'incoming',peer_urn:'urn:fixture:alice',status:'pending',created_at:fixtureAt},{request_id:'incoming-reject',direction:'incoming',peer_urn:'urn:fixture:bob',status:'pending',created_at:fixtureAt},{request_id:'rejected-first',direction:'outgoing',peer_urn:'urn:fixture:rejected',status:'rejected',attempt:1,created_at:fixtureAt},{request_id:'pending-first',direction:'outgoing',peer_urn:'urn:fixture:pending',status:'pending',attempt:1,created_at:fixtureAt}],messages:[{message_id:'social-message',sender_urn:'urn:fixture:online',text:'这条消息需要两端同步已读',read:false,received_at:fixtureAt},{message_id:'social-message-web',sender_urn:'urn:fixture:online',text:'这条消息通过网页标为已读',read:false,received_at:fixtureAt}],sent_messages:[]});
  return socialStates.get(key);
 }
 let mutationWritesEnabled=true;
@@ -57,8 +57,16 @@ function resultFor(request){
   if(request.method==='contacts.requests')return {contact_requests:state.contact_requests};
   if(request.method==='inbox.list')return {messages:state.messages};
   if(request.method==='contacts.add'){
-   const contact={...params,connection_status:'pending'},request_id='friend-'+params.contact_id;
-   if(!state.contacts.some(item=>item.contact_id===params.contact_id)) {state.contacts.push(contact);state.contact_requests.push({request_id,peer_urn:params.urn,direction:'outgoing',status:'pending',created_at:fixtureAt});state.revision++;}
+   const old=state.contacts.find(item=>item.contact_id===params.contact_id),sameUrn=state.contacts.find(item=>item.urn===params.urn);
+   if((old&&!(old.urn===params.urn&&JSON.stringify(old.aliases)===JSON.stringify(params.aliases)))||(!old&&sameUrn))return {__error:{code:'invalid_params',message:'This agent identity is already a confirmed contact; use the existing contact'}};
+   const contact=old||{...params,connection_status:'pending'};
+   if(!old)state.contacts.push(contact);
+   if(contact.connection_status==='connected')return {decision:'allow',status:'already_connected',contact};
+   const pending=state.contact_requests.find(item=>item.direction==='outgoing'&&item.peer_urn===params.urn&&item.status==='pending');
+   if(pending)return {decision:'allow',status:'already_requested',contact,request_id:pending.request_id};
+   const attempt=1+state.contact_requests.filter(item=>item.direction==='outgoing'&&item.peer_urn===params.urn).length;
+   const request_id='friend-'+params.contact_id+'-'+attempt;
+   contact.connection_status='pending';state.contact_requests.push({request_id,peer_urn:params.urn,direction:'outgoing',status:'pending',attempt,created_at:fixtureAt});state.revision++;
    return {decision:'allow',status:'requested',contact,request_id};
   }
   if(request.method==='contacts.respond'){
@@ -121,7 +129,12 @@ async function handle(req,res){
   if(attentionMode&&typeof body.resolveApproval==='boolean')approvalResolved=body.resolveApproval;
   if(mutationMode&&typeof body.writesAllowed==='boolean')mutationWritesEnabled=body.writesAllowed;
   if(socialMode)for(const state of socialStates.values()){
-   if(body.acceptOutgoing)for(const request of state.contact_requests.filter(item=>item.direction==='outgoing')){request.status='accepted';const contact=state.contacts.find(item=>item.urn===request.peer_urn);if(contact)contact.connection_status='connected';state.revision++;}
+   if(typeof body.externalOutgoing==='boolean'){
+    const id='external-second',has=state.contact_requests.some(item=>item.request_id===id);
+    if(body.externalOutgoing&&!has){state.contact_requests.push({request_id:id,direction:'outgoing',peer_urn:'urn:fixture:rejected',status:'pending',attempt:2,created_at:fixtureAt+1});state.revision++;}
+    if(!body.externalOutgoing&&has){state.contact_requests=state.contact_requests.filter(item=>item.request_id!==id);state.revision++;}
+   }
+   if(body.acceptOutgoing)for(const request of state.contact_requests.filter(item=>item.direction==='outgoing'&&item.status==='pending')){request.status='accepted';const contact=state.contacts.find(item=>item.urn===request.peer_urn);if(contact)contact.connection_status='connected';state.revision++;}
    if(body.nativeRead){state.messages[0].read=true;state.revision++;}
    if(body.nativeUnread){state.messages[0].read=false;state.revision++;}
   }
