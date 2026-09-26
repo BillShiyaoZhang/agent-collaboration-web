@@ -10,6 +10,7 @@ import { CollaborationOverview, CollaborationSnapshot } from "@/components/workb
 import { MessageReadAction, PeerCommunicationLog, SendPeerMessage } from "./social-panels";
 import { ApprovalRequests } from "./mutation-panels";
 import type { Workbench } from "./use-workbench";
+import { isRecordDeleted, RecordActions, recordDeletionReason } from "./record-actions";
 
 export function CopyValue({ value, label = "复制", compact = false }: { value: string; label?: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
@@ -38,11 +39,11 @@ export function EmptySnapshot({ kind, filtered = false }: { kind: "contacts" | "
     tasks: ["暂时没有协作事项", "交给 agent 的协作事项和待确认请求，会在这里汇集。"],
     inbox: ["收件箱很安静", "来自其他 agent 的消息，会在这里显示。"],
   };
-  return <div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center"><span className="mb-4 rounded-2xl bg-muted p-4"><Icon className="h-7 w-7 text-muted-foreground" strokeWidth={1.5} /></span><h3 className="font-medium">{filtered ? "没有匹配的结果" : descriptions[kind][0]}</h3><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{filtered ? "试试其他姓名、别名或 URN。" : descriptions[kind][1]}</p></div>;
+  return <div className="flex min-h-32 flex-col items-center justify-center px-4 py-5 text-center"><span className="mb-2 rounded-lg bg-muted p-2"><Icon className="h-7 w-7 text-muted-foreground" strokeWidth={1.5} /></span><h3 className="font-medium">{filtered ? "没有匹配的结果" : descriptions[kind][0]}</h3><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{filtered ? "试试其他姓名、别名或 URN。" : descriptions[kind][1]}</p></div>;
 }
 
 export function RawSnapshot({ data }: { data: unknown }) {
-  return <details className="group border-t px-5 py-3"><summary className="inline-flex min-h-6 w-fit cursor-pointer list-none items-center gap-1.5 rounded py-1 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />查看原始快照</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-4 text-xs leading-6">{JSON.stringify(data, null, 2)}</pre></details>;
+  return <details className="group border-t px-3 py-2"><summary className="inline-flex min-h-6 w-fit cursor-pointer list-none items-center gap-1.5 rounded py-1 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />查看原始快照</summary><pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-4 text-xs leading-6">{JSON.stringify(data, null, 2)}</pre></details>;
 }
 
 function RetryRejectedContact({ contact, workbench: w }: { contact: RemoteRecord; workbench: Workbench }) {
@@ -73,17 +74,17 @@ function RetryRejectedContact({ contact, workbench: w }: { contact: RemoteRecord
 export function ContactsSnapshot({ data, workbench, syncedAt }: { data: RemoteRecord; workbench: Workbench; syncedAt: number }) {
   const hydrated = useHydrated();
   const [query, setQuery] = useState("");
-  const contacts = records(data.contacts);
+  const contacts = records(data.contacts).filter(contact => !isRecordDeleted(workbench.recordStates, "contact", string(contact.contact_id)));
   const visible = contacts.filter(contact => [string(contact.contact_id), string(contact.urn), string(contact.alias), ...strings(contact.aliases)].join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   return <>
-    {!!contacts.length && <div className="px-5 pb-4"><div className="relative max-w-sm"><Search aria-hidden className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input aria-label="搜索联系人" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索姓名、别名或 URN" className="rounded-xl bg-muted/40 pl-9" /></div></div>}
-    {!visible.length ? <EmptySnapshot kind="contacts" filtered={!!query} /> : <div className="grid gap-3 px-3 pb-5 sm:px-5 md:grid-cols-2">{visible.map((contact, index) => {
+    {!!contacts.length && <div className="px-3 pb-2"><div className="relative max-w-sm"><Search aria-hidden className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input aria-label="搜索联系人" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索姓名、别名或 URN" className="rounded-xl bg-muted/40 pl-9" /></div></div>}
+    {!visible.length ? <EmptySnapshot kind="contacts" filtered={!!query} /> : <div className="divide-y border-y">{visible.map((contact, index) => {
       const aliases = Array.from(new Set([string(contact.alias), ...strings(contact.aliases)].filter(Boolean))), name = aliases[0] || string(contact.contact_id, "未命名联系人"), urn = string(contact.urn);
       const presence = record(contact.presence), status = string(contact.connection_status, "unverified");
       const connected = status === "connected", expiry = typeof presence.expires_at === "number" ? presence.expires_at * 1000 : Date.parse(string(presence.expires_at));
       const freshPresence = hydrated && connected && (presence.status === "online" ? Number.isFinite(expiry) && expiry > Date.now() : Date.now() - syncedAt < 60000);
       const online = freshPresence && presence.status === "online";
-      return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 flex-col items-start gap-3 rounded-2xl border p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}{urn && <details className="mt-2 text-xs text-muted-foreground"><summary className="inline-flex min-h-8 cursor-pointer items-center">查看 URN</summary><p className="mt-1 break-all font-mono leading-5">{urn}</p></details>}{status === "rejected" && <RetryRejectedContact contact={contact} workbench={workbench} />}{connected && <><SendPeerMessage workbench={workbench} recipientUrn={urn} compact /><PeerCommunicationLog workbench={workbench} recipientUrn={urn} /></>}</div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
+      return <article id={`subject-${string(contact.contact_id)}`} key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/25"><div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}{urn && <details className="mt-2 text-xs text-muted-foreground"><summary className="inline-flex min-h-8 cursor-pointer items-center">查看 URN</summary><p className="mt-1 break-all font-mono leading-5">{urn}</p></details>}{status === "rejected" && <RetryRejectedContact contact={contact} workbench={workbench} />}{connected && <><SendPeerMessage workbench={workbench} recipientUrn={urn} compact /><PeerCommunicationLog workbench={workbench} recipientUrn={urn} /></>}</div><div className="flex shrink-0 items-center">{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}<RecordActions agentId={workbench.agentId} kind="contact" id={string(contact.contact_id)} title={name} blockedReason={recordDeletionReason(workbench,"contact",string(contact.contact_id))} onChanged={workbench.refreshSaved} /></div></article>;
     })}</div>}
     <RawSnapshot data={data} />
   </>;
@@ -103,7 +104,7 @@ export function TasksSnapshot({ data, workbench, onContinue }: { data: RemoteRec
     <CollaborationSnapshot data={data} workbench={workbench} onContinue={onContinue} />
     <ApprovalRequests approvals={approvals} workbench={workbench} />
     {!tasks.length && !approvals.length && !operations.length && !collaborations.length && !invitations.length && <EmptySnapshot kind="tasks" />}
-    <div className="space-y-3 px-3 pb-5 sm:px-5">{tasks.filter(task => !collaborations.some(collaboration => collaboration.task_id === task.task_id)).map(task => <CollaborationOverview key={string(task.task_id)} workbench={workbench} taskId={string(task.task_id)} onContinue={onContinue} />)}</div>
+    <div className="space-y-2 px-3 pb-3">{tasks.filter(task => !collaborations.some(collaboration => collaboration.task_id === task.task_id)).map(task => <CollaborationOverview key={string(task.task_id)} workbench={workbench} taskId={string(task.task_id)} onContinue={onContinue} />)}</div>
     <RawSnapshot data={data} />
   </>;
 }

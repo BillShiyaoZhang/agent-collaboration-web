@@ -161,3 +161,45 @@ test('saved conversation and operation routes authenticate scope, validate origi
     assert.equal((await operations.POST(req('x'.repeat(32769)),params)).status,413);
   }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
 });
+
+
+test('connection and record management bind owner, reject foreign origins and only accept account metadata',async()=>{
+ const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
+ let session=null;const events=[];
+ class ControlError extends Error {constructor(message,status){super(message);this.status=status;}}
+ const protocol=load('../../src/lib/control/control-protocol.ts');
+ const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
+ const store={renameWorkspaceAgent:async(user,id,name)=>{if(id!=='own-agent')throw new ControlError('not found',404);events.push(['rename',user,id,name]);return {id,name};},removeWorkspaceAgent:async(user,id)=>{if(id!=='own-agent')throw new ControlError('not found',404);events.push(['remove',user,id]);},getWorkspaceRecordStates:async(user,id)=>{if(id!=='own-agent')throw new ControlError('not found',404);events.push(['list',user,id]);return [];},saveWorkspaceRecordState:async(user,id,kind,recordId,deleted)=>{if(id!=='own-agent')throw new ControlError('not found',404);events.push(['save',user,id,kind,recordId,deleted]);return {kind,id:recordId,deleted,updatedAt:1};}};
+ const deps={'@/lib/workspace/workspace-http':http,'@/lib/workspace/workspace-store':store,'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/shared/db':{prisma:{}}};
+ const agent=load('../../src/app/api/agents/[id]/route.ts',deps),records=load('../../src/app/api/agents/[id]/workspace/records/route.ts',deps);
+ const params={params:Promise.resolve({id:'own-agent'})},other={params:Promise.resolve({id:'other-agent'})};
+ const req=(method,data,origin='https://console.example')=>new Request('https://console.example/api/agents/own-agent',{method,headers:{origin,'Content-Type':'application/json'},body:JSON.stringify(data)});
+ try {
+  assert.equal((await agent.PATCH(req('PATCH',{name:'name'}),params)).status,401);
+  assert.equal((await agent.DELETE(req('DELETE',{}),params)).status,401);
+  assert.equal((await records.GET(new Request('https://console.example/api/agents/own-agent/workspace/records'),params)).status,401);
+  assert.equal(events.length,0); session={user:{id:'owner'}};
+  assert.equal((await agent.PATCH(req('PATCH',{name:'name'},'https://attacker.example'),params)).status,403);
+  assert.equal((await agent.DELETE(req('DELETE',{},'https://attacker.example'),params)).status,403);
+  assert.equal((await records.POST(req('POST',{kind:'contact',id:'friend',deleted:true},'https://attacker.example'),params)).status,403);
+  assert.equal((await agent.PATCH(req('PATCH',{name:'x',userId:'other'}),params)).status,400);
+  assert.equal((await agent.PATCH(req('PATCH',{name:' '.repeat(5)}),params)).status,400);
+  assert.equal((await agent.PATCH(req('PATCH',{name:'x'.repeat(121)}),params)).status,400);
+  assert.equal((await agent.DELETE(req('DELETE',{urn:'urn:other'}),params)).status,400);
+  assert.equal((await records.POST(req('POST',{kind:'contact',id:'bad id',deleted:true}),params)).status,400);
+  assert.equal((await records.POST(req('POST',{kind:'contact',id:'friend',deleted:true,title:'forged title'}),params)).status,400);
+  assert.equal((await records.POST(req('POST',{kind:'approval',id:'approval',deleted:true}),params)).status,400);
+  assert.equal((await records.POST(req('POST',{kind:'collaboration',id:'task',deleted:true,result:{status:'completed'}}),params)).status,400);
+  assert.equal((await records.POST(req('POST',{kind:'contact',id:'friend',deleted:true}),other)).status,404);
+  assert.equal((await agent.DELETE(req('DELETE',{}),other)).status,404);
+  const renamed=await agent.PATCH(req('PATCH',{name:'  My Agent  '}),params); assert.equal(renamed.status,200);
+  assert.match(renamed.headers.get('cache-control'),/private.*no-store/); assert.deepEqual(events.at(-1),['rename','owner','own-agent','My Agent']);
+  assert.equal((await records.POST(req('POST',{kind:'collaboration',id:'task',deleted:true}),params)).status,200);
+  assert.deepEqual(events.at(-1),['save','owner','own-agent','collaboration','task',true]);
+  assert.equal((await records.POST(req('POST',{kind:'collaboration',id:'task',deleted:false}),params)).status,200);
+  assert.deepEqual(events.at(-1),['save','owner','own-agent','collaboration','task',false]);
+  assert.equal((await records.GET(new Request('https://console.example/api/agents/own-agent/workspace/records'),params)).status,200);
+  assert.deepEqual(events.at(-1),['list','owner','own-agent']);
+  const removed=await agent.DELETE(req('DELETE',{}),params);assert.deepEqual(await removed.json(),{removed:true,scope:'account_connection'});assert.deepEqual(events.at(-1),['remove','owner','own-agent']);
+ }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
+});

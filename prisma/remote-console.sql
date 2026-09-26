@@ -162,3 +162,11 @@ CREATE TABLE IF NOT EXISTS "OnboardingTicket" (
 );
 CREATE INDEX IF NOT EXISTS "OnboardingTicket_expiry_idx" ON "OnboardingTicket"("ticketExpiresAt");
 CREATE INDEX IF NOT EXISTS "OnboardingTicket_agent_idx" ON "OnboardingTicket"("agentUrn");
+
+-- A deleted account view does not erase or change agent business facts.
+CREATE TABLE IF NOT EXISTS "WorkspaceRecordState" (
+ "agentId" TEXT NOT NULL, "kind" TEXT NOT NULL, "recordId" TEXT NOT NULL,
+ "payload" TEXT NOT NULL, "updatedAt" REAL NOT NULL,
+ PRIMARY KEY("agentId", "kind", "recordId"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);

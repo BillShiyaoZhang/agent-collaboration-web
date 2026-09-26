@@ -15,7 +15,7 @@ const PolicyAccessContext = createContext(false);
 export const usePolicyAccess = () => useContext(PolicyAccessContext);
 
 /** Disclose the verified policy while retaining access to saved, read-only account history. */
-export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
+export function PolicyDisclosureGate({ children, compact = false }: { children: ReactNode; compact?: boolean }) {
   const [policy, setPolicy] = useState<PolicyDisclosure | null>(null);
   const [error, setError] = useState("");
   const [accepted, setAccepted] = useState(false);
@@ -93,7 +93,7 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
     } finally { changingAccess.current = false; setSubmitting(false); }
   };
 
-  if (!policy) return <PolicyAccessContext.Provider value={false}><section role="status" className="break-words rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+  if (!policy) return <PolicyAccessContext.Provider value={false}><section role="status" className={compact ? "max-h-[min(35dvh,max(4rem,calc(100dvh-28rem)))] shrink-0 overflow-y-auto border-b border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" : "break-words rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950"}>
     <h2 className="font-semibold">正在核验平台政策</h2>
     <p className="mt-2 leading-6">{error || "核验完成前，新的远程控制与后台同步暂不连接 agent。已保存内容仍可查看。"}</p>
     {error && <Button variant="outline" size="sm" className="mt-3" onClick={() => void refresh()}>重新核验</Button>}
@@ -101,17 +101,17 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
 
   const showDetails = !policy.can_use_workbench || detailsOpen;
   return <PolicyAccessContext.Provider value={policy.can_use_workbench}>
-    <section aria-label="平台政策与内容可见范围" className={`break-words rounded-2xl border p-4 text-sm ${policy.can_use_workbench ? "border-border bg-card text-foreground" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">{policy.can_use_workbench ? "平台政策与内容可见范围" : policy.paused ? "远程控制与同步已暂停" : "请确认平台政策"}</h2>
-          <p className="mt-1 text-xs leading-5">{policy.status === "legacy"
+    <section aria-label="平台政策与内容可见范围" className={`${compact ? "max-h-[min(35dvh,max(4rem,calc(100dvh-28rem)))] shrink-0 overflow-y-auto border-b px-3 py-1.5" : "break-words rounded-2xl border p-4"} text-sm ${policy.can_use_workbench ? "border-border bg-card text-foreground" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+      <div className={compact ? "flex flex-wrap items-center justify-between gap-2" : "flex flex-wrap items-start justify-between gap-2"}>
+        <div className={compact && policy.can_use_workbench ? "flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5" : "min-w-0 flex-1"}>
+          <h2 className={compact ? "text-xs font-medium" : "font-semibold"}>{policy.can_use_workbench ? "平台政策与内容可见范围" : policy.paused ? "远程控制与同步已暂停" : "请确认平台政策"}</h2>
+          <p className={compact ? "text-xs leading-5 text-muted-foreground" : "mt-1 text-xs leading-5"}>{policy.status === "legacy"
             ? "尚无可验证的 v2 签名政策；网页可读取已授权的工作台内容。"
             : policy.mode === "compliance"
               ? "平台网关可解密符合政策的 agent 间 v2 消息；网页可读取已授权的工作台内容。"
               : "平台网关不获 v2 私密消息内容密钥；网页可读取已授权的工作台内容。"}</p>
         </div>
-        {policy.can_use_workbench && <Button type="button" variant="ghost" size="sm" className="h-auto w-full max-w-full min-w-0 justify-start whitespace-normal py-2 text-left sm:w-auto" aria-expanded={detailsOpen} aria-controls="policy-details" onClick={() => setDetailsOpen(open => !open)}>{detailsOpen ? "收起详情" : "查看详情与控制"}</Button>}
+        {policy.can_use_workbench && <Button type="button" variant="ghost" size="sm" className={compact ? "h-7 max-w-full shrink-0 px-2 text-xs" : "h-auto w-full max-w-full min-w-0 justify-start whitespace-normal py-2 text-left sm:w-auto"} aria-expanded={detailsOpen} aria-controls="policy-details" onClick={() => setDetailsOpen(open => !open)}>{detailsOpen ? "收起详情" : "查看详情与控制"}</Button>}
       </div>
       {showDetails && <div id="policy-details" className="mt-3 border-t pt-3">
       {policy.status === "legacy" ? <p className="leading-6">平台尚未提供可验证的 v2 签名政策；此处不能证明 agent 之间使用了隐私或合规模式。工作台沿用托管控制通道，网页服务可读取 agent 授权同步给本账户的内容。</p> : <>

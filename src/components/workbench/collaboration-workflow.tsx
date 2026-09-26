@@ -9,6 +9,7 @@ import { useLocalTime } from "@/components/local-time";
 import { ActionFeedback } from "./mutation-panels";
 import { buildGoalScope, capabilityLabels, collaborationMutationBlocksWrites, collaborationOperations, collaborationView, contactsForSelection, localInputToUtc, meetingProposalKind, operationMeaning, type GoalDraft } from "./collaboration-workflow-model";
 import type { Workbench } from "./use-workbench";
+import { isRecordDeleted } from "./record-actions";
 
 const descriptions = new WeakMap<Workbench["invoke"], Promise<RemoteRecord | undefined>>();
 export function useCollaborationDescription(w: Workbench, enabled = true) {
@@ -42,11 +43,11 @@ function isBusy(w: Workbench) {
   return !!w.busy["collaboration.execute"] || w.mutations.actions.some(collaborationMutationBlocksWrites);
 }
 
-export function GoalWorkflow({ workbench: w, invitation, compact = false }: { workbench: Workbench; invitation?: RemoteRecord; compact?: boolean }) {
-  const [open, setOpen] = useState(false);
+export function GoalWorkflow({ workbench: w, invitation, compact = false, initialOpen = false }: { workbench: Workbench; invitation?: RemoteRecord; compact?: boolean; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
   const { description, loading } = useCollaborationDescription(w, open);
   const state = w.snapshots["collaboration.state"]?.data || {};
-  const contacts = contactsForSelection(records(w.snapshots["contacts.list"]?.data.contacts ?? state.contacts));
+  const contacts = contactsForSelection(records(w.snapshots["contacts.list"]?.data.contacts ?? state.contacts)).filter(contact => !isRecordDeleted(w.recordStates, "contact", string(contact.contact_id)));
   const invitationMatches = contacts.filter(contact => contact.urn === invitation?.sender_urn);
   const invitationPeer = invitationMatches.length === 1 ? invitationMatches[0] : undefined;
   const [draft, setDraft] = useState<GoalDraft>({ peerId: "", goal: "", success: "", topic: string(invitation?.topic), windows: [{ start: "", end: "" }], expiresAt: "", duration: 30, candidates: 3, actions: 12, resourceIds: [], allowPropose: !invitation, allowAccept: true, shareSlots: false });

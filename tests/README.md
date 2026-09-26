@@ -105,3 +105,32 @@ workspace-store.test.cjs 另用真实临时 SQLite 验证操作账本的账户�
 mutation-recovery-policy.test.cjs 验证联系人添加、任意协作执行与缺少稳定 message_id 的旧消息发送不能换 RPC ID 通用重启；只有同一审批、好友请求或消息的确切对象可显式核实后继续。
 
 draft-cache.test.cjs 验证另一设备的服务端草稿优先于已保存旧缓存、仅未落盘编辑可覆盖、迟到保存及读取响应不能覆盖新编辑；workspace-browser.cjs 通过两个独立浏览器上下文核对跨设备切换、重新挂载、700ms 前导航及迟到读取。明确 action=describe 的协作功能说明属于只读，旧说明账本仍保留审计但不作为待执行写操作恢复。
+
+### 桌面聊天布局与账户记录管理
+
+生产构建后，以 `PRODUCT_FIXTURE=1` 启动 `workspace-fixture.cjs`，运行
+`node tests/integration/desktop-agents-browser.cjs`。检查登录后直接显示可输入聊天框，
+1440×900 和 1366×768 的“导航｜agent/会话列表｜聊天框”、消息独立滚动和输入固定底部；
+左侧列表的重命名、归档、删除与恢复保留正文和草稿，后台同步不会复活已删除记录或自动重发；
+切换自己的 agent、连接名称与删除确认范围，以及 320/390px 手机列表抽屉。
+此脚本只连接 loopback 的合成账户，报告写入 `build/desktop-agents-preview/`。
+它会修改合成账户的名称并删除第二个测试连接，应在独立的新 fixture 中运行。
+
+### 独立页面的完整合作与删除恢复故事
+
+先停止上一套 fixture，再以 `PRODUCT_FIXTURE=1` 启动全新的
+`node tests/integration/workspace-fixture.cjs`，然后运行
+`node tests/integration/desktop-product-stories-browser.cjs`。不要沿用
+`desktop-agents-browser.cjs` 已改名或删除连接的数据库。
+
+新脚本保留原 10 个完整故事的业务断言，导航改用独立的“我的 agents”、合作与联系人页：
+真实签名回执、格式化回复、主题搜索与归档、两段草稿的延迟切换、合作页不标记后台聊天已读、
+确切委托和邀请的分别审批、真实 dispatch、有限 worker 的 6 次检查/4 次发送/60 秒间隔及单独授权、
+实际暂停操作、结构化来源返回原会话并保留草稿，以及 320/390px 回流。
+
+新增 3 个账户管理故事：进行中的合作在 UI 禁止删除且 API 返回 409；联系人确认删除后
+仅隐藏本账户 Web 列表，保留已认证快照，重新读取不会复活，恢复不会发送远端社交写操作；
+确认终态的合作可删除和恢复，聚合列表与详情按同一 task/collaboration 关联状态显示。
+`productCloseTask` 只在 loopback 的 `PRODUCT_FIXTURE` 中将一个确切合成任务设为
+revoked、其合作设为 closed/cancelled，便于验证终态管理；它不代表真实双方已经取消任何业务约定。
+报告、截图和确切方法/参数证据写入 `build/workspace-sync-preview/desktop-product/`。

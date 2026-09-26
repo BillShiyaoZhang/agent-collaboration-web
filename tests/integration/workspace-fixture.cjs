@@ -166,6 +166,16 @@ async function handle(req,res){
   if(mutationMode&&typeof body.writesAllowed==='boolean')mutationWritesEnabled=body.writesAllowed;
   if(productMode){
    if(body.productPeerJoin)for(const state of productStates.values()){const c=state.collaboration_v2.collaborations.find(c=>c.task_id===body.productPeerJoin);if(c){c.joined=true;c.phase="negotiating";c.waiting_reason=null;}}
+   // Synthetic terminal evidence is confined to PRODUCT_FIXTURE on loopback.
+   if(typeof body.productCloseTask === "string") {
+    assert.match(body.productCloseTask,/^task-[A-Za-z0-9._:-]+$/);
+    let changed=0;
+    for(const state of productStates.values()) {
+     const task=state.tasks.find(value=>value.task_id===body.productCloseTask),c=state.collaboration_v2.collaborations.find(value=>value.task_id===body.productCloseTask);
+     if(task&&c) { assert.equal(state.pending_confirmations.some(value=>value.subject_id===task.task_id),false); task.status="revoked"; c.phase="closed"; c.closure_reason="cancelled"; c.waiting_reason=null; c.withdraw_pending=false; changed++; }
+    }
+    assert.equal(changed,1,"exactly one synthetic product task closes");
+   }
    if(body.productCompletion&&body.conversation_id)for(const [key,value] of turns){if(key.endsWith("|"+body.conversation_id))value.push({turn_id:"fixture-background-"+Date.now(),conversation_id:body.conversation_id,status:"completed",text:"后台结果检查",response:"后台完成，未在事项页阅读",created_at:Date.now()/1000,updated_at:Date.now()/1000});}
   }
   if(socialMode)for(const state of socialStates.values()){

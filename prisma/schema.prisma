@@ -77,6 +77,7 @@ model Agent {
   workspaceSubmission WorkspaceSubmission?
   workspaceOperations WorkspaceOperation[]
   workspaceConversationStates WorkspaceConversationState[]
+  workspaceRecordStates WorkspaceRecordState[]
   notifications WorkspaceNotification[]
   notificationBaselines WorkspaceNotificationBaseline[]
   onboardingTickets OnboardingTicket[]
@@ -293,4 +294,15 @@ model WebPushDelivery {
   lastError String?
   @@unique([subscriptionId, agentId, notificationId, revision])
   @@index([status, nextAttemptAt], map: "WebPushDelivery_due_idx")
+}
+
+// Account display tombstones survive authenticated snapshot refreshes.
+model WorkspaceRecordState {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  kind String
+  recordId String
+  payload String
+  updatedAt Float
+  @@id([agentId, kind, recordId])
 }

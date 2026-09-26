@@ -6,6 +6,7 @@ import { useLocalTime } from "@/components/local-time";
 import { collaborationView, operationMeaning, taskJudgment } from "./collaboration-workflow-model";
 import { CollaborationTaskControls, GoalWorkflow } from "./collaboration-workflow";
 import type { Workbench } from "./use-workbench";
+import { isRecordDeleted, RecordActions, recordDeletionReason } from "./record-actions";
 
 const phases: Record<string, string> = { invited: "已发起邀请", negotiating: "正在协调方案", partially_accepted: "部分接受，等待另一方", agreed: "已形成双方约定", reconciling: "正在核对双方状态", closed: "本轮协作已结束" };
 const waiting: Record<string, string> = { agreement_sync: "等待对方核对约定", agreement_ack: "等待约定同步回执", agreement_ack_delivery: "同步回执正在投递", missing_event: "正在补齐缺失事件", withdrawal_decision: "撤回结果需要核实", cancel_decision: "等待取消决定", maintenance_permission: "需要续期或调整后续同步权限", maintenance_budget: "后续同步预算已用尽，需要本人决定", event_chain_conflict: "双方事件记录存在冲突，需要核对", owner_decision: "等待本人决定", peer_join: "等待对方加入", peer_accept: "等待对方接受" };
@@ -19,7 +20,7 @@ function JudgmentCard({ data, task, collaboration, workbench: w, compact, onCont
   const peerName = strings(peer?.aliases)[0] || string(peer?.alias, "对方 agent"), peerUrn = string(collaboration?.peer_urn, string(peer?.urn));
   const resources = records(data.resources).filter(resource => strings(scope.resource_ids).includes(string(resource.resource_id)));
   return <article id={!compact ? `subject-${id}` : undefined} className="min-w-0 rounded-2xl border bg-background p-4" aria-label={`事项 ${string(scope.topic, string(terms.topic, id))}`}>
-    <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs text-muted-foreground">{peerName} · {peer ? "称呼来自本方通讯录" : "身份来自协作记录；本方称呼未提供"}</p><h4 className="mt-1 break-words font-medium">{string(scope.topic, string(terms.topic, "协作事项"))}</h4></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{phase === "closed" && closed[closure] ? closed[closure] : phases[phase] || ({ active: "委托已授权", pending: "范围待本人确认", revoked: "委托已撤销" } as Record<string, string>)[string(task.status)] || "状态待核对"}</span></div>
+    <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs text-muted-foreground">{peerName} · {peer ? "称呼来自本方通讯录" : "身份来自协作记录；本方称呼未提供"}</p><h4 className="mt-1 break-words font-medium">{string(scope.topic, string(terms.topic, "协作事项"))}</h4></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{phase === "closed" && closed[closure] ? closed[closure] : phases[phase] || ({ active: "委托已授权", pending: "范围待本人确认", revoked: "委托已撤销" } as Record<string, string>)[string(task.status)] || "状态待核对"}</span>{w && !compact && <RecordActions agentId={w.agentId} kind="collaboration" id={id} title={string(scope.topic,string(terms.topic,"协作事项"))} blockedReason={recordDeletionReason(w,"collaboration",id)} onChanged={w.refreshSaved} />}</div>
     <dl className="mt-4 grid min-w-0 gap-3 text-xs leading-6 sm:grid-cols-2">
       <div className="sm:col-span-2"><dt className="font-medium text-muted-foreground">这件事要达成什么？</dt><dd className="whitespace-pre-wrap break-words">{judgment.goal}</dd></div>
       <div><dt className="font-medium text-muted-foreground">已发生什么？</dt><dd>{judgment.progress}</dd></div>
@@ -47,16 +48,16 @@ function JudgmentCard({ data, task, collaboration, workbench: w, compact, onCont
 
 export function CollaborationOverview({ workbench: w, taskId, compact = false, onContinue }: { workbench: Workbench; taskId?: string; compact?: boolean; onContinue?: (message: string, conversationId?: string) => void }) {
   const data = w.snapshots["collaboration.state"]?.data || {}, collaborations = records(collaborationView(data).collaborations);
-  const tasks = records(data.tasks).filter(task => !taskId || task.task_id === taskId);
-  const unmatched = collaborations.filter(collaboration => (!taskId || collaboration.task_id === taskId || collaboration.collaboration_id === taskId) && !tasks.some(task => task.task_id === collaboration.task_id));
+  const tasks = records(data.tasks).filter(task => (!taskId || task.task_id === taskId) && !isRecordDeleted(w.recordStates,"collaboration",string(task.task_id)));
+  const unmatched = collaborations.filter(collaboration => !isRecordDeleted(w.recordStates,"collaboration",string(collaboration.collaboration_id)) && (!taskId || collaboration.task_id === taskId || collaboration.collaboration_id === taskId) && !tasks.some(task => task.task_id === collaboration.task_id));
   if (!tasks.length && !unmatched.length) return null;
   return <section aria-label="关联事项当前状态" className="space-y-3">{tasks.map(task => <JudgmentCard key={string(task.task_id)} data={data} task={task} collaboration={collaborations.find(collaboration => collaboration.task_id === task.task_id)} workbench={w} compact={compact} onContinue={onContinue} />)}{unmatched.map(collaboration => <JudgmentCard key={string(collaboration.collaboration_id)} data={data} task={{ task_id: collaboration.task_id, scope: { topic: record(collaboration.terms).topic } }} collaboration={collaboration} workbench={w} compact={compact} onContinue={onContinue} />)}</section>;
 }
 
 export function CollaborationSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench?: Workbench; onContinue?: (message: string, conversationId?: string) => void }) {
-  const displayTime = useLocalTime(), view = collaborationView(data), collaborations = records(view.collaborations), invitations = records(view.invitations);
+  const displayTime = useLocalTime(), view = collaborationView(data), collaborations = records(view.collaborations).filter(value => !isRecordDeleted(workbench?.recordStates,"collaboration",string(value.collaboration_id)) && !isRecordDeleted(workbench?.recordStates,"collaboration",string(value.task_id))), invitations = records(view.invitations);
   if (!collaborations.length && !invitations.length) return null;
-  return <section className="space-y-3 px-3 pb-5 sm:px-5" aria-label="双方协作">
+  return <section className="space-y-2 px-3 pb-3" aria-label="双方协作">
     <div><h3 className="text-sm font-semibold">双方协作</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">查看目标、下一步与完成范围；当前只形成和同步线上约定。</p></div>
     {invitations.map((invitation, index) => <article key={string(invitation.message_id, String(index))} id={`subject-${string(invitation.message_id)}`} className="min-w-0 rounded-2xl border p-4"><p className="text-xs text-muted-foreground">收到协作邀请 · 对端声明</p><h4 className="mt-2 break-words font-medium">{string(invitation.topic, "协作邀请")}</h4><p className="mt-2 break-all text-xs text-muted-foreground">{string(invitation.sender_urn)}</p><p className="mt-2 text-xs leading-6">邀请截止：{displayTime(invitation.expires_at) || "未提供"}。请先核对联系人、自己的范围与资料披露。好友关系和对方邀请不会授予本方协作权限。</p>{workbench && <GoalWorkflow workbench={workbench} invitation={invitation} compact />}<p className="mt-2 text-xs leading-6 text-muted-foreground">选择不加入只记录本方决定；当前没有专用拒绝通知，不能假定对方已知。</p></article>)}
     {collaborations.map(collaboration => <JudgmentCard key={string(collaboration.collaboration_id)} data={data} task={records(data.tasks).find(task => task.task_id === collaboration.task_id) || { task_id: collaboration.task_id, scope: { topic: record(collaboration.terms).topic } }} collaboration={collaboration} workbench={workbench} onContinue={onContinue} />)}

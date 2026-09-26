@@ -31,7 +31,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   const [client] = useState(() => new WorkbenchClient(agent.id));
   const lifecycle = useRef(new AbortController());
   const activeCalls = useRef(new Set<RpcMethod>());
-  const sending = useRef(false), reading = useRef(false), selecting = useRef(false);
+  const sending = useRef(false), savedReadVersion = useRef(0), selecting = useRef(false);
   const selectionVersion = useRef(0);
   const selected = useRef(seed.activeConversationId);
   const resolvedCalls = useRef(new Set<string>());
@@ -55,6 +55,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   const [text, setTextState] = useState(initialDraft.text);
   const [conversationState, setConversationState] = useState<WorkspaceConversationState>(seed.activeConversationState || {archived:false,readAt:0,draft:"",scrollTop:null});
   const [operations,setOperations] = useState(seed.operations || []);
+  const [recordStates,setRecordStates] = useState(seed.recordStates || []);
   const setText = useCallback((value: string | ((previous:string)=>string)) => {
     const nextText = typeof value === "function" ? value(textValue.current) : value;
     const id = selected.current, draft = editDraft(draftCache.current.get(id), nextText);
@@ -106,8 +107,25 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     return () => clearTimeout(timer);
   }, [text, conversationId, selectingConversation, persistDraft]);
 
+  const clearDeletedConversation = useCallback((id: string) => {
+    draftCache.current.delete(id); timeline.current.delete(id);
+    saveDraft(agent.id + ":" + id, { text: "", dirty: false, revision: 0 });
+    setConversations(previous => previous.filter(value => value.id !== id));
+    if (selected.current !== id) return;
+    selected.current = ""; selectionVersion.current++; draftEpoch.current++;
+    earlierLoaded.current = false; draftDirty.current = false; textValue.current = "";
+    draftCache.current.set("", { text: "", dirty: false, revision: 0 });
+    saveDraft(agent.id + ":", { text: "", dirty: false, revision: 0 });
+    setConversationId(""); setConversationInput(""); setTextState("");
+    setCurrentSnapshot(null); setHasEarlierTurns(false); setSubmittedTurns([]);
+    setConversationState({ archived: false, deleted: false, readAt: 0, draft: "", scrollTop: null });
+    setErrors(previous => ({ ...previous, "conversation.get": undefined, "conversation.send": undefined }));
+    setConversationError("");
+  }, [agent.id, saveDraft]);
+
   const applyWorkspace = useCallback((data: WorkspaceAgent, version: number, draftRead?: {epoch:number;dirty:boolean}) => {
-    cacheAgent(data); setIdentity(data.identity); setSync(data.sync); setConversations(data.conversations); setOperations(data.operations || []);
+    cacheAgent(data); setIdentity(data.identity); setSync(data.sync); setConversations(data.conversations); setOperations(data.operations || []); setRecordStates(data.recordStates || []);
+    if (version === selectionVersion.current && data.activeConversationId === selected.current && data.activeConversationState?.deleted && selected.current) clearDeletedConversation(selected.current);
     setSnapshots(previous => mergeSnapshots(previous, data.snapshots));
     if (data.snapshots.capabilities && !hadCapabilities.current) { hadCapabilities.current = true; setPairingOpen(false); }
     if (data.conversation) timeline.current.set(string(data.conversation.conversation_id), data.conversation);
@@ -131,20 +149,25 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
         return null;
       });
     }
-  }, [cacheAgent, restoreDraft]);
+  }, [cacheAgent, restoreDraft, clearDeletedConversation]);
 
   const refreshSaved = useCallback(async () => {
-    if (reading.current || lifecycle.current.signal.aborted) return;
-    reading.current = true;
+    if (lifecycle.current.signal.aborted) return;
+    const readVersion = ++savedReadVersion.current;
     const signal = lifecycle.current.signal, version = selectionVersion.current;
     const draftRead = {epoch:draftEpoch.current,dirty:draftDirty.current};
     const query = new URLSearchParams({ conversation_id: selected.current });
     try {
       const data = await workspaceRequest<WorkspaceAgent>(`${workspaceUrl}?${query}`, { signal });
-      if (!signal.aborted) { applyWorkspace(data, version, draftRead); setCacheError(""); }
-    } catch (error) { if (!signal.aborted) setCacheError(error instanceof Error ? error.message : "暂时无法更新，显示已保存的内容。"); }
-    finally { reading.current = false; }
+      if (!signal.aborted && readVersion === savedReadVersion.current) { applyWorkspace(data, version, draftRead); setCacheError(""); }
+    } catch (error) { if (!signal.aborted && readVersion === savedReadVersion.current) setCacheError(error instanceof Error ? error.message : "暂时无法更新，显示已保存的内容。"); }
   }, [workspaceUrl, applyWorkspace]);
+
+  const afterConversationDeleted = useCallback(async (id: string) => {
+    clearDeletedConversation(id);
+    await refreshSaved();
+    window.dispatchEvent(new CustomEvent("workspace-records-changed", { detail: { agentId: agent.id } }));
+  }, [agent.id, clearDeletedConversation, refreshSaved]);
 
   useEffect(() => {
     const controller = new AbortController(); lifecycle.current = controller;
@@ -266,6 +289,11 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
       const data = await workspaceRequest<WorkspaceAgent>(workspaceUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "select_conversation", conversationId: id || null }), signal: lifecycle.current.signal });
       if (!lifecycle.current.signal.aborted && version===selectionVersion.current) {
         if(data.activeConversationId!==id) throw new Error("会话选择结果已更新，请重新打开目标对话。");
+        if (data.activeConversationState?.deleted) {
+          clearDeletedConversation(id);
+          setConversationError("这段聊天已被删除，请先从已删除列表恢复后再打开。");
+          return false;
+        }
         selected.current=id;earlierLoaded.current=false;
         setConversationId(id);setConversationInput(id);setHasEarlierTurns(false);
         setCurrentSnapshot(timeline.current.get(id) || data.conversation);
@@ -365,7 +393,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   }
 
   function newConversation() { void selectConversation("").then(saved => { if (saved) composer.current?.focus(); }); }
-  return { agentId:agent.id, conversationState, saveConversationState, operations, policyAllowed, identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
+  return { agentId:agent.id, conversationState, saveConversationState, afterConversationDeleted, recordStates, operations, policyAllowed, identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
     capabilitySnapshot, methods, available, canSend, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
     setConversationInput, conversationError, submission, turns, currentSnapshot, watching,
     sendMessage, inspectSubmission, readConversation, newConversation, conversations, selectConversation, selectingConversation,

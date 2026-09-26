@@ -1,2 +1,11 @@
 import Link from "next/link";
-export default function MePage() { return <div className="space-y-6"><header><h1 className="text-2xl font-semibold">我</h1><p className="mt-2 text-sm text-muted-foreground">管理自己的连接、访问与提醒。</p></header><Link href="/dashboard/agents" className="block rounded-xl border bg-card p-5"><h2 className="font-medium">我的连接与访问</h2><p className="mt-2 text-sm leading-7 text-muted-foreground">查看 agent、连接状态、授权范围和期限。删除网页连接不撤销 agent 本机配对。</p></Link><Link href="/dashboard/notifications" className="block rounded-xl border bg-card p-5"><h2 className="font-medium">提醒与设备设置</h2><p className="mt-2 text-sm leading-7 text-muted-foreground">未读与待处理分别管理，按设备开启概括系统提醒。</p></Link><section className="rounded-xl border bg-card p-5"><h2 className="font-medium">数据与授权</h2><p className="mt-2 text-sm leading-7 text-muted-foreground">归档仅整理主题。Web 保存获准读取的加密账户副本，托管服务可解密处理这些内容。暂停网页控制、撤销本机配对、停止合规披露有不同作用；已披露内容不能召回。</p><Link href="/docs/?path=deploy/users/README.md" className="mt-3 inline-block text-sm text-primary underline">查看权限与数据说明</Link></section></div>; }
+import { ChevronRight } from "lucide-react";
+import { Footer } from "@/components/layout/footer";
+
+export default function MePage() {
+  return <div className="space-y-4"><h1 className="text-lg font-semibold">我</h1><section aria-label="账户设置" className="divide-y rounded-md border bg-card">{[
+    { href: "/dashboard/agents", title: "我的连接与访问", text: "管理连接名称、网页访问与连接设置" },
+    { href: "/dashboard/notifications", title: "提醒与设备设置", text: "查看未读、待处理事项与系统提醒" },
+    { href: "/docs/?path=deploy/users/README.md", title: "权限与数据说明", text: "查看配对、平台政策与账户副本的边界" },
+  ].map(item => <Link key={item.href} href={item.href} className="flex items-center gap-3 p-3 hover:bg-muted"><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{item.title}</span><span className="mt-0.5 block text-xs text-muted-foreground">{item.text}</span></span><ChevronRight className="h-4 w-4 text-muted-foreground" /></Link>)}</section><details className="rounded-md border p-3"><summary className="cursor-pointer text-sm font-medium">数据与授权</summary><p className="mt-2 text-sm leading-6 text-muted-foreground">Web 保存获准读取的加密账户副本，托管服务可解密这些内容。删除网页连接会删除本账户对应副本，远端数据与本机配对仍保留。暂停网页控制、撤销本机配对与停止合规披露分别管理；已披露内容不能召回。</p></details><Footer /></div>;
+}

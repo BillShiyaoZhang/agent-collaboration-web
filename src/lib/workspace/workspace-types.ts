@@ -15,11 +15,12 @@ export type WorkspaceOperation = {
 export type WorkspaceConversationState = {
   title?: string;
   archived: boolean;
+  deleted?: boolean;
   readAt: number;
   draft: string;
   scrollTop: number | null;
 };
-export type WorkspaceConversation = BaseWorkspaceConversation & { archived?: boolean; readAt?: number; unread?: boolean };
+export type WorkspaceConversation = BaseWorkspaceConversation & { deleted?: boolean; archived?: boolean; readAt?: number; unread?: boolean };
 export type WorkspaceConversationMatch = { turnId: string; field: "text" | "response"; excerpt: string };
 export type WorkspaceConversationPage = {
   items: (WorkspaceConversation & { match?: WorkspaceConversationMatch })[];
@@ -27,8 +28,11 @@ export type WorkspaceConversationPage = {
   hasMore: boolean;
   scope: "saved_account_history";
 };
+export type WorkspaceRecordKind = "contact" | "collaboration";
+export type WorkspaceRecordState = { kind: WorkspaceRecordKind; id: string; deleted: boolean; updatedAt: number; title?: string; relatedIds?: string[] };
 export type WorkspaceAgent = Omit<BaseWorkspaceAgent, "conversations"> & {
   conversations: WorkspaceConversation[];
   operations?: WorkspaceOperation[];
+  recordStates?: WorkspaceRecordState[];
   activeConversationState?: WorkspaceConversationState;
 };

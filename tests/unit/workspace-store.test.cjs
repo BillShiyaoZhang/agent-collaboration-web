@@ -837,3 +837,102 @@ test("description reads do not enter the business ledger and old description aud
  assert.equal(restored.length,1);assert.deepEqual(restored[0].call,write);assert.equal(restored[0].phase,"uncertain");
  assert.equal((await db.$queryRawUnsafe('SELECT COUNT(*) as n FROM "WorkspaceOperation"'))[0].n,2n,"old read audit remains stored");
 }));
+
+
+test("deleted chats retain encrypted history, survive sync and delayed metadata saves, and require explicit restoration", () => fixture(async ({ db, user, other, agent, store, save }) => {
+  await save("conversation.get", { conversation_id: "old-chat", turns: [{ turn_id: "old-turn", text: "private history", response: "private answer", status: "completed" }] });
+  await store.selectWorkspaceConversation(user.id, agent.id, "old-chat");
+  await store.saveWorkspaceConversationState(user.id, agent.id, "old-chat", { title: "My private title", archived: true, draft: "saved draft" });
+  const deleted = await store.saveWorkspaceConversationState(user.id, agent.id, "old-chat", { deleted: true });
+  assert.equal(deleted.deleted, true);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).activeConversationId, "");
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id, { archived: "all" })).items.length, 0);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id, { deleted: "deleted" })).items[0].title, "My private title");
+  await store.saveWorkspaceConversationState(user.id, agent.id, "old-chat", { draft: "late saved draft", readAt: Date.now() });
+  await save("conversation.get", { conversation_id: "old-chat", turns: [{ turn_id: "new-turn", text: "later remote history", status: "completed" }] }, Date.now() + 100);
+  const restoredStore = (await store.getWorkspaceAgent(user.id, agent.id, "old-chat"));
+  assert.equal(restoredStore.activeConversationId, "old-chat", "deleted reads remain bound to their requested ID even after account selection clears");
+  assert.equal(restoredStore.activeConversationState.deleted, true);
+  assert.equal(restoredStore.conversation, null); assert.equal(restoredStore.snapshots["conversation.get"], undefined);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id, { q: "later remote", archived: "all" })).items.length, 0);
+  await assert.rejects(store.selectWorkspaceConversation(user.id, agent.id, "old-chat"), { status: 409 });
+  await assert.rejects(store.reserveWorkspaceSubmission(user, agent, { request_id: crypto.randomUUID(), method: "conversation.send", params: { conversation_id: "old-chat", text: "never send hidden" } }), { status: 409 });
+  await assert.rejects(store.saveWorkspaceConversationState(other.id, agent.id, "old-chat", { deleted: false }), { status: 404 });
+  await store.saveWorkspaceConversationState(user.id, agent.id, "old-chat", { deleted: false });
+  await store.selectWorkspaceConversation(user.id, agent.id, "old-chat");
+  const visible = await store.getWorkspaceAgent(user.id, agent.id, "old-chat");
+  assert.equal(visible.conversation.turns.length, 2); assert.equal(visible.activeConversationState.draft, "late saved draft");
+  const dump = JSON.stringify(await db.$queryRawUnsafe('SELECT "payload" FROM "WorkspaceConversationState"'));
+  assert.doesNotMatch(dump, /My private title|late saved draft/);
+}));
+
+test("deletion cannot hide running turns, uncertain submissions, or unsettled business writes", () => fixture(async ({ user, agent, store, save }) => {
+  await save("conversation.get", { conversation_id: "processing", turns: [{ turn_id: "working", status: "running", text: "work" }] });
+  await assert.rejects(store.saveWorkspaceConversationState(user.id, agent.id, "processing", { deleted: true }), { status: 409 });
+  await assert.rejects(store.removeWorkspaceAgent(user.id, agent.id), { status: 409 });
+  await save("conversation.get", { conversation_id: "processing", turns: [{ turn_id: "working", status: "completed", response: "done" }] }, Date.now() + 1);
+  const send = { request_id: crypto.randomUUID(), method: "conversation.send", params: { conversation_id: "processing", text: "unknown" } };
+  await store.reserveWorkspaceSubmission(user, agent, send); await store.markWorkspaceSubmissionUncertain(agent.id, send.request_id);
+  await assert.rejects(store.saveWorkspaceConversationState(user.id, agent.id, "processing", { deleted: true }), { status: 409 });
+  await assert.rejects(store.removeWorkspaceAgent(user.id, agent.id), { status: 409 });
+  await store.clearWorkspaceSubmission(agent.id, send.request_id);
+  const action = { request_id: crypto.randomUUID(), method: "collaboration.execute", params: { action: "prepare_task", task_id: "unknown-action" } };
+  await store.reserveWorkspaceOperation(user.id, agent.id, action); await store.updateWorkspaceOperation(user.id, agent.id, action.request_id, { phase: "uncertain", retryable: false });
+  await assert.rejects(store.saveWorkspaceConversationState(user.id, agent.id, "processing", { deleted: true }), { status: 409 });
+  await assert.rejects(store.removeWorkspaceAgent(user.id, agent.id), { status: 409 });
+  assert.equal((await store.getWorkspaceOperations(user.id, agent.id))[0].call.request_id, action.request_id);
+}));
+
+test("contact view deletion is account scoped, blocks pending relationships and survives authenticated refreshes", () => fixture(async ({ db, user, other, agent, store, save, makeStore }) => {
+  const contact = { contact_id: "friend", aliases: ["Private friend name"], urn: "urn:agent:friend", connection_status: "connected" };
+  await save("contacts.list", { contacts: [contact] });
+  const state = await store.saveWorkspaceRecordState(user.id, agent.id, "contact", "friend", true);
+  assert.equal(state.deleted, true); assert.equal(state.title, "Private friend name");
+  await save("contacts.list", { contacts: [{ ...contact, last_presence_at: Date.now() / 1000 }] }, Date.now() + 100);
+  assert.equal((await makeStore().getWorkspaceAgent(user.id, agent.id)).recordStates[0].deleted, true);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["contacts.list"].data.contacts[0].contact_id, "friend", "authenticated agent facts are retained");
+  await assert.rejects(store.getWorkspaceRecordStates(other.id, agent.id), { status: 404 });
+  await assert.rejects(store.saveWorkspaceRecordState(other.id, agent.id, "contact", "friend", false), { status: 404 });
+  await assert.rejects(store.reserveWorkspaceOperation(user.id, agent.id, { request_id: crypto.randomUUID(), method: "messages.send", params: { recipient_urn: contact.urn, text: "hidden target" } }), { status: 409 });
+  assert.doesNotMatch(JSON.stringify(await db.$queryRawUnsafe('SELECT * FROM "WorkspaceRecordState"')), /Private friend name/);
+  await save("contacts.list", { contacts: [] }, Date.now() + 200);
+  const restored = await store.saveWorkspaceRecordState(user.id, agent.id, "contact", "friend", false);
+  assert.equal(restored.title, "Private friend name"); assert.equal(restored.deleted, false);
+  await save("contacts.list", { contacts: [{ ...contact, connection_status: "pending" }] }, Date.now() + 300);
+  await assert.rejects(store.saveWorkspaceRecordState(user.id, agent.id, "contact", "friend", true), { status: 409 });
+}));
+
+test("collaboration aliases share one recoverable tombstone and cannot hide live or unconfirmed completion", () => fixture(async ({ user, agent, store, save }) => {
+  const task = { task_id: "task-view", status: "active", scope: { topic: "Private cooperation title" } };
+  const collaboration = { task_id: "task-view", collaboration_id: "collab-view", phase: "closed", closure_reason: "agreement_only_complete", agreement_synced: false };
+  await save("collaboration.state", { tasks: [task], collaborations: [collaboration] });
+  await assert.rejects(store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "collab-view", true), { status: 409 });
+  await save("collaboration.state", { tasks: [task], collaborations: [{ ...collaboration, agreement_synced: true }], pending_confirmations: [{ approval_id: "approval", subject_id: task.task_id, status: "pending" }] }, Date.now() + 100);
+  await assert.rejects(store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "task-view", true), { status: 409 });
+  await save("collaboration.state", { tasks: [task], collaborations: [{ ...collaboration, agreement_synced: true }], pending_confirmations: [] }, Date.now() + 200);
+  const state = await store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "collab-view", true);
+  assert.equal(state.id, "task-view"); assert.deepEqual(new Set(state.relatedIds), new Set(["task-view", "collab-view"]));
+  assert.equal((await store.getWorkspaceRecordStates(user.id, agent.id)).length, 1);
+  await save("collaboration.state", { tasks: [], collaborations: [] }, Date.now() + 300);
+  const restored = await store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "collab-view", false);
+  assert.equal(restored.id, "task-view"); assert.equal(restored.deleted, false); assert.equal(restored.title, "Private cooperation title");
+  await assert.rejects(store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "missing", true), { status: 404 });
+}));
+
+test("connection rename and removal isolate shared URNs, cascade Web records and preserve other account identity", () => fixture(async ({ db, user, other, agent, otherAgent, store, save }) => {
+  await save("contacts.list", { contacts: [{ contact_id: "friend", aliases: ["friend"], connection_status: "connected" }] });
+  await store.saveWorkspaceRecordState(user.id, agent.id, "contact", "friend", true);
+  await save("conversation.get", { conversation_id: "closed", turns: [{ turn_id: "turn", text: "private", status: "completed" }] });
+  await store.saveWorkspaceConversationState(user.id, agent.id, "closed", { deleted: true });
+  const identity = await db.user.findUnique({ where: { id: user.id } });
+  await assert.rejects(store.renameWorkspaceAgent(other.id, agent.id, "attack"), { status: 404 });
+  await assert.rejects(store.removeWorkspaceAgent(other.id, agent.id), { status: 404 });
+  assert.deepEqual(await store.renameWorkspaceAgent(user.id, agent.id, "My renamed agent"), { id: agent.id, name: "My renamed agent" });
+  await store.removeWorkspaceAgent(user.id, agent.id);
+  assert.equal(await store.getWorkspaceAgent(user.id, agent.id), null);
+  assert.equal((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceRecordState"'))[0].n, 0n);
+  assert.equal((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceItem" WHERE "agentId" = ?', agent.id))[0].n, 0n);
+  assert.equal((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceConversationState"'))[0].n, 0n);
+  assert.equal((await store.getWorkspaceAgent(other.id, otherAgent.id)).agent.urn, agent.urn);
+  assert.deepEqual(await db.user.findUnique({ where: { id: user.id } }), identity);
+}));
