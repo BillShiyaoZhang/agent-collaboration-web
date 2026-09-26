@@ -1,0 +1,2 @@
+import React from 'react';import {renderToString} from 'react-dom/server';import {App,initial,fixedError} from './app';
+export function ssr(kind:string){return renderToString(<App kind={kind}/>);}export{initial,fixedError};

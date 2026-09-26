@@ -141,3 +141,21 @@ revoked、其合作设为 closed/cancelled，便于验证终态管理；它不�
 `node tests/integration/workspace-hydration-browser.cjs`。三个独立文档分别延迟首次 Next.js 脚本，验证合作筛选、已保存聊天搜索和消息输入在 SSR 阶段受 disabled/inert 保护；一次正常 click/fill 在加载期间等待，释放脚本后同一次操作生效。脚本不等待 React 内部属性，不重点击或重填；所有业务 POST 被拦截。账号、数据库和业务事实仅为 loopback 合成数据。
 
 `workspace-hydration.test.cjs` 使用 React 服务端渲染验证两工作区的保护范围。浏览器回归负责验证原生控件继承的禁用状态、首操作和就绪后的实际布局，不能仅用截图或 HTML 属性代替。
+
+### 父上下文先更新时的真实 hydration 回归
+
+运行 `node tests/integration/workspace-context-hydration-browser.cjs`，无需启动 Next.js 或 fixture。
+脚本使用已安装的 Webpack、TypeScript 和真实生产版 React，将现有 `usePolicyAccess`、
+`useWorkbench` 与依赖编译到独立的 loopback 随机端口；私有 Context 仅由测试 loader 暴露。
+测试入口使用 `.tsx.fixture`，不进入产品 TypeScript 编译；生成的 bundle、旧源码快照和报告
+仅写入 `build/workspace-sync-preview/context-hydration/`。
+
+三个独立场景分别检查政策权限、外部同步错误和两者组合：SSR 消费者得到 false/空错误，
+客户端首次 hydrate 时父 Context 已为 true/固定合成错误。固定 r3 提交 `48df62e` 的真实 hooks
+作为负对照，必须触发一个 React 418 HTML 错误；当前 hooks 首次渲染必须与 SSR 一致且无
+recoverable/page 错误，随后显示最新权限和错误。一次正常点击撤销政策须立即移除操作权限，
+清除外部错误后提示须消失。测试不登录账户，不允许业务写入或访问 loopback 之外的地址。
+
+运行负对照需要本地 Git 历史包含 `48df62e`；`HARNESS_VARIANTS=new` 可单独验证当前 hooks，
+但不提供旧行为的负对照证据。`PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 可指定已有工具。
+这项合成消费者时序证明首次 hydration 的边界行为，不等于已定位某次生产页面的全部异常。

@@ -163,6 +163,7 @@ node tests/integration/workspace-resilience.cjs
 - 删除、恢复均验证账户、同源与确切对象。sending/uncertain 写操作或未确认发送会阻止删除；运行中的主题、待处理好友申请、非终态合作和相关待审批不能被隐藏。恢复不会发起远程业务动作。
 - 详情删除/恢复成功后，`workspace-records-changed` 携带服务端确认的 `{agentId,state}`。Hub 立即合并当前账户已有 agent 的记录状态，保留标题与关联 ID，并作废旧读取，再后台核验；不能等轮询才能从总览隐藏或恢复。
 - `MyAgentsWorkspace` 与 `WorkspaceHub` 各自在客户端首次提交后解除 `fieldset disabled/inert`，以 `display:contents` 保留原布局；SSR 阶段的搜索、筛选、原生消息输入和管理入口暂不可用，就绪后自动启用。当前子树为同步静态导入；若将来拆出独立 Suspense/lazy 边界，应在该边界验证自己的就绪状态，不能提前由父组件开放。真实 SSR 单元和延迟脚本的单次操作浏览器回归见 [测试说明](../../tests/README.md)。
+- 页面中的 `usePolicyAccess` 与 `useWorkbench` 各自使用 `useHydrated` 的 `useSyncExternalStore` 服务端快照。政策权限在 SSR 和首次 hydration 为 `false`，外层 WorkspaceProvider 的错误在这两次渲染为空；即使布局 provider 已先刷新，迟到的页面也必须重现自己的服务端树。hydration 完成后读取当前 context，撤销权限立即生效，真实连接错误正常显示；页面自己的错误状态始终保留。客户端页面切换使用 client snapshot，不等待父组件副作用决定顺序。此契约的真实 SSR hook 回归见 `tests/unit/workbench-context-hydration.test.cjs`；该确定性修复不等于已定位某一次线上 React #418 的原始来源。
 
 ## 工作空间体验
 

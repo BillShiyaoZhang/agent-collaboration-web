@@ -1,0 +1,14 @@
+import React,{useState} from 'react';
+import {__testPolicyAccessContext,usePolicyAccess} from '@/components/workbench/policy-disclosure';
+import {__testWorkspaceContext} from '@/components/workspace-provider';
+import {useWorkbench} from '@/components/workbench/use-workbench';
+export const fixedError='Synthetic parent synchronization failed.';
+export const initial={agent:{id:'hydration-synthetic',name:'Synthetic',urn:'urn:fixture:synthetic'},identity:{virtualUrn:'urn:fixture:console',virtualEd25519PublicKey:'1'.repeat(64)},sync:{status:'ready'},snapshots:{capabilities:{time:1,data:{methods:[{name:'contacts.add',available:true}],pairing:{expires_at:'2099-01-01T00:00:00.000Z'}}}},activeConversationId:'',activeConversationState:{archived:false,readAt:0,draft:'',scrollTop:null},conversations:[],conversation:null,hasEarlierTurns:false,submission:null,operations:[],recordStates:[]};
+const callbacks={cacheAgent:()=>{},requestSync:async()=>{},getDraft:()=>undefined,saveDraft:()=>{},getCachedAgent:()=>undefined,refresh:async()=>{}};
+function trace(allowed:boolean,error:string){if(typeof window!=='undefined')(window as any).__renderTrace.push({allowed,error});}
+function PolicyConsumer(){const allowed=usePolicyAccess();trace(allowed,'');return <section data-consumer="policy">{allowed?<button data-policy-allowed>Allowed</button>:<p data-policy-denied>Await policy</p>}</section>;}
+function WorkbenchConsumer({kind}:{kind:string}){const w=useWorkbench(initial.agent,initial as any);trace(w.policyAllowed,w.cacheError);return <section data-consumer="workbench">{kind==='combined'&&(!w.policyAllowed?<p data-policy-denied>Await policy</p>:<button data-policy-allowed disabled={!w.canAddContact}>Allowed contact action</button>)}{w.cacheError&&<p data-external-error>{w.cacheError}</p>}<span data-saved>Saved history</span></section>;}
+export function App({kind,client=false}:{kind:string,client?:boolean}){
+ const[allowed,setAllowed]=useState(client&&kind!=='error'),[error,setError]=useState(client&&kind!=='policy'?fixedError:'');
+ return <__testPolicyAccessContext.Provider value={allowed}><__testWorkspaceContext.Provider value={{...callbacks,error,connections:[],loading:false}}><main>{kind==='policy'?<PolicyConsumer/>:<WorkbenchConsumer kind={kind}/>}<button id="revoke" onClick={()=>setAllowed(false)}>Revoke policy</button><button id="clear-error" onClick={()=>setError('')}>Clear external error</button></main></__testWorkspaceContext.Provider></__testPolicyAccessContext.Provider>;
+}

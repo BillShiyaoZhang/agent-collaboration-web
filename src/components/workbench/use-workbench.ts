@@ -9,6 +9,7 @@ import { useWorkbenchMutations } from "./use-workbench-mutations";
 import { createMetadataQueue } from "@/lib/product/metadata-queue";
 import { acknowledgeDraft, chooseDraft, draftReadCanRestore, editDraft, type LocalDraft } from "@/lib/product/draft-cache";
 import { usePolicyAccess } from "./policy-disclosure";
+import { useHydrated } from "@/components/local-time";
 
 export type Connection = { id: string; name: string; urn: string };
 type Outcome = { result?: RemoteRecord; error?: WorkbenchError };
@@ -19,6 +20,7 @@ async function expectedTurnId(consoleUrn: string, requestId: string) {
 }
 
 export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
+  const hydrated = useHydrated();
   const policyAllowed = usePolicyAccess();
   const { cacheAgent, requestSync, getDraft, saveDraft, error: workspaceError } = useWorkspace();
   const [seed] = useState(() => {
@@ -397,7 +399,10 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     capabilitySnapshot, methods, available, canSend, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
     setConversationInput, conversationError, submission, turns, currentSnapshot, watching,
     sendMessage, inspectSubmission, readConversation, newConversation, conversations, selectConversation, selectingConversation,
-    hasEarlierTurns, loadingEarlier, loadEarlier, dismissSubmission, dismissingSubmission, sync, cacheError: cacheError || workspaceError, refreshSaved };
+    hasEarlierTurns, loadingEarlier, loadEarlier, dismissSubmission, dismissingSubmission, sync,
+    // The outer provider can report an error before this page hydrates. Its SSR
+    // snapshot was empty; local errors and all post-hydration errors stay visible.
+    cacheError: cacheError || (hydrated ? workspaceError : ""), refreshSaved };
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;

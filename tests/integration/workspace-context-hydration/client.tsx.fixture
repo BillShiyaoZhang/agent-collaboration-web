@@ -1,0 +1,3 @@
+import React from 'react';import {hydrateRoot} from 'react-dom/client';import {App} from './app';
+(window as any).__recoverable=[];(window as any).__renderTrace=[];
+hydrateRoot(document.getElementById('root')!,<App kind={(window as any).__kind} client/>,{onRecoverableError:error=>(window as any).__recoverable.push({message:error.message,code:error.message.match(/React error #(\d+)/)?.[1]||'OTHER'})});

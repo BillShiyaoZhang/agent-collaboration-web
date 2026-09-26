@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/components/local-time";
 import type { PolicyDisclosure } from "@/lib/control/policy-disclosure-types";
 
 async function readResponse(response: Response): Promise<PolicyDisclosure> {
@@ -12,7 +13,13 @@ async function readResponse(response: Response): Promise<PolicyDisclosure> {
 }
 
 const PolicyAccessContext = createContext(false);
-export const usePolicyAccess = () => useContext(PolicyAccessContext);
+export function usePolicyAccess() {
+  const access = useContext(PolicyAccessContext);
+  const hydrated = useHydrated();
+  // A layout provider may refresh before a streamed page consumer hydrates.
+  // Reproduce that consumer's server snapshot, then use the current policy.
+  return hydrated && access;
+}
 
 /** Disclose the verified policy while retaining access to saved, read-only account history. */
 export function PolicyDisclosureGate({ children, compact = false }: { children: ReactNode; compact?: boolean }) {
