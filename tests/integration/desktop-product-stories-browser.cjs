@@ -258,7 +258,15 @@ async function main() {
   // update the aggregate immediately, even while activity revalidation is held.
   let releaseActivity, heldActivityReads = 0;
   const activityGate = new Promise(resolve => { releaseActivity = resolve; });
-  const holdActivity = async route => { heldActivityReads++; await activityGate; await route.continue(); };
+  const holdActivity = async route => {
+    heldActivityReads++; await activityGate;
+    try { await route.continue(); }
+    catch (error) {
+      const failure = route.request().failure()?.errorText;
+      if (error.message.includes('Route is already handled!') && failure === 'net::ERR_ABORTED') return;
+      throw error;
+    }
+  };
   await page.route('**/api/workspace/activity', holdActivity);
   try {
     await taskDelete.click();
@@ -279,7 +287,7 @@ async function main() {
     assert.ok(heldActivityReads > 0, 'aggregate delete and restore succeed before blocked activity revalidation is released');
   } finally {
     releaseActivity();
-    await page.unroute('**/api/workspace/activity', holdActivity);
+    await page.unrouteAll({ behavior: 'wait' });
   }
   await collaborations(page);
   await taskCard.getByText('双方已取消约定', { exact: true }).waitFor();
