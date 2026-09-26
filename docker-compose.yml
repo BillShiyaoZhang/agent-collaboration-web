@@ -5,12 +5,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPPORT_EMAIL: ${NEXT_PUBLIC_SUPPORT_EMAIL:-}
     ports:
       - "127.0.0.1:${WEB_PORT:-3000}:3000"
     environment:
       - DATABASE_URL=file:./prod.db
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - "AUTH_EMAIL_FROM=${AUTH_EMAIL_FROM:-Agent Comm <accounts@notify.agent-communication.online>}"
+      - AUTH_EMAIL_REPLY_TO=${AUTH_EMAIL_REPLY_TO:-}
+      - AUTH_EMAIL_DAILY_LIMIT=${AUTH_EMAIL_DAILY_LIMIT:-90}
       - AGENT_PLATFORM_URL=${AGENT_PLATFORM_URL:-http://platform:8080}
     volumes:
       - ./prisma:/app/prisma

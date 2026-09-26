@@ -18,6 +18,10 @@ COPY . .
 # Generate Prisma Client
 RUN npx --no-install prisma generate
 
+# Public contact is compiled into client bundles. Never pass mail API secrets here.
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=""
+ENV NEXT_PUBLIC_SUPPORT_EMAIL=$NEXT_PUBLIC_SUPPORT_EMAIL
+
 # Run npm build
 RUN npm run build
 
@@ -42,6 +46,7 @@ COPY --from=builder /app/docs ./docs
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/scripts/migrate-account-email.cjs ./scripts/migrate-account-email.cjs
 COPY --from=builder /app/docker-entrypoint.sh ./
 
 # A source checkout may have been created with umask 077. Docker COPY retains

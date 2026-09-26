@@ -11,6 +11,9 @@ model User {
   id String @id @default(cuid())
   email String @unique
   passwordHash String
+  emailVerifiedAt DateTime?
+  requiresEmailVerification Boolean @default(false)
+  sessionVersion Int @default(0)
   virtualUrn String? @unique
   virtualEd25519PublicKey String?
   virtualEd25519PrivateKey String?
@@ -25,6 +28,7 @@ model User {
   managedCertificate ManagedConsoleCertificate?
   policyConsent UserPolicyConsent?
   controlPause UserControlPause?
+  emailTokens EmailActionToken[]
 }
 // Signed platform-policy rollback guard and short-lived managed console grant.
 model PlatformPolicyState {
@@ -305,4 +309,34 @@ model WorkspaceRecordState {
   payload String
   updatedAt Float
   @@id([agentId, kind, recordId])
+}
+
+// Only SHA-256 digests are stored; links activate after provider acceptance.
+model EmailActionToken {
+  hash String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose String
+  sessionVersion Int
+  passwordHash String?
+  callbackUrl String?
+  createdAt Float
+  expiresAt Float
+  activeAt Float?
+  consumedAt Float?
+  @@index([userId, purpose], map: "EmailActionToken_user_purpose_idx")
+  @@index([expiresAt], map: "EmailActionToken_expiry_idx")
+}
+model AuthEmailSend {
+  id String @id
+  recipientHash String
+  purpose String
+  createdAt Float
+  status String
+  @@index([recipientHash, createdAt], map: "AuthEmailSend_recipient_idx")
+  @@index([createdAt], map: "AuthEmailSend_time_idx")
+}
+model AuthEmailBudget {
+  day String @id
+  used Int @default(0)
 }

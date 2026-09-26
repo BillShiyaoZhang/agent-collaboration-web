@@ -64,24 +64,33 @@ test('NextAuth POST bounds the stream before its parser and preserves normal for
   assert.strictEqual(calls[0].context, context); assert.equal(calls[0].form.csrfToken, 'test'); assert.equal(calls[0].form.password, 'long-safe-password');
 });
 
-test('public registration rejects oversized streams, malformed JSON and overlong passwords before database or hashing', async () => {
+test('public registration rejects oversized streams, malformed JSON and overlong passwords before account work', async () => {
   const calls = [];
   const passwords = load('../../src/lib/auth/password.ts');
-  const route = load('../../src/app/api/auth/register/route.ts', {
-    '@/lib/auth/password': passwords, '@/lib/shared/http-input': input,
-    '@/lib/auth/auth': { hashPassword: async () => { calls.push('hash'); return 'hash'; } },
-    '@/lib/shared/db': { prisma: { user: { findUnique: async () => { calls.push('find'); return null; }, create: async ({ data }) => { calls.push('create'); return { id: 'user', email: data.email }; } } } },
+  class AccountEmailError extends Error { constructor(message, status, code) { super(message); this.status = status; this.code = code; } }
+  const helper = load('../../src/lib/auth/account-email-http.ts', {
+    './password': passwords, '@/lib/shared/http-input': input, './account-email': { AccountEmailError },
+    './auth': { authOptions: {} }, 'next-auth': { getServerSession: async () => null },
   });
-  const source = streamRequest(8192);
-  assert.equal((await route.POST(source.request)).status, 413); assert.equal(source.pulls(), 3);
-  const req = body => new Request('https://console.example/api/auth/register', { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) });
-  assert.equal((await route.POST(req('{'))).status, 400);
-  assert.equal((await route.POST(req({ email: 'a@example.com', password: '中'.repeat(342) }))).status, 400);
-  assert.deepEqual(calls, []);
-  assert.equal((await route.POST(req({ email: 'a@example.com', password: 'valid-safe-password' }))).status, 201);
-  assert.deepEqual(calls, ['find', 'hash', 'create']);
+  const route = load('../../src/app/api/auth/register/route.ts', {
+    '@/lib/auth/account-email-http': helper,
+    '@/lib/auth/account-email': { accountEmailService: { register: async () => { calls.push('register'); return { message: 'generic response' }; } } },
+  });
+  const previous = process.env.NEXTAUTH_URL; process.env.NEXTAUTH_URL = 'https://console.example';
+  try {
+    const source = streamRequest(8192, { origin: 'https://console.example' });
+    assert.equal((await route.POST(source.request)).status, 413); assert.equal(source.pulls(), 3);
+    const req = body => new Request('https://console.example/api/auth/register', { method: 'POST', headers: { origin: 'https://console.example' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    assert.equal((await route.POST(req('{'))).status, 400);
+    assert.equal((await route.POST(req({ email: 'a@example.com', password: '中'.repeat(342) }))).status, 400);
+    assert.deepEqual(calls, []);
+    const response = await route.POST(req({ email: 'a@example.com', password: 'valid-safe-password' }));
+    assert.equal(response.status, 202); assert.match(response.headers.get('cache-control'), /no-store/);
+    assert.deepEqual(calls, ['register']);
+    const denied = await route.POST(new Request('https://evil.example/api/auth/register', { method: 'POST', headers: { origin: 'https://evil.example' }, body: '{}' }));
+    assert.equal(denied.status, 403);
+  } finally { if (previous === undefined) delete process.env.NEXTAUTH_URL; else process.env.NEXTAUTH_URL = previous; }
 });
-
 test('saving an agent connection enforces body limits before registry or persistence access', async () => {
   const calls = [];
   class ControlError extends Error { constructor(message, status) { super(message); this.status = status; } }

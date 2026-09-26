@@ -9,6 +9,11 @@
 | DATABASE_URL | Web SQLite 路径，生产根项目使用 file:/app/data/prod.db |
 | NEXTAUTH_URL | 用户实际访问的 HTTPS Origin；同源校验使用此值 |
 | NEXTAUTH_SECRET | 登录会话、控制台私钥及工作台内容的保护密钥，须保留旧值 |
+| RESEND_API_KEY | 仅服务端使用的 Resend Sending 密钥；生产必须限定到已验证的发信域名 |
+| AUTH_EMAIL_FROM | 事务发信标识，例如 `Agent Comm <accounts@notify.agent-communication.online>` |
+| AUTH_EMAIL_REPLY_TO | 可空，默认不指定回复收件人；腾讯人工邮箱验收后再设 support 地址 |
+| AUTH_EMAIL_DAILY_LIMIT | 全局 UTC 日发送尝试预算，默认 90，仅允许 1～100；失败尝试同样计入 |
+| NEXT_PUBLIC_SUPPORT_EMAIL | 可选公开客服邮箱，默认空隐藏；生产构建时写入浏览器代码，启用／变更需重建镜像 |
 | AGENT_PLATFORM_URL | 服务端访问 Registry/MQ 的地址，如 http://platform:8080 |
 | AGENT_V2_POLICY_ROOT_PUBLIC_KEY | 连接 v2 Platform 时预置的策略根 Ed25519 公钥，64 位十六进制；设置后策略端点不可用时停止旧控制流 |
 | AGENT_V2_PLATFORM_ID | 与已签 v2 策略一致的平台 ID；连接 v2 Platform 时必填 |
@@ -36,6 +41,20 @@ Web 的 JavaScript 策略解析只接受安全整数 epoch（不大于 `2^53-1`�
 
 后台同步由 Next.js instrumentation 启动常驻 Node worker，部署必须维持 Node 进程和可写持久 SQLite 卷。只在 HTTP 请求期间运行的环境不能保证浏览器关闭后继续同步。worker 使用租约、去重和失败退避；读取通过既有 Registry/MQ 发往 agent，不需要新的公网监听端口，也不依赖浏览器定时点击。
 
+## 账户邮件配置与验收
+
+本项目直接通过 HTTPS Resend API 发信，不使用腾讯 SMTP。可以先仅开通 Resend 事务邮件，腾讯 support 人工收发稍后启用；根域现有收信 MX 保留，Resend 只验证 notify 发信子域并保持 inbound 关闭。真实 TXT/CNAME/MX 值从当次供应商控制台取得，网站 A/AAAA 保留，步骤见[根部署仓库邮件运维指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/operations/EMAIL.md)。
+
+缺少 `RESEND_API_KEY`、From、有效 `NEXTAUTH_URL`，或生产 Origin 不是 HTTPS 时，邮件操作返回服务未配置；旧账户原登录保留，但新账户无法完成验证。生产 Origin 必须为实际公网 HTTPS 网站；邮件链接使用配置 Origin，同源 POST 才能消费 token，GET 只展示确认页。关闭供应商链接／打开追踪，避免改写验证或密码链接。Reply-To 可空；人工邮箱未开通时邮件不承诺回复有人处理。网站客服地址使用构建时 `NEXT_PUBLIC_SUPPORT_EMAIL`，默认空即不显示。
+
+Resend 免费额度当前为 UTC 每日 100、每月 3,000 个收件人；本应用默认每日 90 次尝试、全局每分钟 10 次、同收件人跨用途 60 秒冷却，明确失败至少 15 秒再试。预算在数据库中统一预留，进程重启不会重置。供应商同团队其他发信共享额度，需同时检查 Dashboard Usage。公开注册／重发／找回在配置有效时对不存在账户、供应商失败与限流仍返回中性提示；只有用户真正完成邮件确认才写入验证状态。供应商接受发信请求不表示用户已收到；初期通过 Dashboard 和 QQ/163/Gmail/Outlook 的真实邮箱验收，当前未接入送达／退信 webhook。
+
+根 Compose 与本仓独立 Compose 都透传四项运行时邮件变量；这些变量改变后重新创建 Web 容器，`restart` 不会刷新环境。两份 Compose 的 build args 另传 `NEXT_PUBLIC_SUPPORT_EMAIL`，Docker builder 在 `npm run build` 前通过 ARG/ENV 读取；这是公开地址，不能放密钥。腾讯邮箱验收后同时设置 Reply-To 与公开客服地址，在构建主机以该 build arg 重建生产镜像，再发布并创建容器；仅服务器 `.env` 修改或 recreate 不能更新旧镜像的网站客服入口。nginx 对邮件写入共用凭证限速和 16 KiB 体积限制。Next.js 与根 nginx 的 token 页面有 no-store/no-referrer，根 nginx 访问日志不记录 query/Referer；nginx 错误日志仍可能含原请求 URL，须限制访问并在分享前删除 token。不要把密钥、token 或密码加入应用日志。
+
+发布前在数据库备份副本上执行 `npm run db:migrate`；Docker 启动先运行兼容工作台 SQL，再运行 `scripts/migrate-account-email.cjs`，任一失败停止服务。账户邮件迁移增加字段、token 与预算表；旧账户的 `emailVerifiedAt` 保持空、`requiresEmailVerification=false`、`sessionVersion=0`，不把旧邮箱当已验证。新账户为待验证；邮件补验、密码重置或修改确认完成后才有真实验证时间。密码重置／修改增加 sessionVersion，使旧 cookie 在后续服务端校验时失效，原身份与历史保留。
+
+仅启用 Resend 的上线先验收真实事务收信、未启用的客服入口隐藏、未验证新账户无法登录、旧账户仍可登录且未误标验证、一次性链接／过期处理、密码修改确认前后行为，以及另一浏览器旧会话失效。腾讯后期开通再追加人工双向收发、Reply-To 与网站联系入口验收。离线测试不能证明腾讯、Resend 或现网可用。首次开通前或尚未部署时，不得把文档或源码改动写成线上已更新。
+
 ## 旧环境升级
 
 1. 暂停 Web 写入及其后台同步 worker，保留旧镜像和源码快照。不要暂停或清空 platform 的信箱。
@@ -57,6 +76,7 @@ npm run db:migrate
 ## 迁移准确改变什么
 
 - 新库创建 User、Agent、ControlRequest 及账户工作台持久副本；旧库保留原 User / Agent 数据。
+- 账户邮件追加 emailVerifiedAt、requiresEmailVerification、sessionVersion 与 EmailActionToken/AuthEmailSend/AuthEmailBudget；幂等字段迁移由 scripts/migrate-account-email.cjs 执行，旧账户不自动验证、不更换身份或原 NEXTAUTH_SECRET。
 - ControlRequest 继续保存有限期加密投递信封。新增工作台副本和同步状态存储，与短期缓存分离；联系人视图、收件箱和会话内容使用 AES-GCM 静态加密。
 - 追加 WorkspaceOperation 与 WorkspaceConversationState，分别保留各类写操作的原请求/认证结果，以及加密会话主题、归档、草稿和阅读位置。迁移不重置身份、不删除旧会话；回滚保留新增表及原 NEXTAUTH_SECRET。升级验收核对同一请求 ID/参数跨进程仍可恢复，过期未知动作没有被重新投递，另一账户不能读取这些记录。
 - 已知会话、当前会话及未确认发送的原始请求在服务端恢复。消息和回合按 ID 累积，不能以远端最新 100 项窗口中缺少某条记录为由删除历史。
@@ -69,6 +89,8 @@ npm run db:migrate
 迁移验证应在临时真实 SQLite 上重放，校验原密码、旧联系人行、旧凭据列保存，两账户同 URN 不冲突，同账户重复连接被拒绝；同时检查新增副本的静态加密、账户隔离及删除连接后的级联清理。历史验收证据见部署仓库的 verification 目录。
 
 ## 回滚
+
+账户邮件升级后，回退镜像必须保留邮箱验证要求与 `sessionVersion` 检查。仅保留 scrypt 密码校验还不够：不识别这些字段的旧认证代码可能允许待验证新账户登录，或恢复已经被密码重置撤销的旧会话。不要把邮件未配置作为回退到旧认证逻辑的理由；保留新增字段和表，使用兼容的修复版本。
 
 容器现在在启动服务前降权为 UID/GID 1001。组合部署只修正 `/app/data` 命名卷的属主。Web 仓库中的本地 `docker-compose.yml` 保留既有 `./prisma` 绑定目录和数据库位置，端口仅绑定回环地址；Linux 上需先备份数据库，并确保该目录及现有数据库、WAL/SHM 文件可由 UID/GID 1001 写入。不要通过重建空卷或删除旧库来绕过权限错误；入口不会自动修改宿主源码目录权限。
 

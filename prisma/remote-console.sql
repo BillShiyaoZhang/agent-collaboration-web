@@ -2,6 +2,7 @@
 -- Backup first. Never use prisma db push --accept-data-loss on an existing database.
 CREATE TABLE IF NOT EXISTS "User" (
  "id" TEXT NOT NULL PRIMARY KEY, "email" TEXT NOT NULL, "passwordHash" TEXT NOT NULL,
+ "emailVerifiedAt" DATETIME, "requiresEmailVerification" BOOLEAN NOT NULL DEFAULT false, "sessionVersion" INTEGER NOT NULL DEFAULT 0,
  "virtualUrn" TEXT, "virtualEd25519PublicKey" TEXT, "virtualEd25519PrivateKey" TEXT,
  "virtualX25519PublicKey" TEXT, "virtualX25519PrivateKey" TEXT, "virtualKeySalt" TEXT,
  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL

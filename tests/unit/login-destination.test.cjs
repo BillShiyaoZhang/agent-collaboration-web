@@ -16,7 +16,7 @@ test("login destinations reject executable schemes, external URLs and browser sl
   for (const input of [
     "javascript:alert(document.domain)", "JaVaScRiPt:alert(1)", "data:text/html,<script>alert(1)</script>",
     "https://attacker.example/", "http://attacker.example/", "//attacker.example/", "///attacker.example/",
-    "/\\attacker.example/", "/dashboard\\../\\attacker.example", "\n//attacker.example", "/\t/attacker.example/",
+    "/..//attacker.example/", "/.//attacker.example/", "/%2e%2e//attacker.example/", "/\\attacker.example/", "/dashboard\\../\\attacker.example", "\n//attacker.example", "/\t/attacker.example/",
     " javascript:alert(1)", "https://internal.invalid/dashboard", "dashboard/agents", "", null, undefined,
   ]) assert.equal(safeLoginDestination(input), "/dashboard", String(input));
 });

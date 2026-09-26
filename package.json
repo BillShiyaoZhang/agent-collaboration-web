@@ -7,11 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:auth": "node --test tests/unit/middleware.test.cjs",
+    "test:auth": "node --test tests/unit/middleware.test.cjs tests/unit/password.test.cjs tests/unit/auth-session.test.cjs tests/unit/account-email.test.cjs tests/unit/account-email-http.test.cjs tests/unit/login-destination.test.cjs tests/unit/support-email.test.cjs",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "test": "node --test tests/unit/*.test.cjs packages/client-contract/tests/*.test.cjs",
-    "db:migrate": "prisma db execute --file prisma/remote-console.sql --schema prisma/schema.prisma",
+    "db:migrate": "prisma db execute --file prisma/remote-console.sql --schema prisma/schema.prisma && node scripts/migrate-account-email.cjs",
     "test:contract": "npm test --workspace @agent-comm/client-contract"
   },
   "dependencies": {

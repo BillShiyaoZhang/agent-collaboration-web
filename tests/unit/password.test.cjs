@@ -39,7 +39,7 @@ test('password bounds count bytes, hashes have unique salts, and malformed forma
 
 test('successful legacy login upgrades with compare-and-swap; failures and invalid input never write', async () => {
   const password = 'long-legacy-password-' + 'a'.repeat(80), legacy = await bcrypt.hash(password, 4);
-  const user = { id: 'user-a', email: 'owner@example.com', passwordHash: legacy }, writes = [];
+  const user = { id: 'user-a', email: 'owner@example.com', passwordHash: legacy, sessionVersion: 0, requiresEmailVerification: false, emailVerifiedAt: null }, writes = [];
   let reads = 0;
   const auth = load('../../src/lib/auth/auth.ts', {
     './password': passwords,
@@ -52,7 +52,7 @@ test('successful legacy login upgrades with compare-and-swap; failures and inval
   for (const credentials of [undefined, { email: user.email, password: 'x'.repeat(1025) }, { email: {}, password }, { email: user.email, password: [] }]) assert.equal(await authorize(credentials), null);
   assert.equal(reads, 0);
   assert.equal(await authorize({ email: user.email, password: 'wrong-password' }), null); assert.equal(writes.length, 0);
-  assert.deepEqual(await authorize({ email: user.email, password }), { id: user.id, email: user.email, name: 'owner' });
+  assert.deepEqual(await authorize({ email: user.email, password }), { id: user.id, email: user.email, name: 'owner', sessionVersion: 0 });
   assert.equal(writes.length, 1); assert.equal(writes[0].where.passwordHash, legacy); assert.match(user.passwordHash, /^\$scrypt\$v1\$/);
   assert.equal(await passwords.verifyPassword(password.slice(0, 72) + 'changed', user.passwordHash), false);
   assert.ok(await authorize({ email: user.email, password })); assert.equal(writes.length, 1);

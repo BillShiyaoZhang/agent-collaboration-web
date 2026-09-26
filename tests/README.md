@@ -159,3 +159,28 @@ recoverable/page 错误，随后显示最新权限和错误。一次正常点击
 运行负对照需要本地 Git 历史包含 `48df62e`；`HARNESS_VARIANTS=new` 可单独验证当前 hooks，
 但不提供旧行为的负对照证据。`PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 可指定已有工具。
 这项合成消费者时序证明首次 hydration 的边界行为，不等于已定位某次生产页面的全部异常。
+
+### 邮件账户浏览器流程
+
+安装依赖并执行 `npm run db:generate` 后，可运行独立检查：
+
+```sh
+node tests/integration/email-flows-browser.cjs
+```
+
+通过 `PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 指定已有 Playwright 模块及本机 Chromium。
+脚本自行启动只监听 loopback 的 Next 开发服务、全新 SQLite 和本地 Resend HTTP 替身；
+所有账户及收件地址使用 `.invalid`，不读取项目 `.env`，不连接真实邮件服务或 Platform。
+测试专用 `email-provider-hook.cjs` 仅在合成 key、开发环境和明确 loopback 地址下运行，
+没有生产邮箱验证开关。不要在它运行期间执行 `npm run build`，两者共享 Next 构建目录。
+
+检查包含未验证注册拒绝登录、验证和改密链接 GET 不消费、显式确认、邮件找回密码、
+密码修改确认前旧密码仍有效、密码生效后撤销旧会话、保留控制台 URN 与 Agent 连接，
+以及已有未验证账户继续登录并准确展示状态。脚本等待真实的收件人发送冷却，通常需要
+两次各约 60 秒；同时检查 1440px 和 390px 布局，并保存截图及报告到
+`build/account-email-preview/<随机运行目录>/`。这些结果只覆盖本地合成数据，
+不证明腾讯邮箱收发、Resend 实际投递或海内外邮箱的送达率。
+
+现有 Python Web/Platform 非邮件检查通过 `seed-account.cjs` 创建合成已验证用户，
+不再绕过线上注册验证。此 helper 只接受 `.invalid` 邮箱及明确指定、已存在于
+Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实际密码哈希及增量迁移。

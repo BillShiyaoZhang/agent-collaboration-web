@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 // List of public routes that don't require authentication
-const publicRoutes = ["/", "/docs", "/docs/", "/login", "/register", "/api/auth"];
+const publicRoutes = ["/", "/docs", "/docs/", "/login", "/register", "/forgot-password", "/resend-verification", "/verify-email", "/reset-password", "/confirm-password-change", "/api/auth"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -24,7 +24,7 @@ export async function middleware(request: NextRequest) {
     secret: process.env.NEXTAUTH_SECRET,
   });
 
-  if (!token) {
+  if (!token || token.sessionRevoked === true) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, {
         status: 401,

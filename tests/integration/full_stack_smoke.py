@@ -93,7 +93,11 @@ api:
         start("web", [str(args.node.resolve()), str(WEB / "node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", str(ports["web"])], cwd=WEB)
         until(lambda: web("/api/auth/csrf"), "built Next Web", timeout=35)
         email, password = "local-smoke@example.invalid", "长" * 24 + secrets.token_urlsafe(24)
-        web("/api/auth/register", {"email": email, "password": password})
+        # This test covers Web/Platform behavior, so seed a synthetic verified account in its isolated database.
+        subprocess.run([str(args.node.resolve()), str(WEB / "tests/integration/seed-account.cjs"),
+                        "--email", email, "--password", password, "--database", str(database.resolve())],
+                       cwd=WEB, env=environment, check=True, capture_output=True, text=True,
+                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         with sqlite3.connect(database) as db:
             assert db.execute("SELECT passwordHash FROM User WHERE email = ?", (email,)).fetchone()[0].startswith("$scrypt$v1$")
         csrf = web("/api/auth/csrf")["csrfToken"]

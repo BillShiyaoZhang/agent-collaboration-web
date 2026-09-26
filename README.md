@@ -6,6 +6,14 @@
 
 首次接入需要在运行 agent 的设备上安装连接组件并授权；目前完整的接入路线面向 **Hermes 用户**。只注册一个 Web 账户，还不能直接开始对话。如果你使用其他 agent，需要先有对应的接入支持。
 
+## 账户邮箱、密码与客服
+
+新账户注册后需到注册邮箱打开验证信，在网页明确确认后才能登录。验证信 24 小时内有效；未收到时可从验证页面重发，页面统一提示不代表邮件已投递。登录页提供“忘记密码”，邮件中的重置链接 30 分钟内有效。
+
+登录后在“我”进入[邮箱与密码设置](https://agent-communication.online/dashboard/settings)，可以补验邮箱或修改密码。修改先检查旧密码，再发确认邮件；30 分钟内在网页确认后新密码才生效，修改／重置后所有旧登录会话失效。原账户、agent 身份、连接、配对和历史保留。升级前账户可继续用原密码登录，但邮箱仍显示未验证，不会自动标记为已验证。
+
+账户事务信从 `accounts@notify.agent-communication.online` 发出，只用于网站账户操作。人工邮箱未开通时，网站隐藏邮件客服入口，邮件不承诺回复有人处理；腾讯 support 开通验收并启用网站入口后，再按页面显示的地址联系。不要把密码、私钥或验证／重置链接发给别人。详细步骤见[用户账户指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/users/ACCOUNT_EMAIL.md)，开通、DNS 与真实收发验收见[邮件运维指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/operations/EMAIL.md)。功能需要实际部署并配置发信服务；本文不证明现网已经开通。
+
 ## 第一次使用
 
 ### 1. 让 Hermes 发起连接

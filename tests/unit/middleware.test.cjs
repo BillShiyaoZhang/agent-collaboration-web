@@ -119,6 +119,10 @@ test("authentication middleware", { concurrency: false }, async (t) => {
       )), productionOrigin, "/dashboard");
     });
 
+    await t.test("rejects a session marked revoked by the server callback", async () => {
+      const token = await encode({ secret, token: { sub: "regression-user", sessionRevoked: true } });
+      assertLoginRedirect(await middleware(request(productionOrigin, "/dashboard", `${secureCookie}=${token}`)), productionOrigin, "/dashboard");
+    });
     await t.test("rejects arbitrary cookie values", async () => {
       assertLoginRedirect(await middleware(request(
         productionOrigin, "/dashboard", `${secureCookie}=forged; ${developmentCookie}=forged`,
@@ -132,7 +136,7 @@ test("authentication middleware", { concurrency: false }, async (t) => {
     });
 
     await t.test("allows the public app pages, login, registration and auth routes without a session", async () => {
-      for (const pathname of ["/", "/docs", "/docs/", "/docs/?path=deploy%2FREADME.md", "/login", "/register", "/api/auth/session", "/api/auth/callback/credentials"]) {
+      for (const pathname of ["/", "/docs", "/docs/", "/docs/?path=deploy%2FREADME.md", "/login", "/register", "/forgot-password", "/resend-verification", "/verify-email", "/reset-password", "/confirm-password-change", "/api/auth/session", "/api/auth/callback/credentials"]) {
         assertAllowed(await middleware(request(productionOrigin, pathname)));
       }
     });
@@ -158,7 +162,7 @@ test("authentication middleware", { concurrency: false }, async (t) => {
     });
 
     await t.test("retired demo and similarly named pages are not public routes", async () => {
-      for (const pathname of ["/demo", "/demo/private", "/demography", "/login-extra"]) {
+      for (const pathname of ["/demo", "/demo/private", "/demography", "/login-extra", "/verify-email-extra", "/reset-password/private", "/confirm-password-change-extra"]) {
         assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
       }
     });

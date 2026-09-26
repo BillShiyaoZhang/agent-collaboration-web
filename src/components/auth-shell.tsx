@@ -5,12 +5,16 @@ import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Bot, CheckCircle2, Eye, EyeOff, Info, MessageSquare, Network } from "lucide-react";
 import { Input, type InputProps } from "@/components/ui/input";
 import { Brand } from "@/components/brand";
+import { publicSupportEmail } from "@/lib/shared/support-email";
 
 export function AuthShell({ title, description, children }: {
   title: string;
   description: string;
   children: ReactNode;
 }) {
+  const supportEmail = publicSupportEmail();
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   return (
     <main className="mx-auto grid min-h-full w-full max-w-[1600px] lg:grid-cols-[1fr_0.95fr]">
       <section className="flex min-w-0 flex-col px-6 py-6 sm:px-12 lg:px-16 lg:py-8 xl:px-24">
@@ -30,7 +34,8 @@ export function AuthShell({ title, description, children }: {
             <h1 className="text-3xl font-semibold tracking-tight sm:text-[34px]">{title}</h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
           </div>
-          {children}
+          <fieldset disabled={!ready} aria-busy={!ready} className="min-w-0">{children}</fieldset>
+          {supportEmail && <p className="mt-8 text-center text-xs leading-6 text-muted-foreground">需要帮助？<a href={"mailto:" + supportEmail} className="inline-flex min-h-11 items-center rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">联系人工客服</a></p>}
         </div>
       </section>
 

@@ -4,6 +4,7 @@ import { Footer } from "@/components/layout/footer";
 
 export default function MePage() {
   return <div className="space-y-4"><h1 className="text-lg font-semibold">我</h1><section aria-label="账户设置" className="divide-y rounded-md border bg-card">{[
+    { href: "/dashboard/settings", title: "邮箱与密码", text: "查看邮箱验证状态、验证邮箱与修改密码" },
     { href: "/dashboard/agents", title: "我的连接与访问", text: "管理连接名称、网页访问与连接设置" },
     { href: "/dashboard/notifications", title: "提醒与设备设置", text: "查看未读、待处理事项与系统提醒" },
     { href: "/docs/?path=deploy/users/README.md", title: "权限与数据说明", text: "查看配对、平台政策与账户副本的边界" },

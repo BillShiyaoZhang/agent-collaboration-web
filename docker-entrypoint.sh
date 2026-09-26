@@ -8,6 +8,8 @@ if [ "$(id -u)" = "0" ]; then
     exec su-exec nextjs:nodejs "$0" "$@"
 fi
 umask 077
-# This migration only adds console tables. Fail startup if migration fails.
+# Apply additive workspace/account tables and fields; preserve identities and data.
+# Fail startup if either migration fails.
 prisma db execute --file prisma/remote-console.sql --schema prisma/schema.prisma
+node scripts/migrate-account-email.cjs
 exec node server.js

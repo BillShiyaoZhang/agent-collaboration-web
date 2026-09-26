@@ -271,7 +271,11 @@ api:
             until(lambda: web("/api/auth/csrf")[0] == 200, "Web startup", timeout=40)
             email = f"{name}-{uuid.uuid4().hex}@example.invalid"
             password = secrets.token_urlsafe(36)
-            expect(web, "/api/auth/register", 201, {"email": email, "password": password})
+            # This test covers Web/Platform behavior, so seed a synthetic verified account in its isolated database.
+            subprocess.run([str(args.node.resolve()), str(WEB / "tests/integration/seed-account.cjs"),
+                            "--email", email, "--password", password, "--database", str(database.resolve())],
+                           cwd=WEB, env=env, check=True, capture_output=True, text=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             csrf = expect(web, "/api/auth/csrf")["csrfToken"]
             expect(web, "/api/auth/callback/credentials", 200,
                    {"email": email, "password": password, "csrfToken": csrf,

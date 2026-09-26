@@ -9,7 +9,9 @@ export function safeLoginDestination(candidate: string | null | undefined): stri
   try {
     const url = new URL(candidate, "https://internal.invalid");
     if (url.origin !== "https://internal.invalid") return DEFAULT_DESTINATION;
-    return url.pathname + url.search + url.hash;
+    const destination = url.pathname + url.search + url.hash;
+    // Dot-segment normalization can turn /..//host into a protocol-relative path.
+    return destination.startsWith("//") ? DEFAULT_DESTINATION : destination;
   } catch {
     return DEFAULT_DESTINATION;
   }
