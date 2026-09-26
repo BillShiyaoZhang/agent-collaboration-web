@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, Bell, BookOpen, Cable, CircleHelp, House, Layers3, LockKeyhole, Terminal } from "lucide-react";
+import { ArrowUpRight, Bell, BookOpen, Cable, CircleHelp, House, Layers3, LockKeyhole, Terminal, MessageCircle, Users, Handshake, UserRound } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -28,11 +28,11 @@ export function ConnectionGuide() {
 export function DashboardNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   return <div className="flex h-full flex-col">
-    <Link href="/dashboard/agents" onClick={onNavigate} aria-label="Agent Comm 我的连接" className="self-start rounded-lg"><Brand /></Link>
+    <Link href="/dashboard" onClick={onNavigate} aria-label="Agent Comm 聊天" className="self-start rounded-lg"><Brand /></Link>
     <div className="mt-10 px-3 text-xs font-semibold tracking-[0.18em] text-muted-foreground">个人工作空间</div>
-    <nav aria-label="主导航" className="mt-3">
-      <Link href="/dashboard/agents" onClick={onNavigate} aria-current={pathname.startsWith("/dashboard/agents") ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${pathname.startsWith("/dashboard/agents") ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><Layers3 className="h-[18px] w-[18px]" />我的连接</Link>
-      <Link href="/dashboard/notifications" onClick={onNavigate} aria-current={pathname === "/dashboard/notifications" ? "page" : undefined} className={`mt-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${pathname === "/dashboard/notifications" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><Bell className="h-[18px] w-[18px]" />提醒中心</Link>
+    <nav aria-label="主导航" className="mt-3 space-y-1">{primaryNavigation.map(item => <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={activeNavigation(pathname, item.href) ? "page" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition-colors hover:bg-primary/10 ${activeNavigation(pathname, item.href) ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><item.icon className="h-[18px] w-[18px]" />{item.label}</Link>)}
+      <Link href="/dashboard/agents" onClick={onNavigate} className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-muted-foreground hover:bg-muted"><Layers3 className="h-[18px] w-[18px]" />我的连接</Link>
+      <Link href="/dashboard/notifications" onClick={onNavigate} className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-muted-foreground hover:bg-muted"><Bell className="h-[18px] w-[18px]" />提醒中心</Link>
     </nav>
     <nav aria-label="站点导航" className="mt-5 border-t pt-3">
       <Link href="/" onClick={onNavigate} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><House className="h-4 w-4" />首页</Link>
@@ -46,4 +46,18 @@ export function DashboardNavigation({ onNavigate }: { onNavigate?: () => void })
 }
 export function DashboardSidebar() {
   return <aside className="hidden w-60 shrink-0 border-r bg-card/70 p-5 lg:block"><DashboardNavigation /></aside>;
+}
+
+const primaryNavigation = [
+  { href: "/dashboard/chats", label: "聊天", icon: MessageCircle },
+  { href: "/dashboard/collaborations", label: "合作", icon: Handshake },
+  { href: "/dashboard/contacts", label: "联系人", icon: Users },
+  { href: "/dashboard/me", label: "我", icon: UserRound },
+];
+function activeNavigation(pathname: string, href: string) {
+  return pathname === href || (href === "/dashboard/chats" && pathname.startsWith("/dashboard/agents/"));
+}
+export function MobileNavigation() {
+  const pathname = usePathname();
+  return <nav aria-label="手机主导航" className="grid shrink-0 grid-cols-4 border-t bg-card pb-[env(safe-area-inset-bottom)] lg:hidden">{primaryNavigation.map(item => <Link key={item.href} href={item.href} aria-current={activeNavigation(pathname,item.href) ? "page" : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeNavigation(pathname,item.href) ? "font-semibold text-primary" : "text-muted-foreground"}`}><item.icon className="h-5 w-5" />{item.label}</Link>)}</nav>;
 }

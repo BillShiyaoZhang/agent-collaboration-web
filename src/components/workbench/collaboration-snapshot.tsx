@@ -1,37 +1,64 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { record, records, string, strings, type RemoteRecord } from "@/lib/control/workbench-client";
 import { useLocalTime } from "@/components/local-time";
+import { collaborationView, operationMeaning, taskJudgment } from "./collaboration-workflow-model";
+import { CollaborationTaskControls, GoalWorkflow } from "./collaboration-workflow";
+import type { Workbench } from "./use-workbench";
 
-const phases: Record<string, string> = { invited: "已发起邀请", negotiating: "正在协商", partially_accepted: "部分接受，等待另一方", agreed: "已形成双方约定", reconciling: "正在核对双方状态", closed: "本轮协作已结束" };
+const phases: Record<string, string> = { invited: "已发起邀请", negotiating: "正在协调方案", partially_accepted: "部分接受，等待另一方", agreed: "已形成双方约定", reconciling: "正在核对双方状态", closed: "本轮协作已结束" };
 const waiting: Record<string, string> = { agreement_sync: "等待对方核对约定", agreement_ack: "等待约定同步回执", agreement_ack_delivery: "同步回执正在投递", missing_event: "正在补齐缺失事件", withdrawal_decision: "撤回结果需要核实", cancel_decision: "等待取消决定", maintenance_permission: "需要续期或调整后续同步权限", maintenance_budget: "后续同步预算已用尽，需要本人决定", event_chain_conflict: "双方事件记录存在冲突，需要核对", owner_decision: "等待本人决定", peer_join: "等待对方加入", peer_accept: "等待对方接受" };
 const closed: Record<string, string> = { agreement_only_complete: "双方已同步约定", cancelled: "双方已取消约定", withdrawn: "已撤回接受", expired: "已到期" };
 
-export function CollaborationSnapshot({ data }: { data: RemoteRecord }) {
-  const displayTime = useLocalTime();
-  const view = Array.isArray(data.collaborations) ? data : record(data.collaboration ?? data.collaboration_v2);
-  const collaborations = records(view.collaborations), invitations = records(view.invitations);
+function JudgmentCard({ data, task, collaboration, workbench: w, compact, onContinue }: { data: RemoteRecord; task: RemoteRecord; collaboration?: RemoteRecord; workbench?: Workbench; compact?: boolean; onContinue?: (message: string, conversationId?: string) => void }) {
+  const displayTime = useLocalTime(), scope = record(task.scope), terms = record(collaboration?.terms), agreement = record(collaboration?.agreement);
+  const id = string(task.task_id, string(collaboration?.collaboration_id)), phase = string(collaboration?.phase), closure = string(collaboration?.closure_reason);
+  const judgment = taskJudgment(data, task, collaboration), snapshot = w?.snapshots["collaboration.state"];
+  const peer = records(data.contacts).find(contact => contact.contact_id === collaboration?.peer_id || contact.urn === collaboration?.peer_urn || strings(scope.recipient_ids).includes(string(contact.contact_id)));
+  const peerName = strings(peer?.aliases)[0] || string(peer?.alias, "对方 agent"), peerUrn = string(collaboration?.peer_urn, string(peer?.urn));
+  const resources = records(data.resources).filter(resource => strings(scope.resource_ids).includes(string(resource.resource_id)));
+  return <article id={!compact ? `subject-${id}` : undefined} className="min-w-0 rounded-2xl border bg-background p-4" aria-label={`事项 ${string(scope.topic, string(terms.topic, id))}`}>
+    <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs text-muted-foreground">{peerName} · {peer ? "称呼来自本方通讯录" : "身份来自协作记录；本方称呼未提供"}</p><h4 className="mt-1 break-words font-medium">{string(scope.topic, string(terms.topic, "协作事项"))}</h4></div><span className="rounded-full bg-muted px-2.5 py-1 text-xs">{phase === "closed" && closed[closure] ? closed[closure] : phases[phase] || ({ active: "委托已授权", pending: "范围待本人确认", revoked: "委托已撤销" } as Record<string, string>)[string(task.status)] || "状态待核对"}</span></div>
+    <dl className="mt-4 grid min-w-0 gap-3 text-xs leading-6 sm:grid-cols-2">
+      <div className="sm:col-span-2"><dt className="font-medium text-muted-foreground">这件事要达成什么？</dt><dd className="whitespace-pre-wrap break-words">{judgment.goal}</dd></div>
+      <div><dt className="font-medium text-muted-foreground">已发生什么？</dt><dd>{judgment.progress}</dd></div>
+      <div><dt className="font-medium text-muted-foreground">接下来由谁做什么？</dt><dd>{judgment.next}</dd>{!!collaboration?.waiting_reason && <dd className="text-amber-800">{waiting[string(collaboration.waiting_reason)] || "仍有协作状态待核对"}</dd>}</div>
+      <div><dt className="font-medium text-muted-foreground">我现在需要操作吗？</dt><dd>{judgment.owner}</dd></div>
+      <div><dt className="font-medium text-muted-foreground">这些信息何时核验？</dt><dd>{snapshot ? `本方同步：${displayTime(snapshot.time, { unit: "milliseconds" })}` : "采用本方保存的记录；更新时间未提供"}{w?.cacheError || w && w.sync.status !== "ready" ? "。连接尚未核验最新状态。" : ""}</dd></div>
+      <div className="sm:col-span-2"><dt className="font-medium text-muted-foreground">结果与完成范围是什么？</dt><dd>{judgment.result}</dd></div>
+    </dl>
+    {!!judgment.approvals.length && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs leading-6"><p className="font-medium">当前 {judgment.approvals.length} 项具体问题需要你决定</p>{judgment.approvals.map(approval => <a key={string(approval.approval_id)} className="mt-1 block break-words text-primary underline underline-offset-4" href={`#subject-${encodeURIComponent(string(approval.approval_id))}`}>{string(approval.question).split("\n")[0] || "查看当前完整授权问题"}</a>)}<p className="mt-1 text-muted-foreground">阅读和聊天回复不会授予权限；请核对当前完整问题后明确选择。</p></div>}
+    {collaboration?.withdraw_pending === true && <p className="mt-3 text-xs leading-6 text-amber-800">撤回请求正在核实，尚不能视为对方已收到；请保留原操作。</p>}
+    <details className="mt-3 text-xs"><summary className="inline-flex min-h-9 cursor-pointer items-center text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{compact ? "查看范围与结果详情" : "授权范围、当前方案与来源"}</summary>
+      <dl className="mt-3 grid min-w-0 gap-3 leading-6 sm:grid-cols-2"><div><dt className="text-muted-foreground">确切接收方</dt><dd className="break-all">{peerUrn || "当前记录未提供"}</dd></div><div><dt className="text-muted-foreground">授权截止</dt><dd>{displayTime(scope.expires_at) || "当前记录未提供"}</dd></div><div><dt className="text-muted-foreground">当前允许能力</dt><dd>{strings(scope.capabilities).join("、") || "当前委托范围未提供"}</dd></div><div><dt className="text-muted-foreground">业务动作预算</dt><dd>{typeof task.used_count === "number" && scope.max_actions !== undefined ? `${task.used_count} / ${String(scope.max_actions)}` : "当前记录未提供"}</dd></div></dl>
+      {records(scope.allowed_windows).length > 0 && <div className="mt-3"><p className="text-muted-foreground">允许的时间范围</p>{records(scope.allowed_windows).map((window, index) => <p key={index}>{displayTime(window.start)} — {displayTime(window.end)}</p>)}<p>最长会议 {String(scope.max_duration_minutes)} 分钟，最多披露 {String(scope.max_candidates)} 个候选时段。</p></div>}
+      {terms.version !== undefined && <div className="mt-3 rounded-xl bg-muted/40 p-3"><p className="font-medium">本机已核对的当前第 {String(terms.version)} 版方案</p><p className="mt-1 break-words">{string(terms.topic)}</p><p>{displayTime(terms.start)} — {displayTime(terms.end)}</p><p className="break-all">参与方：{strings(terms.participant_ids).join("、")}</p><p className="mt-1 text-muted-foreground">仅形成线上会议约定；双方各自承担本人参会义务。对方授权依据为其 agent 声明。当前快照未提供完整历史条款，不能推断版本差异。</p></div>}
+      {Object.entries(record(collaboration?.acceptances)).map(([urn, value]) => { const acceptance = record(value); return <p key={urn} className="mt-2 break-all leading-6">{urn}：{acceptance.active === true ? "已记录接受" : "接受已失效或撤回"} · 条款摘要 {string(acceptance.terms_digest, "未提供")}</p>; })}
+      {!!agreement.agreement_id && <div className="mt-3 rounded-xl bg-emerald-50/50 p-3"><p className="font-medium">已记录的会议约定</p><p className="mt-1 break-all">约定编号：{string(agreement.agreement_id)}</p><p>{collaboration?.agreement_synced === true ? "已有对端同步回执" : "仍待对端同步回执"} · 日历尚未创建</p></div>}
+      {!!resources.length && <div className="mt-3"><p className="font-medium">本事项允许分享的注册资料</p>{resources.map(resource => <details key={string(resource.resource_id)} className="mt-2 rounded-xl border p-3"><summary className="min-h-8 cursor-pointer break-words">{string(resource.title)} · 核对全文</summary><p className="mt-1 text-muted-foreground">{record(resource.provenance).source ? `来源：${string(record(resource.provenance).source)} · 版本：${string(record(resource.provenance).version)}` : "来源：本方注册的文本快照"}</p><p className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words leading-6">{string(resource.text)}</p></details>)}<p className="mt-2 text-muted-foreground">允许分享不等于已经披露；实际发送证据见操作记录。</p></div>}
+      {!!judgment.operations.length && <div className="mt-3 space-y-2"><p className="font-medium">操作记录 · 本方 agent 返回</p>{judgment.operations.map(operation => <details key={string(operation.operation_id)} className="rounded-xl border p-3"><summary className="min-h-8 cursor-pointer break-words">{operationMeaning(operation)} · {({ ready: "待实际执行", awaiting_approval: "待确切批准", denied: "本方已拒绝", sending: "投递结果待核实", accepted: "本机队列已接收" } as Record<string, string>)[string(operation.status)] || string(operation.status, "状态未提供")}</summary><p className="mt-2 whitespace-pre-wrap break-words leading-6">{string(operation.text)}</p><p className="mt-1 break-all text-muted-foreground">原动作：{string(operation.operation_id)}</p>{operation.status === "accepted" && <p className="mt-1 text-muted-foreground">本机受理不代表对方已同意或业务完成。</p>}{operation.kind === "join" && operation.status === "denied" && <p className="mt-1 text-amber-800">不加入仅记录本方决定，尚未发送专用拒绝通知。</p>}</details>)}</div>}
+      <p className="mt-3 break-all text-muted-foreground">事项 {id}{collaboration?.collaboration_id ? ` · 协作 ${string(collaboration.collaboration_id)}` : ""}</p>
+    </details>
+    {w && !compact && !!string(task.task_id) && <CollaborationTaskControls workbench={w} task={task} collaboration={collaboration} />}
+    {onContinue && <Button type="button" size="sm" variant="outline" className="mt-3" disabled={!w?.canSend || w.selectingConversation || !!w.submission} onClick={() => onContinue(`继续讨论事项 ${id}「${string(scope.topic, string(terms.topic, "协作事项"))}」。\n原目标：${judgment.goal}\n本方已知进展：${judgment.progress}\n当前完成范围：${judgment.result}\n我希望：`, string(record(task.source_context).conversation_id, string(record(collaboration?.source_context).conversation_id)) || undefined)}>围绕这件事继续讨论</Button>}
+  </article>;
+}
+
+export function CollaborationOverview({ workbench: w, taskId, compact = false, onContinue }: { workbench: Workbench; taskId?: string; compact?: boolean; onContinue?: (message: string, conversationId?: string) => void }) {
+  const data = w.snapshots["collaboration.state"]?.data || {}, collaborations = records(collaborationView(data).collaborations);
+  const tasks = records(data.tasks).filter(task => !taskId || task.task_id === taskId);
+  const unmatched = collaborations.filter(collaboration => (!taskId || collaboration.task_id === taskId || collaboration.collaboration_id === taskId) && !tasks.some(task => task.task_id === collaboration.task_id));
+  if (!tasks.length && !unmatched.length) return null;
+  return <section aria-label="关联事项当前状态" className="space-y-3">{tasks.map(task => <JudgmentCard key={string(task.task_id)} data={data} task={task} collaboration={collaborations.find(collaboration => collaboration.task_id === task.task_id)} workbench={w} compact={compact} onContinue={onContinue} />)}{unmatched.map(collaboration => <JudgmentCard key={string(collaboration.collaboration_id)} data={data} task={{ task_id: collaboration.task_id, scope: { topic: record(collaboration.terms).topic } }} collaboration={collaboration} workbench={w} compact={compact} onContinue={onContinue} />)}</section>;
+}
+
+export function CollaborationSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench?: Workbench; onContinue?: (message: string, conversationId?: string) => void }) {
+  const displayTime = useLocalTime(), view = collaborationView(data), collaborations = records(view.collaborations), invitations = records(view.invitations);
   if (!collaborations.length && !invitations.length) return null;
-  return <section className="space-y-3 px-5 pb-5" aria-label="双方协作">
-    <div><h3 className="text-sm font-semibold">双方协作</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">本阶段协调双方约定，尚未创建日历事件。对方的授权依据为其 agent 声明。</p></div>
-    {invitations.map((invitation, index) => <article key={string(invitation.message_id, String(index))} id={`subject-${string(invitation.message_id)}`} className="rounded-2xl border p-4"><p className="text-xs text-muted-foreground">收到协作邀请 · 对端声明</p><h4 className="mt-2 font-medium">{string(invitation.topic, "协作邀请")}</h4><p className="mt-2 break-all text-xs text-muted-foreground">{string(invitation.sender_urn)}</p><p className="mt-2 text-xs">请先核对联系人和授权范围。若有待确认请求，可在网页中点击同意或拒绝，或在 agent 原生渠道回应。</p></article>)}
-    {collaborations.map((collaboration, index) => {
-      const id = string(collaboration.collaboration_id, String(index)), terms = record(collaboration.terms), agreement = record(collaboration.agreement);
-      const acceptanceEntries = Object.entries(record(collaboration.acceptances));
-      const phase = string(collaboration.phase), reason = string(collaboration.waiting_reason), closure = string(collaboration.closure_reason);
-      const needsAttention = ["owner_decision", "maintenance_permission", "maintenance_budget", "event_chain_conflict", "withdrawal_decision", "cancel_decision"].includes(reason) || collaboration.withdraw_pending === true;
-      return <article key={id} id={`subject-${string(collaboration.task_id, id)}`} className="rounded-2xl border p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2"><h4 className="font-medium">{string(terms.topic, "双方协作事项")}</h4><span className={`rounded-full px-2.5 py-1 text-xs ${phase === "agreed" || closure === "agreement_only_complete" ? "bg-emerald-50 text-emerald-800" : "bg-muted text-muted-foreground"}`}>{phase === "closed" && closed[closure] ? closed[closure] : phases[phase] || "状态待核对"}</span></div>
-        {reason && <p className="mt-3 text-xs text-amber-800">{waiting[reason] || "仍有协作状态需要核对"}</p>}
-        {collaboration.withdraw_pending === true && <p className="mt-2 text-xs text-amber-800">撤回请求正在核实，尚不能视为对方已收到。</p>}
-        <details className="mt-3 text-xs" open={needsAttention || undefined}>
-          <summary className="inline-flex min-h-8 cursor-pointer items-center text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">协作记录与双方接受详情</summary>
-          <p className="mt-3 break-all text-muted-foreground">协作 {id}</p>
-          <dl className="mt-4 grid gap-2 leading-6 sm:grid-cols-2"><div><dt className="text-muted-foreground">对方 agent</dt><dd className="break-all">{string(collaboration.peer_urn, "待确认")}</dd></div><div><dt className="text-muted-foreground">条款版本</dt><dd>{typeof terms.version === "number" ? `第 ${terms.version} 版` : "尚未提出方案"}</dd></div>{!!terms.start && <div><dt className="text-muted-foreground">时间</dt><dd>{displayTime(terms.start)} — {displayTime(terms.end)}</dd></div>}{Array.isArray(terms.participant_ids) && <div><dt className="text-muted-foreground">参与方</dt><dd className="break-all">{strings(terms.participant_ids).join("、")}</dd></div>}</dl>
-          <div className="mt-4 rounded-xl bg-muted/40 p-3"><p className="font-medium">双方接受记录</p>{!acceptanceEntries.length ? <p className="mt-2 text-muted-foreground">尚无结构化接受记录。</p> : acceptanceEntries.map(([urn, value]) => { const acceptance = record(value); return <div key={urn} className="mt-2 border-t pt-2 leading-6"><p className="break-all">{urn}</p><p>{acceptance.active === true ? "已记录接受" : "接受已失效或撤回"} · 仅承担本人参会义务</p><p className="break-all text-muted-foreground">条款摘要 {string(acceptance.terms_digest, "未提供")}</p></div>; })}</div>
-          {!!agreement.agreement_id && <div className="mt-3 leading-6"><p className="break-all">约定编号：{string(agreement.agreement_id)}</p><p>{collaboration.agreement_synced === true ? "约定已有对端同步回执。" : "约定已在本地记录，正在等待对端同步回执。"}</p><p className="text-muted-foreground">日历创建：尚未执行</p></div>}
-        </details>
-      </article>;
-    })}
+  return <section className="space-y-3 px-3 pb-5 sm:px-5" aria-label="双方协作">
+    <div><h3 className="text-sm font-semibold">双方协作</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">查看目标、下一步与完成范围；当前只形成和同步线上约定。</p></div>
+    {invitations.map((invitation, index) => <article key={string(invitation.message_id, String(index))} id={`subject-${string(invitation.message_id)}`} className="min-w-0 rounded-2xl border p-4"><p className="text-xs text-muted-foreground">收到协作邀请 · 对端声明</p><h4 className="mt-2 break-words font-medium">{string(invitation.topic, "协作邀请")}</h4><p className="mt-2 break-all text-xs text-muted-foreground">{string(invitation.sender_urn)}</p><p className="mt-2 text-xs leading-6">邀请截止：{displayTime(invitation.expires_at) || "未提供"}。请先核对联系人、自己的范围与资料披露。好友关系和对方邀请不会授予本方协作权限。</p>{workbench && <GoalWorkflow workbench={workbench} invitation={invitation} compact />}<p className="mt-2 text-xs leading-6 text-muted-foreground">选择不加入只记录本方决定；当前没有专用拒绝通知，不能假定对方已知。</p></article>)}
+    {collaborations.map(collaboration => <JudgmentCard key={string(collaboration.collaboration_id)} data={data} task={records(data.tasks).find(task => task.task_id === collaboration.task_id) || { task_id: collaboration.task_id, scope: { topic: record(collaboration.terms).topic } }} collaboration={collaboration} workbench={workbench} onContinue={onContinue} />)}
   </section>;
 }

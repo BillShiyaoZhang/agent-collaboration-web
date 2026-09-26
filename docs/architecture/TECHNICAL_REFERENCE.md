@@ -188,3 +188,37 @@ python tests/integration/full_stack_smoke.py --helper PATH_TO_HELPER --platform 
 
 跨端重试现在使用规范化 JSON 比较，同时兼容已存在的 10 分钟投递缓存中两种有效会话参数顺序，保留原密文与请求期限。该服务端兼容修复需要重新构建并发布 Web 服务后才会在线生效；不需要清库或更换身份密钥。详细上线边界见[共享模块的重试与发布说明](../../packages/client-contract/README.md#cross-client-retries-and-rollout)。
 
+
+
+## 会话管理与持久操作账本
+
+工作台的会话库只列出此账户在当前连接中已保存的会话。可以修改主题、归档或恢复会话，保存每段会话的输入草稿与阅读位置。归档改变 Web 列表，不删除 agent 记录，也不解除协作待办。WorkspaceConversationState 是独立追加表，标题、草稿、阅读位置、归档和已看时间使用同样的账户/连接/记录绑定加密。空 conversationId 对应尚未创建的新对话草稿。后台重复读取相同回合不会产生新的会话活动时间；真实新回合、处理状态或回复变化才更新列表。
+
+历史搜索在服务端解密**当前账户、当前连接已保存的回合**，匹配主题、用户文本或 agent 答复。它不查询其他账户、不搜索草稿或未确认的本地发送，也不向 agent 发起全部历史发现。返回 scope 为 saved_account_history，不能把结果表述为完整的 agent 历史。标题与正文没有明文全文索引；很大规模的保存历史仍需评估解密搜索成本。
+
+联系人添加/回应、发消息、标已读、审批回应及 collaboration.execute 的原请求保存在 WorkspaceOperation。原始 PendingCall、显示阶段、认证结果和创建/更新时间采用静态加密；索引仅含请求 ID、方法及阶段等调度信息。服务端控制调用在编码和投递前保存原请求，即使绕过浏览器流程也不能跳过账本。已保存的请求 ID 不能改变方法或参数；账本不会因 10 分钟 RPC 缓存清理而消失，也不会延长原 120 秒投递期限。已终态或已过期的原 ID 不能生成新的投递信封。
+
+客户端恢复账本只读取内容，不自动重放写请求。期限内明确重试使用原 ID、参数和持久 wire；未知 collaboration.execute 不通过新 ID 重新执行。只有审批回应、好友请求回应、标已读，以及带原稳定 message_id 的消息发送，可由本人在核实后对同一确切对象明确重新操作，旧原请求仍留在账本。未知联系人添加不能通用重启：原申请可能已被拒绝，换 RPC ID 会创建另一条申请；确认要重新申请时使用专门入口。旧消息发送缺少稳定 message_id 时也不能重启。认证响应或确切的认证对象事实可以结算阶段；浏览器提交的成功提示不能写入 succeeded 或伪造业务结果。旧版 sessionStorage 待确认记录首次打开时导入为已过期的 uncertain，缺少可信投递期限时禁止恢复投递。
+
+### 账户接口
+
+以下接口均从登录会话取得账户；写入要求配置的同源 Origin，响应使用 private, no-store。保存状态和查看账本不授予新 agent 权限。
+
+| 接口 | 请求 | 返回 / 含义 |
+| --- | --- | --- |
+| GET /api/agents/:id/workspace/conversations | 可选 q、archived（active/archived/all）、before 会话 ID、limit（1..50） | items、before、hasMore、scope；每项含归档、已看时间、未读和可选命中回合/片段 |
+| POST /api/agents/:id/workspace/conversations | conversationId（字符串或 null）、可选 title、archived、readAt、draft、scrollTop | state；部分字段更新，已看时间不回退、不接受未来阅读时间 |
+| GET /api/agents/:id/workspace/operations | 无 | items；所有未确认原请求及最近已终态记录 |
+| POST /api/agents/:id/workspace/operations | action=reserve、call、可选 reusedContact、conversationId | item；原请求持久化后才可发送 |
+| 同上 | action=update、requestId、phase、可选 message、retryable | 仅保守显示提示；认证阶段和结果不接受浏览器覆盖 |
+| 同上 | action=import_legacy、call、可选 reusedContact | 导入旧浏览器原记录，已过期且不可写重试 |
+
+常规 /workspace 账户快照同时返回 operations 与 activeConversationState。前者不替代 agent 的事项/联系人真相源；后者不替代 agent 来信已读。阅读当前会话可以更新 Web 已看时间以及对应对话结果通知的已读版本，仍保留未解决的本人审批与恢复待办。
+
+### 普通对话结果通知
+
+从认证 conversation.get 的新完成、失败或中断回合生成 conversation_completed / conversation_failed 提醒；中断摘要明确执行结果尚不确定，保留原请求核实，不自动重发。首次导入的历史结果不会批量产生系统弹窗；之前见过的处理中回合转为终态或之后出现的新结果，才具备系统通知资格。未认证的超时、本地中断或单纯提交回执不能生成完成提醒。
+
+目标包含 kind=conversation、id=conversation_id、turn_id。原生 attention.list 返回同一目标时与 Web 兼容投影归并，并保留阅读版本；提醒深链可回到正确会话与回合。结果提醒不计为待操作，回合完成也不证明其业务目标完成。读取动作、普通等待和 ACK 不产生新的结果提醒。
+
+明确 `collaboration.execute` 的 `action=describe` 只读取功能说明，不计入业务操作账本。旧版本已保存的说明记录仍保留在加密审计中，恢复列表不将它当成未知业务写入；所有真实未知协作写入继续保留。草稿的本地缓存只有未获服务端确认的编辑可以覆盖新服务端值，保存确认按本地版本匹配；异步读取跨过编辑或保存时不更新编辑框。

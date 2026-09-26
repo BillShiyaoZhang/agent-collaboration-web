@@ -87,6 +87,22 @@ CREATE TABLE IF NOT EXISTS "WorkspaceSubmission" (
  FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- Preserve original calls beyond cache expiry; call parameters/results are encrypted.
+CREATE TABLE IF NOT EXISTS "WorkspaceOperation" (
+ "agentId" TEXT NOT NULL, "requestId" TEXT NOT NULL, "method" TEXT NOT NULL,
+ "phase" TEXT NOT NULL DEFAULT 'sending', "payload" TEXT NOT NULL,
+ "createdAt" REAL NOT NULL, "updatedAt" REAL NOT NULL,
+ PRIMARY KEY("agentId", "requestId"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WorkspaceOperation_updatedAt_idx" ON "WorkspaceOperation"("agentId", "updatedAt");
+CREATE TABLE IF NOT EXISTS "WorkspaceConversationState" (
+ "agentId" TEXT NOT NULL, "conversationId" TEXT NOT NULL DEFAULT '',
+ "payload" TEXT NOT NULL, "updatedAt" REAL NOT NULL,
+ PRIMARY KEY("agentId", "conversationId"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 -- Notification content is encrypted with the same account/connection binding as workspace data.
 CREATE TABLE IF NOT EXISTS "WorkspaceNotificationSequence" ("seq" INTEGER PRIMARY KEY AUTOINCREMENT);
 CREATE TABLE IF NOT EXISTS "WorkspaceNotification" (

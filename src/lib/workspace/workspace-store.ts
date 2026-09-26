@@ -2,8 +2,8 @@ import crypto from "crypto";
 import { Prisma, type Agent, type ControlRequest, type User } from "@prisma/client";
 import { prisma } from "@/lib/shared/db";
 import { ControlError } from "@/lib/control/control-transport";
-import { record, records, string, type RemoteRecord, type RpcMethod } from "@/lib/control/workbench-client";
-import type { WorkspaceAgent, WorkspaceConnection, WorkspaceOverview, WorkspaceSubmission, WorkspaceSync } from "@/lib/workspace/workspace-types";
+import { record, records, string, type PendingCall, type RemoteRecord, type RpcMethod } from "@/lib/control/workbench-client";
+import type { WorkspaceAgent, WorkspaceConnection, WorkspaceConversationPage, WorkspaceConversationState, WorkspaceOperation, WorkspaceOverview, WorkspaceSubmission, WorkspaceSync } from "@/lib/workspace/workspace-types";
 
 type DB = Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw">;
 type StateRow = { agentId: string; activeConversationId: string; activeSelectedAt: number; status: WorkspaceSync["status"];
@@ -12,6 +12,10 @@ type StateRow = { agentId: string; activeConversationId: string; activeSelectedA
 type SnapshotRow = { method: RpcMethod; recordKey: string; payload: string; sourceAt: number; savedAt: number; requestId: string };
 type ItemRow = { itemId: string; payload: string; sourceAt: number; sortTime: number; status: string };
 type SubmissionRow = { requestId: string; payload: string; phase: "sending" | "uncertain"; createdAt: number };
+type OperationRow = { requestId: string; method: string; payload: string; phase: WorkspaceOperation["phase"]; createdAt: number; updatedAt: number };
+type ConversationStateRow = { conversationId: string; payload: string; updatedAt: number };
+const operationMethods = new Set(["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"]);
+const emptyConversationState = (): WorkspaceConversationState => ({ archived: false, readAt: 0, draft: "", scrollTop: null });
 import { canonicalJSON, validateAttentionPage, attentionRequiresAction, notificationRoute, type AttentionItem, type NotificationPage, type WorkspaceNotification, type SyncPlanItem } from "@agent-comm/client-contract";
 export type { SyncPlanItem } from "@agent-comm/client-contract";
 export type SyncJob = Omit<StateRow, "activeConversationId" | "activeSelectedAt" | "plan"> & { plan: SyncPlanItem[] };
@@ -137,11 +141,17 @@ export async function getWorkspaceAgent(userId: string, agentId: string, convers
   const conversation = active ? { ...snapshots["conversation.get"]?.data, conversation_id: active,
     turns: turns.map(row => unseal<RemoteRecord>(userId, agentId, "turn", row.itemId, row.payload)) } : null;
   if (conversation && snapshots["conversation.get"]) snapshots["conversation.get"].data = conversation;
+  const savedStates = await prisma.$queryRaw<ConversationStateRow[]>`SELECT * FROM "WorkspaceConversationState" WHERE "agentId" = ${agentId}`;
+  const metadata = new Map(savedStates.map(row => [row.conversationId, unseal<WorkspaceConversationState>(userId, agentId, "conversation-state", row.conversationId, row.payload)]));
   return { agent: connection(agent, stateRows[0]), identity: { virtualUrn: user?.virtualUrn || null, virtualEd25519PublicKey: user?.virtualEd25519PublicKey || null },
-    sync: sync(stateRows[0]), snapshots, conversations: conversationRows.map(row => ({ id: row.conversationId,
-      title: string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话"),
-      updatedAt: row.updatedAt, turnCount: Number(row.turnCount), pending: Number(row.pending) > 0 || submission?.conversationId === row.conversationId })),
-    activeConversationId: active, conversation, hasEarlierTurns, submission };
+    sync: sync(stateRows[0]), snapshots, conversations: conversationRows.map(row => {
+      const saved = metadata.get(row.conversationId) || emptyConversationState();
+      return { id: row.conversationId,
+        title: saved.title || string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话"),
+        archived: saved.archived, readAt: saved.readAt, unread: row.updatedAt > saved.readAt,
+        updatedAt: row.updatedAt, turnCount: Number(row.turnCount), pending: Number(row.pending) > 0 || submission?.conversationId === row.conversationId };
+    }), activeConversationId: active, conversation, hasEarlierTurns, submission,
+    operations: await getWorkspaceOperations(userId, agentId), activeConversationState: metadata.get(active) || emptyConversationState() };
 }
 
 export async function selectWorkspaceConversation(userId: string, agentId: string, conversationId: string | null) {
@@ -168,6 +178,7 @@ async function saveItem(db: DB, userId: string, agentId: string, kind: "turn" | 
   if (previous && previous.sourceAt > sourceAt) return;
   const prior = previous ? unseal<RemoteRecord>(userId, agentId, kind, id, previous.payload) : {};
   const merged = { ...prior, ...data };
+  if (kind === "turn" && data.locally_unconfirmed !== true && ["submitted", "running", "completed", "failed", "interrupted"].includes(string(data.status))) merged.locally_unconfirmed = false;
   // A missing user-text field in a remote read must not erase the accepted send.
   if (!string(merged.text) && string(prior.text)) merged.text = prior.text;
   if (kind === "inbox" && prior.read === true) { merged.read = true; merged.read_at = prior.read_at; }
@@ -184,8 +195,24 @@ async function saveItem(db: DB, userId: string, agentId: string, kind: "turn" | 
     WHERE excluded."sourceAt" >= "WorkspaceItem"."sourceAt"`;
 }
 async function saveConversation(db: DB, userId: string, agentId: string, id: string, data: RemoteRecord, sourceAt: number, updatedAt: number) {
-  const previous = (await db.$queryRaw<{ payload: string; sourceAt: number }[]>`SELECT "payload","sourceAt" FROM "WorkspaceConversation" WHERE "agentId" = ${agentId} AND "conversationId" = ${id}`)[0];
+  const previous = (await db.$queryRaw<{ payload: string; sourceAt: number; updatedAt: number }[]>`SELECT "payload","sourceAt","updatedAt" FROM "WorkspaceConversation" WHERE "agentId" = ${agentId} AND "conversationId" = ${id}`)[0];
+  if (previous && previous.sourceAt > sourceAt) return;
   const prior = previous ? unseal<RemoteRecord>(userId, agentId, "conversation", id, previous.payload) : {};
+  if (previous) {
+    let changed = false;
+    const savedTurns = await db.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId" = ${agentId} AND "kind" = 'turn' AND "conversationId" = ${id}`;
+    const saved = new Map(savedTurns.map(turn => [turn.itemId, turn]));
+    for (const turn of records(data.turns)) {
+      const row = saved.get(string(turn.turn_id));
+      if (!row) { changed = true; break; }
+      const old = unseal<RemoteRecord>(userId, agentId, "turn", row.itemId, row.payload);
+      const regresses = ["completed", "failed"].includes(string(old.status)) && ["submitted", "running"].includes(string(turn.status));
+      if (!regresses && ["status", "response", "error"].some(key => Object.hasOwn(turn, key) && canonicalJSON(turn[key] ?? null) !== canonicalJSON(old[key] ?? null))) { changed = true; break; }
+    }
+    // Observation time is meaningful only when owned turn facts actually change.
+    // A background read cannot create another unread badge or reorder old history.
+    updatedAt = changed ? Math.max(previous.updatedAt, updatedAt, sourceAt) : previous.updatedAt;
+  }
   const title = (prior.title !== "新对话" ? string(prior.title) : "") || string(data.title) || string(records(data.turns)[0]?.text).slice(0, 80) || "新对话";
   const payload = seal(userId, agentId, "conversation", id, { title });
   await db.$executeRaw`INSERT INTO "WorkspaceConversation" ("agentId","conversationId","payload","sourceAt","updatedAt") VALUES (${agentId},${id},${payload},${sourceAt},${updatedAt})
@@ -222,6 +249,8 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     const pending = decodeSubmission(user.id, agent.id, pendingRow);
     const matchingPending = pendingRow?.requestId === row.id ? pending : null;
     const sourceAt = row.createdAt.getTime();
+    await settleWorkspaceOperation(tx, user.id, agent.id, row, response);
+    if (!Object.hasOwn(response, "error")) await reconcileWorkspaceOperations(tx, user.id, agent.id, row.method, record(response.result));
     if (Object.hasOwn(response, "error")) {
       if (row.method === "conversation.send" && matchingPending && pendingRow) {
         const rejectionMessages: Record<string, string> = {
@@ -310,6 +339,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     if (row.method === "inbox.list" || row.method === "collaboration.state") await deriveNotificationSnapshot(tx, user.id, agent.id, row.method, data, sourceAt);
     if (row.method === "conversation.get" && convId) {
       const turns = records(data.turns);
+      await deriveConversationNotifications(tx, user.id, agent.id, convId, turns, sourceAt);
       await saveConversation(tx, user.id, agent.id, convId, data, sourceAt,
         turns.length ? Math.max(...turns.map(turn => timestamp(turn.updated_at ?? turn.created_at, sourceAt))) : sourceAt);
       for (const turn of turns) {
@@ -436,14 +466,17 @@ async function finishNotificationBaseline(db: DB, agentId: string, kind: string)
 }
 async function saveNotification(db: DB, userId: string, agentId: string, item: AttentionItem, sourceAt: number, source: NotificationPayload["source"], baselineComplete: boolean) {
   // Match a legacy projection to the feed's authoritative target without revealing IDs in storage keys.
-  const id = notificationDigest(item.target.kind === "task" ? ["attention", item.attention_id] : [item.target.kind, item.target.id]);
+  const id = notificationDigest(item.target.kind === "task" ? ["attention", item.attention_id] : item.target.kind === "conversation"
+    ? ["conversation", item.target.id, item.target.turn_id || ""] : [item.target.kind, item.target.id]);
   const previous = (await db.$queryRaw<NotificationRow[]>`SELECT * FROM "WorkspaceNotification" WHERE "agentId" = ${agentId} AND "id" = ${id}`)[0];
   if (previous && (source === "snapshot" && (previous.remoteRevision > 0 || previous.sourceAt > sourceAt) || source === "attention" && previous.remoteRevision >= item.revision)) return;
   const prior = previous ? unseal<NotificationPayload>(userId, agentId, "notification", id, previous.payload) : null;
   const meaningful = (value: AttentionItem) => ({ kind: value.kind, state: value.state, source_revision: value.source_revision, title: value.title, safe_summary: value.safe_summary, target: value.target, expires_at: value.expires_at ?? null });
   // Changing from fallback to feed does not itself create another unread item.
   const comparablePrior = prior && source === "attention" && prior.source === "snapshot" ? { ...prior.item, source_revision: item.source_revision } : prior?.item;
-  const changed = !comparablePrior || canonicalJSON(meaningful(comparablePrior)) !== canonicalJSON(meaningful(item));
+  const changed = !comparablePrior || (item.target.kind === "conversation" && prior?.source === "snapshot" && source === "attention"
+    ? comparablePrior.kind !== item.kind || comparablePrior.state !== item.state
+    : canonicalJSON(meaningful(comparablePrior)) !== canonicalJSON(meaningful(item)));
   const revision = previous ? previous.revision + Number(changed) : 1;
   let seq = previous ? Number(previous.seq) : 0;
   if (changed) {
@@ -460,6 +493,10 @@ async function saveNotification(db: DB, userId: string, agentId: string, item: A
     "remoteRevision" = excluded."remoteRevision", "sourceAt" = MAX("WorkspaceNotification"."sourceAt",excluded."sourceAt"),
     "updatedAt" = CASE WHEN excluded."revision" > "WorkspaceNotification"."revision" THEN excluded."updatedAt" ELSE "WorkspaceNotification"."updatedAt" END,
     "expiresAt" = excluded."expiresAt", "systemEligible" = CASE WHEN excluded."revision" > "WorkspaceNotification"."revision" THEN excluded."systemEligible" ELSE "WorkspaceNotification"."systemEligible" END, "payload" = excluded."payload"`;
+  if (item.target.kind === "conversation") {
+    const saved = await conversationState(db, userId, agentId, item.target.id);
+    if (saved.readAt >= item.updated_at * 1000) await db.$executeRaw`UPDATE "WorkspaceNotification" SET "readRevision" = "revision" WHERE "agentId" = ${agentId} AND "id" = ${id}`;
+  }
 }
 async function deriveNotificationSnapshot(db: DB, userId: string, agentId: string, method: string, data: RemoteRecord, sourceAt: number) {
   const latest = (await db.$queryRaw<SnapshotRow[]>`SELECT * FROM "WorkspaceSnapshot" WHERE "agentId" = ${agentId} AND "method" = ${method} AND "recordKey" = ''`)[0];
@@ -539,4 +576,223 @@ export async function claimWorkspaceNotification(userId: string, agentId: string
     SELECT n."agentId",n."id",n."revision",${deviceId},${Date.now()} FROM "WorkspaceNotification" n
     WHERE n."agentId" = ${agentId} AND n."id" = ${id} AND n."revision" = ${revision} AND n."readRevision" < n."revision" AND n."systemEligible" = 1
       AND n."state" = 'open' AND (n."expiresAt" IS NULL OR n."expiresAt" > ${Date.now()})`) > 0;
+}
+
+function decodeOperation(userId: string, agentId: string, row: OperationRow): WorkspaceOperation {
+  const saved = unseal<WorkspaceOperation>(userId, agentId, "operation", row.requestId, row.payload);
+  const unresolved = ["sending", "uncertain"].includes(row.phase);
+  return { ...saved, createdAt: row.createdAt, updatedAt: row.updatedAt,
+    phase: unresolved && row.createdAt + 120000 <= Date.now() ? "uncertain" : row.phase,
+    retryable: unresolved && saved.retryable !== false && row.createdAt + 120000 > Date.now() };
+}
+export async function getWorkspaceOperations(userId: string, agentId: string): Promise<WorkspaceOperation[]> {
+  if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
+  const rows = await prisma.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId" = ${agentId}
+    AND ("phase" IN ('sending','uncertain') OR "requestId" IN (SELECT "requestId" FROM "WorkspaceOperation" WHERE "agentId" = ${agentId} ORDER BY "updatedAt" DESC, "requestId" DESC LIMIT 100))
+    ORDER BY CASE WHEN "phase" IN ('sending','uncertain') THEN 0 ELSE 1 END, "updatedAt" DESC, "requestId" DESC`;
+  // Historical describe rows remain in encrypted audit storage, but a read
+  // cannot be restored as a pending business effect or lock real writes.
+  return rows.map(row => decodeOperation(userId, agentId, row)).filter(operation =>
+    !(operation.call.method === "collaboration.execute" && operation.call.params.action === "describe"));
+}
+
+/** Persist exact parameters before any encoding or delivery; never extend a replay window. */
+export async function reserveWorkspaceOperation(userId: string, agentId: string, call: PendingCall,
+  presentation: { reusedContact?: boolean; conversationId?: string; legacy?: boolean } = {}): Promise<WorkspaceOperation | null> {
+  if (!operationMethods.has(call.method) || call.method === "collaboration.execute" && call.params.action === "describe") return null;
+  if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
+  const now = Date.now(), createdAt = presentation.legacy ? now - 120001 : now;
+  const value: WorkspaceOperation = { call, phase: presentation.legacy ? "uncertain" : "sending", retryable: !presentation.legacy,
+    message: presentation.legacy ? "已恢复旧浏览器中的原操作。原投递期限未知，请先核实，不能重新投递。" : "正在提交，等待 agent 确认…",
+    createdAt, updatedAt: now, reusedContact: presentation.reusedContact, conversationId: presentation.conversationId };
+  const payload = seal(userId, agentId, "operation", call.request_id, value);
+  await retryStandaloneSQLiteWrite(() => prisma.$executeRaw`INSERT OR IGNORE INTO "WorkspaceOperation" ("agentId","requestId","method","phase","payload","createdAt","updatedAt")
+    VALUES (${agentId},${call.request_id},${call.method},${value.phase},${payload},${createdAt},${now})`);
+  const row = (await prisma.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId" = ${agentId} AND "requestId" = ${call.request_id}`)[0];
+  const existing = row && decodeOperation(userId, agentId, row);
+  if (!existing || canonicalJSON(existing.call) !== canonicalJSON(call))
+    throw new ControlError("请求 ID 已绑定原操作，请保留原 ID 和内容进行核实。", 409);
+  if (!presentation.legacy && (row.createdAt + 120000 <= now || ["succeeded", "failed"].includes(row.phase)))
+    throw new ControlError("原操作投递期限已结束。请查询原对象或在本机核实；不会重新投递。", 410);
+  return existing;
+}
+
+/** Browser status is a conservative presentation hint, never an authenticated result. */
+export async function updateWorkspaceOperation(userId: string, agentId: string, requestId: string,
+  patch: { phase: "sending" | "uncertain" | "failed" | "succeeded"; message?: string; retryable?: boolean }): Promise<WorkspaceOperation> {
+  if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
+  return prisma.$transaction(async tx => {
+    const row = (await tx.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId" = ${agentId} AND "requestId" = ${requestId}`)[0];
+    if (!row) throw new ControlError("原操作记录不存在。", 404);
+    const existing = decodeOperation(userId, agentId, row);
+    // Only agent responses and authenticated snapshots settle business facts.
+    if (!["sending", "uncertain"].includes(row.phase)) return existing;
+    const value = { ...existing, phase: "uncertain" as const,
+      message: patch.message || "上次提交的结果尚未核实。请查看原对象的最新状态。",
+      retryable: existing.retryable && patch.retryable !== false, updatedAt: Date.now() };
+    await tx.$executeRaw`UPDATE "WorkspaceOperation" SET "phase" = 'uncertain', "payload" = ${seal(userId, agentId, "operation", requestId, value)}, "updatedAt" = ${value.updatedAt}
+      WHERE "agentId" = ${agentId} AND "requestId" = ${requestId}`;
+    return value;
+  });
+}
+
+/** Transport failures remain uncertain once durable wire bytes may have been queued. */
+export async function markWorkspaceOperationTransportFailure(userId: string, agentId: string, requestId: string, mayHaveSent: boolean) {
+  const rows = await prisma.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId" = ${agentId} AND "requestId" = ${requestId}`;
+  if (!rows[0] || !["sending", "uncertain"].includes(rows[0].phase)) return;
+  const value = decodeOperation(userId, agentId, rows[0]);
+  value.phase = mayHaveSent ? "uncertain" : "failed";
+  value.retryable = mayHaveSent && value.retryable;
+  value.message = mayHaveSent ? "提交结果尚未核实。请查看原对象状态；原请求和参数已保留。" : "操作尚未投递。原请求和参数已保留。";
+  value.updatedAt = Date.now();
+  await retryStandaloneSQLiteWrite(() => prisma.$executeRaw`UPDATE "WorkspaceOperation" SET "phase" = ${value.phase}, "payload" = ${seal(userId, agentId, "operation", requestId, value)}, "updatedAt" = ${value.updatedAt}
+    WHERE "agentId" = ${agentId} AND "requestId" = ${requestId} AND "phase" IN ('sending','uncertain')`);
+}
+
+async function settleWorkspaceOperation(db: DB, userId: string, agentId: string, row: ControlRequest, response: RemoteRecord) {
+  if (!operationMethods.has(row.method)) return;
+  const saved = (await db.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId" = ${agentId} AND "requestId" = ${row.id}`)[0];
+  if (!saved || !["sending", "uncertain"].includes(saved.phase)) return;
+  const operation = decodeOperation(userId, agentId, saved), data = record(response.result), params = operation.call.params;
+  const errorCode = string(record(response.error).code);
+  const rejected = Object.hasOwn(response, "error") && ["not_paired", "owner_mismatch", "method_not_allowed", "unsupported_method", "invalid_params", "queue_full", "pairing_expired", "pairing_revoked"].includes(errorCode) || !!data.error || ["not_executed", "unsupported", "unavailable", "denied", "rejected"].includes(string(data.status)) && !["contacts.respond", "approval.respond"].includes(row.method) || data.decision === "deny" && row.method !== "approval.respond";
+  const confirmed = !Object.hasOwn(response, "error") && !rejected && data.status !== "uncertain" && (row.method === "collaboration.execute" ? Object.keys(data).length > 0
+    : row.method === "contacts.add" ? data.decision === "allow" && ["requested", "request_sent", "pending", "already_requested", "already_connected", "confirmed", "already_confirmed"].includes(string(data.status))
+    : row.method === "approval.respond" ? data.approval_id === params.approval_id && (params.decision === "approve" ? data.decision === "allow" && data.status === "approved_once" : data.decision === "deny" && data.status === "denied")
+    : row.method === "contacts.respond" ? data.request_id === params.request_id && data.status === (params.decision === "accept" ? "accepted" : "rejected")
+    : row.method === "inbox.mark_read" ? data.message_id === params.message_id && (data.status === "read" || data.read === true)
+    : data.message_id === params.message_id && ["sent", "queued", "accepted"].includes(string(data.status)));
+  const phase = rejected ? "failed" : confirmed ? "succeeded" : "uncertain";
+  const result = Object.hasOwn(response, "error") ? { error: response.error } : data;
+  const value: WorkspaceOperation = { ...operation, phase, result, retryable: false, updatedAt: Date.now(),
+    message: phase === "succeeded" ? "Agent 已返回原操作的认证结果，请查看当前对象的状态。"
+      : phase === "failed" ? string(data.error, "Agent 未接受此操作，请核对当前状态与授权。")
+      : string(data.instruction, "Agent 尚不能确认此操作是否已执行。请核查原对象；不会自动重新投递。") };
+  await db.$executeRaw`UPDATE "WorkspaceOperation" SET "phase" = ${phase}, "payload" = ${seal(userId, agentId, "operation", row.id, value)}, "updatedAt" = ${value.updatedAt}
+    WHERE "agentId" = ${agentId} AND "requestId" = ${row.id} AND "phase" IN ('sending','uncertain')`;
+}
+
+async function conversationState(db: DB, userId: string, agentId: string, id: string): Promise<WorkspaceConversationState> {
+  const row = (await db.$queryRaw<ConversationStateRow[]>`SELECT * FROM "WorkspaceConversationState" WHERE "agentId" = ${agentId} AND "conversationId" = ${id}`)[0];
+  return row ? { ...emptyConversationState(), ...unseal<WorkspaceConversationState>(userId, agentId, "conversation-state", id, row.payload) } : emptyConversationState();
+}
+export async function saveWorkspaceConversationState(userId: string, agentId: string, conversationId: string | null, patch: Partial<WorkspaceConversationState>): Promise<WorkspaceConversationState> {
+  if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
+  const id = conversationId || "";
+  return prisma.$transaction(async tx => {
+    if (id && !(await tx.$queryRaw<{ conversationId: string }[]>`SELECT "conversationId" FROM "WorkspaceConversation" WHERE "agentId" = ${agentId} AND "conversationId" = ${id}`).length)
+      throw new ControlError("已保存的对话不存在。", 404);
+    const prior = await conversationState(tx, userId, agentId, id), now = Date.now();
+    const next: WorkspaceConversationState = { ...prior, ...patch,
+      readAt: patch.readAt === undefined ? prior.readAt : Math.max(prior.readAt, Math.min(now, patch.readAt)) };
+    await tx.$executeRaw`INSERT INTO "WorkspaceConversationState" ("agentId","conversationId","payload","updatedAt")
+      VALUES (${agentId},${id},${seal(userId, agentId, "conversation-state", id, next)},${now}) ON CONFLICT("agentId","conversationId")
+      DO UPDATE SET "payload" = excluded."payload", "updatedAt" = excluded."updatedAt"`;
+    if (patch.readAt !== undefined && id) {
+      const notices = await tx.$queryRaw<NotificationRow[]>`SELECT * FROM "WorkspaceNotification" WHERE "agentId" = ${agentId} AND "kind" IN ('conversation_completed','conversation_failed') AND "readRevision" < "revision"`;
+      for (const notice of notices) {
+        const item = unseal<NotificationPayload>(userId, agentId, "notification", notice.id, notice.payload).item;
+        if (item.target.kind === "conversation" && item.target.id === id && item.updated_at * 1000 <= next.readAt)
+          await tx.$executeRaw`UPDATE "WorkspaceNotification" SET "readRevision" = "revision" WHERE "agentId" = ${agentId} AND "id" = ${notice.id}`;
+      }
+    }
+    return next;
+  });
+}
+
+export async function listWorkspaceConversations(userId: string, agentId: string, options: { q?: string; archived?: "active" | "archived" | "all"; before?: string; limit?: number } = {}): Promise<WorkspaceConversationPage> {
+  if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
+  const limit = Math.min(50, Math.max(1, options.limit || 25)), query = (options.q || "").trim().toLocaleLowerCase();
+  const rows = await prisma.$queryRaw<{ conversationId: string; payload: string; updatedAt: number; turnCount: bigint; pending: bigint }[]>`SELECT c.*,
+    (SELECT COUNT(*) FROM "WorkspaceItem" i WHERE i."agentId" = c."agentId" AND i."kind" = 'turn' AND i."conversationId" = c."conversationId") AS "turnCount",
+    (SELECT COUNT(*) FROM "WorkspaceItem" i WHERE i."agentId" = c."agentId" AND i."kind" = 'turn' AND i."conversationId" = c."conversationId" AND i."status" IN ('submitted','running')) AS "pending"
+    FROM "WorkspaceConversation" c WHERE c."agentId" = ${agentId} ORDER BY c."updatedAt" DESC, c."conversationId" DESC`;
+  const metadataRows = await prisma.$queryRaw<ConversationStateRow[]>`SELECT * FROM "WorkspaceConversationState" WHERE "agentId" = ${agentId}`;
+  const metadata = new Map(metadataRows.map(row => [row.conversationId, unseal<WorkspaceConversationState>(userId, agentId, "conversation-state", row.conversationId, row.payload)]));
+  const cursor = options.before ? rows.find(row => row.conversationId === options.before) : undefined;
+  if (options.before && !cursor) throw new ControlError("对话分页位置不存在。", 400);
+  const items: WorkspaceConversationPage["items"] = [];
+  for (const row of rows) {
+    if (cursor && !(row.updatedAt < cursor.updatedAt || row.updatedAt === cursor.updatedAt && row.conversationId < cursor.conversationId)) continue;
+    const saved = metadata.get(row.conversationId) || emptyConversationState();
+    if ((options.archived || "active") !== "all" && saved.archived !== (options.archived === "archived")) continue;
+    const title = saved.title || string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话");
+    let match: WorkspaceConversationPage["items"][number]["match"];
+    if (query) {
+      // Search only authenticated, saved history; drafts and unconfirmed local sends are excluded.
+      const turns = await prisma.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId" = ${agentId} AND "kind" = 'turn' AND "conversationId" = ${row.conversationId} ORDER BY "sortTime" DESC, "itemId" DESC`;
+      const searchable = turns.map(turn => ({ turn, data: unseal<RemoteRecord>(userId, agentId, "turn", turn.itemId, turn.payload) })).filter(item => item.data.locally_unconfirmed !== true);
+      if (turns.length && !searchable.length) continue;
+      if (!title.toLocaleLowerCase().includes(query)) {
+        for (const { turn, data } of searchable) {
+          for (const field of ["text", "response"] as const) {
+            const text = string(data[field]), at = text.toLocaleLowerCase().indexOf(query);
+            if (at >= 0) { match = { turnId: turn.itemId, field, excerpt: text.slice(Math.max(0, at - 40), at + query.length + 100) }; break; }
+          }
+          if (match) break;
+        }
+        if (!match) continue;
+      }
+    }
+    items.push({ id: row.conversationId, title, updatedAt: row.updatedAt, pending: Number(row.pending) > 0, turnCount: Number(row.turnCount),
+      archived: saved.archived, readAt: saved.readAt, unread: row.updatedAt > saved.readAt, ...(match ? { match } : {}) });
+    if (items.length > limit) break;
+  }
+  return { items: items.slice(0, limit), before: items.length > limit ? items[limit - 1].id : null, hasMore: items.length > limit, scope: "saved_account_history" };
+}
+
+async function deriveConversationNotifications(db: DB, userId: string, agentId: string, conversationId: string, turns: RemoteRecord[], sourceAt: number) {
+  const initialized = await notificationBaseline(db, agentId, `conversation:${conversationId}`);
+  const saved = await conversationState(db, userId, agentId, conversationId);
+  for (const turn of turns) {
+    const id = string(turn.turn_id), status = string(turn.status);
+    if (!id || !["completed", "failed", "interrupted"].includes(status) || turn.locally_unconfirmed === true) continue;
+    const previous = (await db.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId" = ${agentId} AND "kind" = 'turn' AND "itemId" = ${id} AND "conversationId" = ${conversationId}`)[0];
+    const pendingTransition = previous && ["submitted", "running"].includes(previous.status);
+    const at = timestamp(turn.updated_at ?? turn.completed_at ?? (pendingTransition ? undefined : turn.created_at), sourceAt);
+    const item: AttentionItem = { attention_id: `conversation:${conversationId}:${id}`, subject_id: id,
+      kind: status === "completed" ? "conversation_completed" : "conversation_failed", source_revision: status, revision: 1, state: "open",
+      title: status === "completed" ? "Agent 已回复" : status === "interrupted" ? "一段对话结果需要核实" : "一段对话处理失败",
+      safe_summary: status === "completed" ? "请打开原对话查看回复。回合结束不代表其中的业务目标已完成。"
+        : status === "interrupted" ? "本回合已中断，执行结果尚不确定。请打开原对话核实；原请求已保留，不会自动重新发送。"
+        : "请打开原对话查看失败原因，不要直接重复发送。",
+      target: { kind: "conversation", id: conversationId, turn_id: id }, created_at: timestamp(turn.created_at, sourceAt) / 1000, updated_at: at / 1000 };
+    await saveNotification(db, userId, agentId, item, sourceAt, "snapshot", !!pendingTransition || initialized && !previous);
+    if (saved.readAt >= at) await db.$executeRaw`UPDATE "WorkspaceNotification" SET "readRevision" = "revision"
+      WHERE "agentId" = ${agentId} AND "id" = ${notificationDigest(["conversation", conversationId, id])}`;
+  }
+  await finishNotificationBaseline(db, agentId, `conversation:${conversationId}`);
+}
+
+
+async function reconcileWorkspaceOperations(db: DB, userId: string, agentId: string, method: string, data: RemoteRecord) {
+  if (!["contacts.list", "contacts.requests", "collaboration.state", "inbox.list"].includes(method)) return;
+  const rows = await db.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId" = ${agentId} AND "phase" IN ('sending','uncertain') AND "method" <> 'collaboration.execute'`;
+  for (const row of rows) {
+    const operation = decodeOperation(userId, agentId, row), params = operation.call.params;
+    let evidence: RemoteRecord | undefined;
+    let opposite = false;
+    if (row.method === "contacts.add" && !operation.reusedContact && Array.isArray(data.contacts))
+      evidence = records(data.contacts).find(item => item.contact_id === params.contact_id && item.urn === params.urn &&
+        Array.isArray(params.aliases) && params.aliases.every(alias => Array.isArray(item.aliases) && item.aliases.includes(alias)));
+    if (row.method === "approval.respond" && Array.isArray(data.approval_decisions)) {
+      evidence = records(data.approval_decisions).find(item => item.approval_id === params.approval_id && ["approved", "denied"].includes(string(item.status)));
+      opposite = !!evidence && evidence.status !== (params.decision === "approve" ? "approved" : "denied");
+    }
+    if (row.method === "contacts.respond" && Array.isArray(data.contact_requests))
+      evidence = records(data.contact_requests).find(item => item.request_id === params.request_id && item.status === (params.decision === "accept" ? "accepted" : "rejected"));
+    if (row.method === "messages.send" && Array.isArray(data.sent_messages))
+      evidence = records(data.sent_messages).find(item => item.message_id === params.message_id && ["sent", "queued", "accepted"].includes(string(item.status)));
+    if (row.method === "inbox.mark_read") {
+      const inbox = record(data.inbox);
+      const messages = Array.isArray(data.messages) ? records(data.messages) : Array.isArray(data.inbox) ? records(data.inbox) : records(inbox.messages);
+      evidence = messages.find(item => item.message_id === params.message_id && item.read === true);
+    }
+    if (!evidence) continue;
+    const phase = opposite ? "failed" : "succeeded";
+    const value: WorkspaceOperation = { ...operation, phase, retryable: false, result: { source: "authenticated_snapshot", observed: evidence },
+      updatedAt: Date.now(), message: opposite ? "Agent 最新决定与原选择不同，请查看当前问题核实。" : "处理结果已从 agent 的认证状态同步。"};
+    await db.$executeRaw`UPDATE "WorkspaceOperation" SET "phase" = ${phase}, "payload" = ${seal(userId, agentId, "operation", row.requestId, value)}, "updatedAt" = ${value.updatedAt}
+      WHERE "agentId" = ${agentId} AND "requestId" = ${row.requestId} AND "phase" IN ('sending','uncertain')`;
+  }
 }

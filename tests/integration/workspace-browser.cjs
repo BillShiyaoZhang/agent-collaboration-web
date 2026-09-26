@@ -39,7 +39,7 @@ async function main() {
     if (url.pathname.endsWith("/control") && request.method() === "POST") controlCalls.push(request.postDataJSON().method);
     if (url.pathname === "/api/workspace/sync" && request.method() === "POST") syncCalls.push(request.postDataJSON());
   });
-  await page.goto(`${base}/login`);
+  await page.goto(`${base}/login?callbackUrl=/dashboard/agents`);
   await page.getByLabel("邮箱", { exact: true }).fill("owner-a@workspace.invalid");
   await page.getByLabel("密码", { exact: true }).fill("Workspace-smoke-fixture-2026");
   await page.getByRole("button", { name: "进入工作空间", exact: true }).click();
@@ -68,7 +68,7 @@ async function main() {
   await page.getByRole("tab", { name: "对话", exact: true }).click();
   assert.equal(await composer.inputValue(), "这是一段尚未发送的草稿");
   const agentUrl = page.url();
-  await page.getByRole("navigation", { name: "面包屑" }).getByRole("link", { name: "我的连接", exact: true }).click();
+  await page.goto(base + "/dashboard/agents");
   await page.getByRole("link", { name: "打开 同步测试 A1 的远程工作台", exact: true }).click();
   assert.equal(await composer.inputValue(), "这是一段尚未发送的草稿");
   checks.push("标签与连接页面切换保留未发送草稿");
@@ -94,6 +94,52 @@ async function main() {
   await page.reload();
   assert.equal(await page.getByLabel("选择历史对话", { exact: true }).inputValue(), firstId);
   checks.push("历史列表可切换独立会话，选择保存在服务端并跨刷新恢复");
+
+  // Two authenticated browser contexts model devices sharing an account.
+  const savedV1 = page.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "设备 A 已保存 V1" && response.status() === 200);
+  await composer.fill("设备 A 已保存 V1"); await savedV1;
+  await page.getByLabel("选择历史对话", { exact: true }).selectOption(secondId);
+  await page.waitForFunction(id => document.querySelector("#saved-conversation").value === id, secondId);
+  const deviceB = await browser.newContext({ storageState: await context.storageState() });
+  const b = await deviceB.newPage(); await b.goto(`${base}/dashboard/agents/agent-a1?tab=conversation&conversation=${firstId}`);
+  const savedV2 = b.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "设备 B 新草稿 V2" && response.status() === 200);
+  await b.getByLabel("给 agent 的消息", { exact: true }).fill("设备 B 新草稿 V2"); await savedV2;
+  await page.getByLabel("选择历史对话", { exact: true }).selectOption(firstId);
+  await page.waitForFunction(() => document.querySelector("textarea[aria-label='给 agent 的消息']").value === "设备 B 新草稿 V2");
+  await page.getByRole("link", { name: "我的连接", exact: true }).first().click();
+  const savedV3 = b.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "设备 B 更新 V3" && response.status() === 200);
+  await b.getByLabel("给 agent 的消息", { exact: true }).fill("设备 B 更新 V3"); await savedV3;
+  await page.getByRole("link", { name: "打开 同步测试 A1 的远程工作台", exact: true }).click();
+  await page.getByRole("tab", { name: "对话", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("textarea[aria-label='给 agent 的消息']").value === "设备 B 更新 V3");
+  await deviceB.close();
+  checks.push("另一设备已保存的新草稿优先于本机旧缓存，切回主题与重新挂载均恢复最新服务端内容");
+
+  await page.route("**/workspace/conversations", route => route.request().postDataJSON()?.draft === "未落盘的本机草稿" ? route.abort("connectionreset") : route.continue());
+  await composer.fill("未落盘的本机草稿");
+  await page.getByRole("link", { name: "我的连接", exact: true }).first().click();
+  await page.getByRole("link", { name: "打开 同步测试 A1 的远程工作台", exact: true }).click();
+  await page.getByRole("tab", { name: "对话", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("textarea[aria-label='给 agent 的消息']").value === "未落盘的本机草稿");
+  await page.unroute("**/workspace/conversations");
+  const savedBeforeRead = page.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "延迟读取之前" && response.status() === 200);
+  await composer.fill("延迟读取之前"); await savedBeforeRead;
+  let releaseRead, capturedRead;
+  const captured = new Promise(resolve => { capturedRead = resolve; });
+  let holdRead = true;
+  await page.route("**/workspace?**", async route => {
+    if (!holdRead || route.request().method() !== "GET") return route.continue();
+    holdRead = false; const response = await route.fetch(); capturedRead();
+    await new Promise(resolve => { releaseRead = resolve; }); await route.fulfill({ response });
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("online"))); await captured;
+  const savedAfterRead = page.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "延迟读取之后的新编辑" && response.status() === 200);
+  await composer.fill("延迟读取之后的新编辑"); await savedAfterRead; releaseRead();
+  await page.waitForTimeout(300);
+  assert.equal(await composer.inputValue(), "延迟读取之后的新编辑", "a read begun before this edit/save must not restore stale text");
+  await page.unroute("**/workspace?**");
+  checks.push("700ms前导航仍保留未落盘编辑；迟到读取不能覆盖之后已保存的草稿");
+
   assert.ok(syncCalls.some(call => !call.agentId), "workspace mount should schedule all connections proactively");
   assert.equal(controlCalls.filter(method => method === "conversation.send").length, 2);
   assert.equal(controlCalls.filter(method => method !== "conversation.send").length, 0, "normal chat progression is synced by the server");

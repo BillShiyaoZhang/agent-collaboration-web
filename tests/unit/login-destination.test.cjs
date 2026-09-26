@@ -18,7 +18,7 @@ test("login destinations reject executable schemes, external URLs and browser sl
     "https://attacker.example/", "http://attacker.example/", "//attacker.example/", "///attacker.example/",
     "/\\attacker.example/", "/dashboard\\../\\attacker.example", "\n//attacker.example", "/\t/attacker.example/",
     " javascript:alert(1)", "https://internal.invalid/dashboard", "dashboard/agents", "", null, undefined,
-  ]) assert.equal(safeLoginDestination(input), "/dashboard/agents", String(input));
+  ]) assert.equal(safeLoginDestination(input), "/dashboard", String(input));
 });
 
 test("login preserves legitimate internal destinations, query values and fragments", () => {

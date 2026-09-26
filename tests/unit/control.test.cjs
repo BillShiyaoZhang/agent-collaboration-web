@@ -184,7 +184,7 @@ test("managed transport marks consent and certificate faults without contacting 
 
 function serviceFixture() {
   const rows=new Map(),sent=[],acked=[],projected=[];let mailbox=[],failSend=false,failWrite=false,failProjection=false,retrievals=0,cacheDeletes=0;
-  let policyAllowed=true;
+  let policyAllowed=true,failReserve=false;const reserved=[];
   class PolicyConsentRequiredError extends Error {}
   const user={id:"owner",virtualUrn:"console"},agent={id:"agent",urn:"agent-urn",userId:user.id};
   const prisma={controlRequest:{
@@ -200,7 +200,7 @@ function serviceFixture() {
     verifyConsoleEnvelope:(_user,wire)=>{const decoded=JSON.parse(wire);if(decoded.invalidSignature)throw new Error("Invalid signature");return decoded.envelope;},
     decodeControl:(_user,wire)=>{const decoded=JSON.parse(wire);if(decoded.ordinaryChat)throw new Error("Not control");return decoded;},retrieveEnvelopes:async()=>{retrievals++;return mailbox.slice(0,100);},
     acknowledgeEnvelopes:async(_user,ids)=>{acked.push(...ids);mailbox=mailbox.filter(item=>!ids.includes(item.message_id));}};
-  const store={reserveWorkspaceSubmission:async()=>{},markWorkspaceSubmissionUncertain:async()=>{},clearWorkspaceSubmission:async()=>{},
+  const store={reserveWorkspaceOperation:async(userId,agentId,call)=>{if(failReserve)throw new Error("ledger unavailable");if(["contacts.add","approval.respond","contacts.respond","messages.send","inbox.mark_read","collaboration.execute"].includes(call.method))reserved.push({userId,agentId,call:structuredClone(call)});},markWorkspaceOperationTransportFailure:async()=>{},reserveWorkspaceSubmission:async()=>{},markWorkspaceSubmissionUncertain:async()=>{},clearWorkspaceSubmission:async()=>{},
     recordWorkspaceResponse:async(_user,_agent,row,result)=>{if(failProjection)throw new Error("projection disk failure");projected.push({id:row.id,result});}};
   const service=load("../../src/lib/control/control-service.ts",{"@/lib/shared/db":{prisma},"@/lib/control/control-protocol":protocol,"@/lib/control/control-transport":fake,"@/lib/workspace/workspace-store":store,
     "@/lib/control/v2-policy":{PolicyConsentRequiredError,requirePolicyAcknowledgement:async()=>{if(!policyAllowed)throw new PolicyConsentRequiredError("policy consent required");}}});
@@ -210,7 +210,7 @@ function serviceFixture() {
     const decoded={envelope:{senderUrn:agent.urn,messageId:"reply-"+id},chat:{inReplyTo:id,deadline:r.deadline},response:response(r),...changes};
     return {message_id:decoded.envelope.messageId,payload_proto:JSON.stringify(decoded)};
   }
-  return {service,rows,sent,acked,projected,user,agent,call,reply,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,setPolicyAllowed:value=>policyAllowed=value,retrievals:()=>retrievals,cacheDeletes:()=>cacheDeletes};
+  return {service,rows,sent,acked,projected,reserved,user,agent,call,reply,setFailReserve:value=>failReserve=value,setMailbox:value=>mailbox=value,setFailSend:value=>failSend=value,setFailWrite:value=>failWrite=value,setFailProjection:value=>failProjection=value,setPolicyAllowed:value=>policyAllowed=value,retrievals:()=>retrievals,cacheDeletes:()=>cacheDeletes};
 }
 
 test("unacknowledged policy stops a control call before persisting or sending wire bytes",async()=>{
@@ -382,4 +382,27 @@ test("social RPCs reject injected authority and invalid business identifiers", (
     ["collaboration.execute", { action: "confirm", approval_id: "one", answer: "yes" }],
     ["collaboration.execute", { action: "state", owner_session: "forged" }],
   ]) assert.equal(parse(method, params), false);
+});
+
+
+test("mutating RPCs preserve the exact account request before delivery and stop when the durable ledger fails",async()=>{
+  const f=serviceFixture(),call={...f.call,method:"messages.send",params:{recipient_urn:"urn:agent:friend",message_id:"stable-message",text:"message"}};
+  f.setFailReserve(true);
+  await assert.rejects(f.service.createControlCall(f.user,f.agent,call),/ledger unavailable/);
+  assert.equal(f.rows.size,0);assert.equal(f.sent.length,0,"storage failure cannot enqueue a business action");
+  f.setFailReserve(false);
+  await f.service.createControlCall(f.user,f.agent,call);
+  assert.deepEqual(f.reserved[0],{userId:f.user.id,agentId:f.agent.id,call});
+  assert.equal(f.sent.length,1);
+  await f.service.createControlCall(f.user,f.agent,call);
+  assert.equal(f.sent[0],f.sent[1],"explicit original retries reuse durable ciphertext");
+  assert.deepEqual(f.reserved[1].call,call);
+});
+
+test("read-only collaboration describe bypasses the write ledger and retries the exact read call",async()=>{
+ const f=serviceFixture(),call={...f.call,method:"collaboration.execute",params:{action:"describe"}};
+ f.setFailReserve(true);
+ await f.service.createControlCall(f.user,f.agent,call);
+ await f.service.createControlCall(f.user,f.agent,call);
+ assert.equal(f.reserved.length,0);assert.equal(f.sent.length,2);assert.equal(f.sent[0],f.sent[1]);
 });

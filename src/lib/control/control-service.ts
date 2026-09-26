@@ -4,7 +4,8 @@ import { prisma } from "@/lib/shared/db";
 import { CONTROL_PROTOCOL, validateControlResponse } from "@/lib/control/control-protocol";
 import { ControlError, consoleKeys, encodeControl, decodeControl, verifyConsoleEnvelope, submitEnvelope, retrieveEnvelopes, acknowledgeEnvelopes } from "@/lib/control/control-transport";
 import type { ControlPollTimings } from "@/lib/control/control-poll-metrics";
-import { reserveWorkspaceSubmission, markWorkspaceSubmissionUncertain, clearWorkspaceSubmission, recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
+import { reserveWorkspaceSubmission, reserveWorkspaceOperation, markWorkspaceOperationTransportFailure, markWorkspaceSubmissionUncertain, clearWorkspaceSubmission, recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
+import type { PendingCall } from "@agent-comm/client-contract";
 import { requirePolicyAcknowledgement, PolicyConsentRequiredError } from "@/lib/control/v2-policy";
 
 import { CONTROL_RETENTION_MS as RETENTION_MS, CONTROL_REQUEST_MS as REQUEST_MS, canonicalJSON } from "@agent-comm/client-contract";
@@ -74,6 +75,7 @@ async function createControlCallOnce(user: User, agent: Agent, call: Call) {
   if (row && !matches(row)) throw new ControlError("请求 ID 已绑定其他内容，请使用原请求重试。", 409);
   const reserve = call.method === "conversation.send" && !row?.responseEnvelope;
   if (reserve) await reserveWorkspaceSubmission(user, agent, call);
+  if (!row?.responseEnvelope && !(call.method === "collaboration.execute" && call.params.action === "describe")) await reserveWorkspaceOperation(user.id, agent.id, call as PendingCall);
   let enqueueAttempted = false;
   try {
     if (!row) {
@@ -102,6 +104,7 @@ async function createControlCallOnce(user: User, agent: Agent, call: Call) {
     if ("response" in result && result.response) await recordWorkspaceResponse(user, agent, row, result.response);
     return result;
   } catch (error) {
+    await markWorkspaceOperationTransportFailure(user.id, agent.id, call.request_id, enqueueAttempted || !!row);
     if (reserve) {
       if (enqueueAttempted || row) await markWorkspaceSubmissionUncertain(agent.id, call.request_id);
       else await clearWorkspaceSubmission(agent.id, call.request_id);

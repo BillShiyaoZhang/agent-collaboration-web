@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth/auth";
-import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
+import { DashboardSidebar, MobileNavigation } from "@/components/layout/dashboard-sidebar";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { NotificationProvider } from "@/components/notification-provider";
@@ -31,6 +31,7 @@ export default async function DashboardLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardHeader user={session.user} />
         <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 outline-none sm:p-8"><div className="mx-auto w-full max-w-6xl space-y-6"><PolicyDisclosureGate>{children}</PolicyDisclosureGate></div></main>
+        <MobileNavigation />
       </div>
     </div>
     </NotificationProvider>

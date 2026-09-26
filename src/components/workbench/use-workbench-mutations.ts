@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { canRestartMutation } from "@/lib/workspace/workspace-mutation-policy";
+import type { WorkspaceOperation } from "@/lib/workspace/workspace-types";
 import { PendingCall, record, records, RemoteRecord, RpcMethod, string, WorkbenchClient, WorkbenchError } from "@/lib/control/workbench-client";
 
 export type MutationMethod = "contacts.add" | "approval.respond" | "contacts.respond" | "messages.send" | "inbox.mark_read" | "collaboration.execute";
@@ -13,6 +15,9 @@ export type MutationState = {
   retryable: boolean;
   result?: RemoteRecord;
   reusedContact?: boolean;
+  conversationId?: string;
+  createdAt?: number;
+  updatedAt?: number;
 };
 type Invoke = (method: RpcMethod, params?: RemoteRecord, original?: PendingCall) => Promise<{ result?: RemoteRecord; error?: WorkbenchError }>;
 
@@ -28,7 +33,8 @@ function restored(value: unknown): MutationState[] {
   }).slice(-32);
 }
 
-export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, canAddContact, canRespondApproval, canMutate, refresh, contacts, approvalDecisions, requests, messages, sentMessages }: {
+export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, canAddContact, canRespondApproval, canMutate, refresh, contacts, approvalDecisions, requests, messages, sentMessages, savedOperations }: {
+  savedOperations?: WorkspaceOperation[];
   agentId: string; consoleUrn: string; client: WorkbenchClient; invoke: Invoke;
   canAddContact: boolean; canRespondApproval: boolean; canMutate: (method: MutationMethod) => boolean; requests: RemoteRecord[]; messages: RemoteRecord[]; sentMessages: RemoteRecord[]; refresh: () => Promise<void>; contacts: RemoteRecord[]; approvalDecisions: RemoteRecord[];
 }) {
@@ -39,27 +45,60 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
   const [storageError, setStorageError] = useState("");
   const key = `workbench-pending-actions:${consoleUrn}:${agentId}`;
 
+  const operationsUrl = `/api/agents/${encodeURIComponent(agentId)}/workspace/operations`;
   const save = useCallback((next: MutationState[]) => {
-    // Store only the original request needed for a user-initiated retry; never save approval questions.
-    const unresolved = next.filter(item => item.phase === "sending" || item.phase === "uncertain")
-      .map(({ call, retryable, reusedContact }) => ({ call, retryable, reusedContact }));
-    sessionStorage.setItem(key, JSON.stringify(unresolved));
     current.current = next; setItems(next);
-  }, [key]);
+  }, []);
+  const ledgerRequest = useCallback(async (body?: RemoteRecord) => {
+    const response = await fetch(operationsUrl, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" } : { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(string(data.error, "无法保存账户操作记录。"));
+    return data;
+  }, [operationsUrl]);
+
+  const loadSaved = useCallback(async () => {
+    const response = await ledgerRequest();
+    save(records(response.items) as MutationState[]);
+    setStorageError(""); setReady(true);
+  }, [ledgerRequest, save]);
 
   useEffect(() => {
-    try {
-      const saved = restored(JSON.parse(sessionStorage.getItem(key) || "[]"));
-      current.current = saved; setItems(saved); setStorageError("");
-    } catch { setStorageError("浏览器暂时无法保存操作记录，请允许此站点保存数据后刷新。已有内容仍可查看。"); }
-    setReady(true);
-  }, [key]);
+    let alive = true;
+    setReady(false); save([]);
+    const restore = async () => {
+      try {
+        let legacy: MutationState[] = [];
+        try { legacy = restored(JSON.parse(sessionStorage.getItem(key) || "[]")); } catch { /* Browser storage is optional. */ }
+        for (const item of legacy) await ledgerRequest({ action: "import_legacy", call: item.call, reusedContact: item.reusedContact === true });
+        if (legacy.length) { try { sessionStorage.removeItem(key); } catch { /* Durable account copy exists. */ } }
+        const response = await ledgerRequest();
+        if (alive) { save(records(response.items).map(item => item.phase === "sending" ? { ...item, phase: "uncertain", message: "原操作已保留，提交结果尚未核实。请先查看最新状态。" } : item) as MutationState[]); setReady(true); setStorageError(""); }
+      } catch (error) {
+        if (alive) { setStorageError(error instanceof Error ? error.message : "暂时无法恢复账户操作记录。已有内容仍可查看。"); setReady(true); }
+      }
+    };
+    void restore();
+    return () => { alive = false; };
+  }, [key, ledgerRequest, save]);
+
+  useEffect(() => {
+    if (!savedOperations || !ready) return;
+    const incoming = new Map(savedOperations.map(item => [item.call.request_id, item]));
+    const next = current.current.map(item => {
+      const saved = incoming.get(item.call.request_id); incoming.delete(item.call.request_id);
+      if (!saved || active.current.has(item.call.method as MutationMethod)) return item;
+      return saved.updatedAt >= (item.updatedAt || 0) ? (saved.phase === "sending" ? { ...saved, phase: "uncertain" as const, message: "原操作已保留，等待核实提交结果。" } : saved) : item;
+    });
+    save([...next, ...Array.from(incoming.values()).map(item => item.phase === "sending" ? { ...item, phase: "uncertain" as const, message: "原操作已保留，等待核实提交结果。" } : item)]);
+  }, [savedOperations, ready, save]);
 
   const replace = useCallback((item: MutationState) => {
-    const next = [...current.current.filter(previous => previous.call.request_id !== item.call.request_id), item];
-    try { save(next); }
-    catch { current.current = next; setItems(next); setStorageError("浏览器暂时无法保存操作记录。请保留此页面，先刷新内容核实本次结果。"); }
-  }, [save]);
+    const value = { ...item, updatedAt: Date.now() };
+    save([value, ...current.current.filter(previous => previous.call.request_id !== item.call.request_id)]);
+    // Only authenticated receipt/snapshot projections settle terminal facts.
+    void ledgerRequest({ action: "update", requestId: item.call.request_id, phase: item.phase, message: item.message, retryable: item.retryable })
+      .catch(() => setStorageError("原请求已保存在账户中，暂时未能保存最新显示状态。请刷新核实结果。"));
+  }, [ledgerRequest, save]);
 
   useEffect(() => {
     // Only an agent-synced contact with this request's exact ID and mapping resolves an ambiguous add.
@@ -108,17 +147,18 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
     const call = original?.call || client.prepare(method, params);
     const reusedContact = original?.reusedContact ?? (method === "contacts.add" && contacts.some(contact =>
       contact.contact_id === params.contact_id && contact.urn === params.urn && contact.connection_status === "rejected"));
-    const pending: MutationState = { call, phase: "sending", retryable: true, message: "正在提交，等待 agent 确认…", reusedContact };
-    // Persist before submitting, so a refresh can recover the same request without replaying it.
-    try { save([...current.current.filter(item => item.call.request_id !== call.request_id &&
-      !(item.call.method === method && subject(item.call) === subject(call))), pending]); }
-    catch { setStorageError("浏览器暂时无法保存操作记录，本次尚未提交。请允许此站点保存数据后刷新。"); return; }
+    const pending: MutationState = { call, phase: "sending", retryable: true, message: "正在提交，等待 agent 确认…", reusedContact, createdAt: original?.createdAt || Date.now(), updatedAt: Date.now() };
     active.current.add(method);
+    let reserved = false;
     try {
+      const saved = await ledgerRequest({ action: "reserve", call, reusedContact: reusedContact === true, ...(string(call.params.source_conversation_id) ? { conversationId: call.params.source_conversation_id } : {}) });
+      if (!saved.item) throw new Error("无法保存原操作记录，本次尚未提交。");
+      reserved = true;
+      save([pending, ...current.current.filter(item => item.call.request_id !== call.request_id && !(item.call.method === method && subject(item.call) === subject(call)))]);
       const { result, error } = await invoke(method, call.params, call);
       const rejected = result && (result.error || ["not_executed", "unsupported", "unavailable", "denied", "rejected"].includes(string(result.status)) && method !== "contacts.respond" && method !== "approval.respond" || result.decision === "deny" && method !== "approval.respond");
       const uncertain = result?.status === "uncertain";
-      const accepted = result && !rejected && !uncertain && (method === "collaboration.execute" ? true : method === "contacts.add"
+      const accepted = result && !rejected && !uncertain && (method === "collaboration.execute" ? Object.keys(result).length > 0 : method === "contacts.add"
         ? result.decision === "allow" && ["requested", "request_sent", "pending", "already_requested", "already_connected", "confirmed", "already_confirmed"].includes(string(result.status))
         : method === "approval.respond" ? result.approval_id === call.params.approval_id && (call.params.decision === "approve"
           ? result.decision === "allow" && result.status === "approved_once" : result.decision === "deny" && result.status === "denied")
@@ -138,7 +178,10 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
       else if (rejected) replace({ ...pending, result, phase: "failed", retryable: false, message: string(result?.error, "Agent 未执行此操作，请核对当前状态与授权。") });
       else if (error) replace({ ...pending, phase: error.uncertain ? "uncertain" : "failed", retryable: error.retryable,
         message: error.uncertain ? `尚未确认提交结果。${error.message}` : error.message });
-      else replace({ ...pending, phase: "uncertain", retryable: true, message: "尚未收到可核实的处理结果。请刷新内容，或重试本次提交。" });
+      else replace({ ...pending, phase: "uncertain", retryable: !result, message: result ? "Agent 返回的结果不足以确认此操作。请核查原对象；原请求已保留。" : "尚未收到可核实的处理结果。请刷新内容，或重试本次提交。" });
+    } catch (error) {
+      if (reserved) replace({ ...pending, phase: "uncertain", message: error instanceof Error ? error.message : "提交结果尚未核实。原请求已保留。", retryable: true });
+      else setStorageError(error instanceof Error ? error.message : "暂时无法保存账户操作记录，本次尚未提交。");
     } finally { active.current.delete(method); }
     // The write has settled before background reads start, so visible retry/new-action buttons work immediately.
     // Reads update the durable workspace snapshots; mutation responses never populate lists.
@@ -152,8 +195,7 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
   }
 
   function recoverStorage() {
-    try { save(current.current); setStorageError(""); }
-    catch { setStorageError("浏览器仍无法保存操作记录，请允许此站点保存数据后再试。"); }
+    void loadSaved().catch(error => setStorageError(error instanceof Error ? error.message : "暂时无法恢复账户操作记录。"));
   }
 
   return {
@@ -165,8 +207,9 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
     respondApproval: (approvalId: string, decision: "approve" | "deny") => run("approval.respond", { approval_id: approvalId, decision }),
     retry: (item: MutationState) => item.retryable ? run(item.call.method as MutationMethod, item.call.params, item) : Promise.resolve(),
     // A fresh, explicit decision after the transport receipt expires keeps the business identity and payload.
-    restart: (item: MutationState) => item.call.method !== "collaboration.execute" && item.phase === "uncertain" && !item.retryable
-      ? run(item.call.method as MutationMethod, item.call.params, { ...item, call: { ...item.call, request_id: crypto.randomUUID() }, retryable: true }) : Promise.resolve(),
+    canRestart: (item: MutationState) => item.phase === "uncertain" && !item.retryable && canRestartMutation(item.call),
+    restart: (item: MutationState) => canRestartMutation(item.call) && item.phase === "uncertain" && !item.retryable
+      ? run(item.call.method as MutationMethod, item.call.params, { ...item, call: { ...item.call, request_id: crypto.randomUUID() }, createdAt: Date.now(), retryable: true }) : Promise.resolve(),
     clearContact, refresh, recoverStorage,
   };
 }

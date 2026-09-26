@@ -129,3 +129,27 @@ npm run build
 Social parity RPCs are separately paired: `contacts.requests` is a read returning `{ contact_requests }`; `contacts.respond` accepts `{ request_id, decision: "accept" | "reject", contact_id?, aliases? }`; `messages.send` accepts `{ recipient_urn, text, message_id? }`; `inbox.mark_read` accepts `{ message_id }` and returns the authoritative message view. `collaboration.execute` accepts the same action parameters as the native runtime and exposes `describe.action_fields` for forms. It is never automatically scheduled; an `uncertain` execution must be inspected, not replayed under a new ID.
 
 `collaboration.state` includes `contact_requests`, `sent_messages`, contact `connection_status` and expiring `presence`, and inbox `read`/`read_at`. `attention.target.kind` supports `contact`. Resolved inbox attention updates older cached read facts and closes notification counts and browser notices. Server push invalidation wakes a closed browser to revalidate and close the original notification; delivery remains subject to browser push availability.
+
+## Conversation provenance and result notices
+
+Compatible agent responses may return `conversation.get.turns[].related` and
+`history={limit:100,returned,truncated}`. `SourceContext` records verified navigation
+provenance; it does not imply owner consent. A real Hermes running turn uses
+`paired_conversation`; direct paired control uses `paired_control`. Keep the
+`source_conversation_id` RPC parameter gated by `describe.source_context_support.version=1`.
+
+Attention targets include `conversation` with the exact stable `id` and `turn_id`.
+`notificationRoute` returns the original conversation and turn. Completed/failed
+conversation notices are results, not decisions requiring an owner action. Only
+resolved submitted/running progress and authoritative terminal facts should enter
+this feed; preserve cursors and read versions so repeated polling does not notify.
+The language-neutral schema includes `sourceContext`, `conversationRelated`,
+`conversationTurn`, and `conversationResult` definitions with optional additive
+fields for compatibility with older paired agents.
+
+Authenticated control errors for a write do not always prove that nothing ran.
+`internal_error`, `result_too_large`, `request_conflict`, and unknown error codes retain
+the original in-memory request, report `uncertain=true`, and disable automatic retry.
+Prepare the same intent again only retrieves that same ID and payload. Known
+pre-execution rejection codes release the request; read errors can start a fresh read.
+The durable account operation ledger remains the source for recovery after unmount.

@@ -1,4 +1,4 @@
-const DEFAULT_DESTINATION = "/dashboard/agents";
+const DEFAULT_DESTINATION = "/dashboard";
 
 // A login query parameter is untrusted navigation input. Keep it as a local
 // absolute path; NextAuth's own callback validation must not be bypassed by UI.

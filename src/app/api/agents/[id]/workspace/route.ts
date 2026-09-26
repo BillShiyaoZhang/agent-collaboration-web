@@ -34,7 +34,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!parsed.success) return workspaceJson({ error: "Invalid workspace action" }, 400);
     if (parsed.data.action === "select_conversation") await selectWorkspaceConversation(userId, id, parsed.data.conversationId);
     else await dismissWorkspaceSubmission(userId, id, parsed.data.requestId);
-    const result = await getWorkspaceAgent(userId, id);
+    const selected = parsed.data.action === "select_conversation" ? parsed.data.conversationId ?? "" : undefined;
+    const result = await getWorkspaceAgent(userId, id, selected);
     if (!result) return workspaceJson({ error: "连接不存在。" }, 404);
     return workspaceJson(result);
   } catch (error) { return workspaceFailure(error); }

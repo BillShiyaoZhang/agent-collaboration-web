@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Check, Loader2, Plus, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { collaborationOperations } from "./collaboration-workflow-model";
 import { useHydrated, useLocalTime } from "@/components/local-time";
 import { cn } from "@/lib/shared/utils";
 import type { Workbench } from "./use-workbench";
@@ -17,7 +18,7 @@ export function ActionFeedback({ action, onRetry, onRestart, onRefresh, retryDis
     action.phase === "failed" ? "border-rose-200 bg-rose-50 text-rose-900" : action.phase === "succeeded"
       ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-950")}>
     <p className="flex items-start gap-2">{action.phase === "sending" ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin" /> : action.phase === "succeeded" ? <Check className="mt-1 h-4 w-4 shrink-0" /> : null}<span>{action.message}</span></p>
-    {action.phase === "uncertain" && <p className="mt-1">{action.call.method === "collaboration.execute" && !action.retryable ? "请先通过本机 agent 或查询功能核实结果；此动作不会自动重新执行。" : action.retryable ? "请保留这条记录。重试会继续本次提交，不会创建新的操作。" : "旧请求已无法重试。请先刷新核实；如果仍未完成，可重新提交相同内容，agent 会核查是否已处理。"}</p>}
+    {action.phase === "uncertain" && <p className="mt-1">{action.retryable ? "请保留这条记录。重试会继续本次提交，不会创建新的操作。" : onRestart ? "旧请求已无法重试。请先刷新核实；在确切方法支持稳定恢复时，可以继续提交相同内容。" : "请保留原请求，通过最新状态或本机 agent 核实结果。此动作不能换一个请求 ID 重做。"}</p>}
     {(action.phase === "uncertain" || action.phase === "failed") && <div className="mt-2 flex flex-wrap gap-2">
       {action.retryable && onRetry && <Button type="button" variant="outline" size="sm" disabled={retryDisabled} onClick={onRetry}>重试本次{action.call.method === "contacts.add" ? "添加" : "回应"}</Button>}
       {action.phase === "uncertain" && !action.retryable && action.call.method !== "collaboration.execute" && onRestart && <Button type="button" variant="outline" size="sm" disabled={retryDisabled} onClick={onRestart}>重新提交相同内容</Button>}
@@ -61,15 +62,32 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
       <div className="flex flex-wrap gap-2"><Button type="submit" size="sm" disabled={!allowed || !confirmed || !name.trim() || !urn.trim()}>添加并排队好友请求</Button><Button type="button" variant="ghost" size="sm" onClick={() => { setOpen(false); setError(""); w.mutations.clearContact(); }}>取消</Button></div>
     </form>}
     {locked && action && <div className="mt-4 rounded-xl border bg-background p-3"><p className="text-sm font-medium">{strings(action.call.params.aliases).join(" · ")}</p><p className="mt-1 break-all font-mono text-xs leading-6 text-muted-foreground">{string(action.call.params.urn)}</p></div>}
-    {action && <ActionFeedback action={action} onRetry={() => void w.mutations.retry(action)} onRestart={() => void w.mutations.restart(action)} onRefresh={() => void w.mutations.refresh()} retryDisabled={!allowed} />}
+    {action && <ActionFeedback action={action} onRetry={() => void w.mutations.retry(action)} onRestart={w.mutations.canRestart(action) ? () => void w.mutations.restart(action) : undefined} onRefresh={() => void w.mutations.refresh()} retryDisabled={!allowed} />}
     {action?.phase === "succeeded" && <Button type="button" variant="outline" size="sm" className="mt-3" disabled={!allowed} onClick={() => { w.mutations.clearContact(); setName(""); setAliasText(""); setUrn(""); setConfirmed(false); setError(""); setOpen(true); }}><Plus className="h-3.5 w-3.5" />添加另一位联系人</Button>}
   </section>;
 }
 
-export function ApprovalRequests({ approvals, workbench: w }: { approvals: RemoteRecord[]; workbench: Workbench }) {
+export function ApprovalRequests({ approvals, workbench: w, scopeSubjectIds }: { approvals: RemoteRecord[]; workbench: Workbench; scopeSubjectIds?: string[] }) {
   const displayTime = useLocalTime();
   const hydrated = useHydrated();
-  const recent = w.mutations.approvalActions.filter(action => !approvals.some(approval => approval.approval_id === action.call.params.approval_id));
+  const [checking, setChecking] = useState("");
+  const [decisionErrors, setDecisionErrors] = useState<Record<string, string>>({});
+  const data = w.snapshots["collaboration.state"]?.data || {};
+  const operations = collaborationOperations(data);
+  const recent = w.mutations.approvalActions.filter(action => (!scopeSubjectIds || scopeSubjectIds.includes(string(action.call.params.approval_id))) && !approvals.some(approval => approval.approval_id === action.call.params.approval_id));
+  async function decide(approval: RemoteRecord, decision: "approve" | "deny") {
+    const id = string(approval.approval_id);
+    setChecking(id); setDecisionErrors(previous => ({ ...previous, [id]: "" }));
+    try {
+      if (w.available("collaboration.state")) {
+        const outcome = await w.invoke("collaboration.state");
+        if (!outcome.result) { setDecisionErrors(previous => ({ ...previous, [id]: "暂时无法核验当前问题，本次尚未提交决定。请在连接恢复后再试。" })); return; }
+        const current = records(outcome.result.pending_confirmations).find(item => item.approval_id === id);
+        if (!current || current.question !== approval.question || current.subject_id !== approval.subject_id) { setDecisionErrors(previous => ({ ...previous, [id]: "这个问题已处理或更新。请核对同步后的当前问题，本次未提交旧版决定。" })); return; }
+      }
+      await w.mutations.respondApproval(id, decision);
+    } finally { setChecking(""); }
+  }
   if (!approvals.length && !recent.length) return null;
   if (!approvals.length && recent.every(action => action.phase === "succeeded")) return <details className="mx-5 mb-5 rounded-2xl border p-4" aria-label="最近的授权回应"><summary className="cursor-pointer text-sm font-medium">最近的授权回应 · {recent.length} 项</summary>{recent.map(action => <div key={action.call.request_id} className="mt-3 border-t pt-3"><p className="text-xs leading-6 text-muted-foreground">已提交{action.call.params.decision === "approve" ? "同意" : "拒绝"}。最新同步内容中已没有这条待确认请求，可查看事项进展核实。</p><ActionFeedback action={action} onRefresh={() => void w.mutations.refresh()} /></div>)}</details>;
   return <section className="mx-5 mb-5 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4" aria-label="授权确认">
@@ -82,13 +100,18 @@ export function ApprovalRequests({ approvals, workbench: w }: { approvals: Remot
       const expiry = typeof approval.expires_at === "number" ? approval.expires_at * (approval.expires_at < 1e12 ? 1000 : 1) : Date.parse(string(approval.expires_at));
       const expired = status === "expired" || hydrated && Number.isFinite(expiry) && expiry <= Date.now();
       const canDecide = !!id && !!question.trim() && ["pending", "presenting", "expired"].includes(status) && w.canRespondApproval && w.mutations.ready;
-      const locked = w.mutations.approvalBusy || !!action && ["sending", "uncertain", "succeeded"].includes(action.phase);
+      const locked = !!checking || !!w.busy["collaboration.state"] || w.mutations.approvalBusy || !!action && ["sending", "uncertain", "succeeded"].includes(action.phase);
+      const operation = operations.find(item => item.operation_id === approval.subject_id || item.approval_id === id);
+      const explanation = approval.kind === "task" ? "这份目标需要本方独立委托。批准后仅允许完整问题中的范围；不会自动开启有限后台运行。" : approval.kind === "worker_policy" ? "双方加入后，正在请求一项单独的有限后台策略。批准只允许确切程序、方案、次数和期限；不会扩展原任务范围。" : operation?.kind === "join" ? "对方邀请需要本方独立决定。批准后还需实际执行加入；选择不加入仅记录本方拒绝，当前没有专用拒绝通知。" : operation?.kind === "invite" ? "当前要向指定对象发出确切邀请，并批准问题中列明的有限协议维护。批准与实际投递、对方加入是不同步骤。" : operation?.kind === "withdraw" ? "你正在撤回自己的接受。批准当前事件后仍需执行和核验同步；不能据此保证既有约定已取消。" : operation?.kind === "cancel_request" || operation?.kind === "cancel_ack" ? "你正在处理既有约定的取消。双方取消结果必须以实际发送和双方同步证据为准。" : "当前动作需要你核对确切内容、接收方和后果。批准后由 agent 再次核验当前版本与权限；发送和业务完成分别报告。";
       return <details id={`subject-${id}`} key={id || String(index)} open className="py-4"><summary className="cursor-pointer break-words text-sm font-medium">{string(approval.subject_id, "待确认请求")}<span className="ml-2 text-xs font-normal text-amber-800">{stateLabel(status)}</span></summary>
+        <p className="mt-3 text-xs leading-6 text-amber-900">为什么现在问你：{explanation}</p>
+        <p className="mt-2 text-xs leading-6 text-muted-foreground">以下是 agent 提供的当前完整问题。聊天、已读与打开此页都不算同意；没有完整历史证据时不显示推测的版本差异。</p>
         <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7">{question || "本次同步缺少请求内容，请刷新后再回应。"}</p>
         {approval.expires_at !== undefined && <p className="mt-2 text-xs leading-6 text-muted-foreground">本次确认展示有效至：{displayTime(approval.expires_at) || "未提供"}</p>}
         {expired && <p className="mt-2 text-xs leading-6 text-amber-900">上次确认展示已过期，请重新核对以上内容。Agent 会检查事项是否仍然有效。</p>}
-        <div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" disabled={!canDecide || locked} onClick={() => void w.mutations.respondApproval(id, "approve")}>同意本次请求</Button><Button type="button" variant="outline" size="sm" disabled={!canDecide || locked} onClick={() => void w.mutations.respondApproval(id, "deny")}>拒绝本次请求</Button></div>
-        {action && <><p className="mt-3 text-xs text-muted-foreground">你提交的选择：{action.call.params.decision === "approve" ? "同意" : "拒绝"}</p><ActionFeedback action={action} onRetry={() => void w.mutations.retry(action)} onRestart={() => void w.mutations.restart(action)} onRefresh={() => void w.mutations.refresh()} retryDisabled={!canDecide || w.mutations.approvalBusy} /></>}
+        {decisionErrors[id] && <p role="alert" className="mt-2 text-xs leading-6 text-destructive">{decisionErrors[id]}</p>}
+        <div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" disabled={!canDecide || locked} onClick={() => void decide(approval, "approve")}>{checking === id ? "正在核验当前问题…" : "同意本次请求"}</Button><Button type="button" variant="outline" size="sm" disabled={!canDecide || locked} onClick={() => void decide(approval, "deny")}>拒绝本次请求</Button></div>
+        {action && <><p className="mt-3 text-xs text-muted-foreground">你提交的选择：{action.call.params.decision === "approve" ? "同意" : "拒绝"}</p><ActionFeedback action={action} onRetry={() => void w.mutations.retry(action)} onRestart={w.mutations.canRestart(action) ? () => void w.mutations.restart(action) : undefined} onRefresh={() => void w.mutations.refresh()} retryDisabled={!canDecide || w.mutations.approvalBusy} /></>}
       </details>;
     })}</div>
     {recent.map(action => <div key={action.call.request_id} className="mt-3 border-t border-amber-200/60 pt-3"><p className="text-xs leading-6 text-muted-foreground">已提交{action.call.params.decision === "approve" ? "同意" : "拒绝"}。最新同步内容中已没有这条待确认请求，可查看事项进展核实。</p><ActionFeedback action={action} onRefresh={() => void w.mutations.refresh()} /></div>)}

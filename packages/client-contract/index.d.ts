@@ -75,6 +75,20 @@ export type WorkspaceConversation = {
     pending: boolean;
     turnCount: number;
 };
+/** Agent-provided navigation provenance, never an authorization claim. */
+export type SourceContext =
+    { origin: "paired_conversation"; conversation_id: string; turn_id: string } |
+    { origin: "paired_control"; request_id: string; conversation_id?: string };
+export type ConversationRelated = { kind: "task" | "approval" | "collaboration"; id: string; task_id?: string };
+export type ConversationTurn = {
+    turn_id: string; status: "submitted" | "running" | "completed" | "failed" | "interrupted";
+    text: string; response: string | null; error: string | null; created_at: number; updated_at: number;
+    related?: ConversationRelated[];
+};
+export type ConversationResult = {
+    conversation_id: string; turns: ConversationTurn[];
+    history?: { limit: 100; returned: number; truncated: boolean };
+};
 export type WorkspaceSubmission = {
     call: PendingCall;
     text: string;
@@ -131,7 +145,7 @@ export type AttentionItem = {
     attention_id: string; kind: string; subject_id: string; task_id?: string;
     source_revision: string | number; revision: number;
     state: "open" | "resolved" | "superseded" | "expired";
-    title: string; safe_summary: string; target: { kind: "task" | "inbox" | "approval" | "contact"; id: string };
+    title: string; safe_summary: string; target: { kind: "task" | "inbox" | "approval" | "contact" | "conversation"; id: string; turn_id?: string };
     created_at: number; updated_at: number; expires_at?: number | null;
 };
 export type AttentionPage = { schema: "agent-comm-attention/v1"; items: AttentionItem[]; cursor: number; has_more: boolean };

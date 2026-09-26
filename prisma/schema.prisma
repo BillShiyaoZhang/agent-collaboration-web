@@ -75,6 +75,8 @@ model Agent {
   workspaceItems WorkspaceItem[]
   workspaceConversations WorkspaceConversation[]
   workspaceSubmission WorkspaceSubmission?
+  workspaceOperations WorkspaceOperation[]
+  workspaceConversationStates WorkspaceConversationState[]
   notifications WorkspaceNotification[]
   notificationBaselines WorkspaceNotificationBaseline[]
   onboardingTickets OnboardingTicket[]
@@ -184,6 +186,30 @@ model WorkspaceSubmission {
   payload String
   createdAt Float
   phase String @default("sending")
+}
+
+// The exact original call and authenticated result outlive the short RPC cache.
+model WorkspaceOperation {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  requestId String
+  method String
+  phase String @default("sending")
+  payload String
+  createdAt Float
+  updatedAt Float
+  @@id([agentId, requestId])
+  @@index([agentId, updatedAt], map: "WorkspaceOperation_updatedAt_idx")
+}
+
+// A separate additive table preserves existing encrypted history during upgrade.
+model WorkspaceConversationState {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversationId String @default("")
+  payload String
+  updatedAt Float
+  @@id([agentId, conversationId])
 }
 
 model WorkspaceNotification {

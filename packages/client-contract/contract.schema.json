@@ -615,15 +615,40 @@
                 "task",
                 "inbox",
                 "approval",
-                "contact"
+                "contact",
+                "conversation"
               ]
             },
             "id": {
               "type": "string",
               "minLength": 1,
               "maxLength": 512
+            },
+            "turn_id": {
+              "$ref": "#/$defs/stableId"
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "conversation"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "turn_id"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/stableId"
+                  }
+                }
+              }
+            }
+          ]
         },
         "created_at": {
           "type": "number",
@@ -802,6 +827,183 @@
           "type": "boolean"
         }
       }
+    },
+    "sourceContext": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "enum": [
+            "paired_conversation",
+            "paired_control"
+          ]
+        },
+        "conversation_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "request_id": {
+          "$ref": "#/$defs/stableId"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "paired_conversation"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "conversation_id",
+              "turn_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "paired_control"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "request_id"
+            ],
+            "not": {
+              "required": [
+                "turn_id"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Trusted navigation provenance; does not grant consent or tool authority."
+    },
+    "conversationRelated": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "task",
+            "approval",
+            "collaboration"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "task_id": {
+          "$ref": "#/$defs/stableId"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ]
+    },
+    "conversationTurn": {
+      "type": "object",
+      "properties": {
+        "turn_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "status": {
+          "enum": [
+            "submitted",
+            "running",
+            "completed",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "response": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "number",
+          "minimum": 0
+        },
+        "updated_at": {
+          "type": "number",
+          "minimum": 0
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conversationRelated"
+          }
+        }
+      },
+      "required": [
+        "turn_id",
+        "status",
+        "text",
+        "response",
+        "error",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "conversationResult": {
+      "type": "object",
+      "properties": {
+        "conversation_id": {
+          "$ref": "#/$defs/stableId"
+        },
+        "turns": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/conversationTurn"
+          }
+        },
+        "history": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "const": 100
+            },
+            "returned": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "limit",
+            "returned",
+            "truncated"
+          ]
+        }
+      },
+      "required": [
+        "conversation_id",
+        "turns"
+      ]
     }
   }
 }

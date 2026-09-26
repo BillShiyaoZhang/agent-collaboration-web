@@ -13,9 +13,9 @@ export async function workspaceUserId(): Promise<string> {
   return session.user.id;
 }
 
-export async function workspaceBody(request: Request): Promise<unknown> {
+export async function workspaceBody(request: Request, maxBytes = 4096): Promise<unknown> {
   try { requireSameOrigin(request); } catch { throw new ControlError("Forbidden origin", 403); }
-  return readJsonBody(request, 4096, true);
+  return readJsonBody(request, maxBytes, true);
 }
 
 export function workspaceFailure(error: unknown) {

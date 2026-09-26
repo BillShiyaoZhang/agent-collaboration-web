@@ -615,7 +615,7 @@ test("standalone sync writes retry a real SQLite writer lock without repeating a
       contender.$executeRaw = async (...args) => {
         attempts++;
         try { return await execute(...args); }
-        catch (error) { failures.push(error); releaseWriter(); throw error; }
+        catch (error) { failures.push(error); releaseWriter(); await writer; throw error; }
       };
       try {
         const result = await action();
@@ -677,4 +677,163 @@ test("resolved agent attention closes an old cached message outside the latest i
   assert.equal(page.unread, 0); assert.equal(page.items[0].unread, false);
   await save("inbox.list", { messages: [{ message_id: "old-message", read: false }] }, time + 2);
   assert.equal((await store.getWorkspaceAgent(user.id, agent.id)).snapshots["inbox.list"].data.messages[0].read, true);
+}));
+
+
+test("encrypted account operation ledger keeps the exact request across reload and rejects changed IDs/content", () => fixture(async ({ db, user, other, agent, store, makeStore, save }) => {
+  const call = { request_id: crypto.randomUUID(), method: "messages.send", params: { recipient_urn: "urn:agent:friend", message_id: "stable-message", text: "PRIVATE OPERATION CONTENT" } };
+  await store.reserveWorkspaceOperation(user.id, agent.id, call);
+  assert.deepEqual((await makeStore().getWorkspaceOperations(user.id, agent.id))[0].call, call);
+  await assert.rejects(store.getWorkspaceOperations(other.id, agent.id), { status: 404 });
+  await assert.rejects(store.reserveWorkspaceOperation(user.id, agent.id, { ...call, params: { ...call.params, text: "changed" } }), { status: 409 });
+  const spoof = await store.updateWorkspaceOperation(user.id, agent.id, call.request_id, { phase: "succeeded", message: "success", retryable: false });
+  assert.equal(spoof.phase, "uncertain"); assert.equal(spoof.result, undefined, "browser hints cannot invent authenticated business results");
+  await save("messages.send", { message_id: "stable-message", status: "accepted" }, Date.now(), call.request_id);
+  const actual = (await makeStore().getWorkspaceOperations(user.id, agent.id))[0];
+  assert.equal(actual.phase, "succeeded"); assert.equal(actual.result.status, "accepted"); assert.deepEqual(actual.call, call);
+  await assert.rejects(store.reserveWorkspaceOperation(user.id, agent.id, call), { status: 410 }, "settled calls cannot be recreated after short cache cleanup");
+  await store.updateWorkspaceOperation(user.id, agent.id, call.request_id, { phase: "uncertain", retryable: true });
+  assert.equal((await store.getWorkspaceOperations(user.id, agent.id))[0].phase, "succeeded", "late browser hints cannot regress an authenticated receipt");
+  const dump = JSON.stringify(await db.$queryRawUnsafe('SELECT * FROM "WorkspaceOperation"'));
+  assert.equal(dump.includes("PRIVATE OPERATION CONTENT"), false); assert.equal(dump.includes("urn:agent:friend"), false);
+  await migrate(db);
+  assert.deepEqual((await makeStore().getWorkspaceOperations(user.id, agent.id))[0].call, call, "additive rerun keeps the original call");
+}));
+
+test("expired and legacy operations never renew delivery windows or erase an uncertain execute", () => fixture(async ({ db, user, agent, store, makeStore, save }) => {
+  const call = { request_id: crypto.randomUUID(), method: "collaboration.execute", params: { action: "invite", task_id: "private-task", recipient_urn: "urn:agent:friend" } };
+  await store.reserveWorkspaceOperation(user.id, agent.id, call);
+  await save("collaboration.execute", { status: "uncertain", instruction: "Check original operation locally" }, Date.now(), call.request_id);
+  let restored = (await makeStore().getWorkspaceOperations(user.id, agent.id))[0];
+  assert.equal(restored.phase, "uncertain"); assert.equal(restored.retryable, false); assert.deepEqual(restored.call, call);
+  await db.$executeRawUnsafe('UPDATE "WorkspaceOperation" SET "createdAt" = ? WHERE "agentId" = ? AND "requestId" = ?', Date.now() - 130000, agent.id, call.request_id);
+  await assert.rejects(store.reserveWorkspaceOperation(user.id, agent.id, call), { status: 410 });
+  restored = (await makeStore().getWorkspaceOperations(user.id, agent.id))[0];
+  assert.deepEqual(restored.call, call, "expiry retains the original execute forever for audit and verification");
+  const old = { request_id: crypto.randomUUID(), method: "contacts.respond", params: { request_id: "friend-request", decision: "accept" } };
+  await store.reserveWorkspaceOperation(user.id, agent.id, old, { legacy: true });
+  const legacy = (await store.getWorkspaceOperations(user.id, agent.id)).find(item => item.call.request_id === old.request_id);
+  assert.equal(legacy.phase, "uncertain"); assert.equal(legacy.retryable, false);
+  await assert.rejects(store.reserveWorkspaceOperation(user.id, agent.id, old), { status: 410 }, "legacy browser records have no trusted deadline");
+}));
+
+test("authenticated snapshots reconcile exact social operations while reused contacts and executes stay uncertain", () => fixture(async ({ user, agent, store, save }) => {
+  const add = reused => ({ request_id: crypto.randomUUID(), method: "contacts.add", params: { contact_id: reused ? "old-contact" : "new-contact", aliases: ["name"], urn: "urn:agent:friend" } });
+  const fresh = add(false), reused = add(true), execute = { request_id: crypto.randomUUID(), method: "collaboration.execute", params: { action: "invite", task_id: "task" } };
+  await store.reserveWorkspaceOperation(user.id, agent.id, fresh);
+  await store.reserveWorkspaceOperation(user.id, agent.id, reused, { reusedContact: true });
+  await store.reserveWorkspaceOperation(user.id, agent.id, execute);
+  await save("collaboration.state", { contacts: [{ ...fresh.params }, { ...reused.params }], tasks: [{ task_id: "task", status: "active" }] });
+  const items = await store.getWorkspaceOperations(user.id, agent.id);
+  assert.equal(items.find(item => item.call.request_id === fresh.request_id).phase, "succeeded");
+  assert.equal(items.find(item => item.call.request_id === reused.request_id).phase, "sending", "preexisting contact does not prove rejected-request retry ran");
+  assert.equal(items.find(item => item.call.request_id === execute.request_id).phase, "sending", "task state cannot prove a specific execute ran");
+}));
+
+test("conversation metadata and search preserve encrypted saved history, account isolation, drafts and scroll state", () => fixture(async ({ db, user, other, agent, store, save, makeStore }) => {
+  const at = Date.now() - 1000;
+  await save("conversation.get", { conversation_id: "chat-one", turns: [{ turn_id: "a", text: "first topic", response: "Historical needle answer", status: "completed", created_at: at / 1000 }] }, at);
+  await save("conversation.get", { conversation_id: "chat-two", turns: [{ turn_id: "b", text: "second topic", response: "ordinary answer", status: "completed", created_at: at / 1000 }] }, at + 1);
+  await store.selectWorkspaceConversation(user.id, agent.id, "chat-one");
+  await store.saveWorkspaceConversationState(user.id, agent.id, "chat-one", { title: "CUSTOM PRIVATE TITLE", archived: true, draft: "DRAFT ONLY SECRET", scrollTop: 321, readAt: Date.now() });
+  const current = await makeStore().getWorkspaceAgent(user.id, agent.id);
+  assert.equal(current.activeConversationState.draft, "DRAFT ONLY SECRET"); assert.equal(current.activeConversationState.scrollTop, 321);
+  assert.equal(current.conversations.find(item => item.id === "chat-one").title, "CUSTOM PRIVATE TITLE");
+  assert.deepEqual((await store.listWorkspaceConversations(user.id, agent.id)).items.map(item => item.id), ["chat-two"]);
+  const found = await store.listWorkspaceConversations(user.id, agent.id, { q: "NEEDLE", archived: "all" });
+  assert.equal(found.scope, "saved_account_history"); assert.equal(found.items[0].id, "chat-one"); assert.equal(found.items[0].match.turnId, "a");
+  assert.equal(found.items[0].match.field, "response");
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id, { q: "DRAFT ONLY", archived: "all" })).items.length, 0);
+  await assert.rejects(store.listWorkspaceConversations(other.id, agent.id, { q: "needle" }), { status: 404 });
+  await assert.rejects(store.saveWorkspaceConversationState(other.id, agent.id, "chat-one", { draft: "bad" }), { status: 404 });
+  await assert.rejects(store.saveWorkspaceConversationState(user.id, agent.id, "unknown", { draft: "bad" }), { status: 404 });
+  await store.saveWorkspaceConversationState(user.id, agent.id, null, { draft: "new conversation draft", scrollTop: 0 });
+  await store.selectWorkspaceConversation(user.id, agent.id, null);
+  assert.equal((await makeStore().getWorkspaceAgent(user.id, agent.id)).activeConversationState.draft, "new conversation draft");
+  const dump = JSON.stringify(await db.$queryRawUnsafe('SELECT * FROM "WorkspaceConversationState"'));
+  assert.equal(dump.includes("CUSTOM PRIVATE TITLE"), false); assert.equal(dump.includes("DRAFT ONLY SECRET"), false);
+  await migrate(db);
+  assert.equal((await makeStore().listWorkspaceConversations(user.id, agent.id, { archived: "archived" })).items.length, 1);
+}));
+
+test("saved conversation pagination is stable at equal times and local unconfirmed text is outside search", () => fixture(async ({ db, user, agent, store, save }) => {
+  const at = Date.now() - 1000;
+  for (const id of ["a", "b", "c"]) await save("conversation.get", { conversation_id: id, turns: [{ turn_id: id, text: "topic " + id, status: "completed", created_at: at / 1000 }] }, at);
+  const first = await store.listWorkspaceConversations(user.id, agent.id, { limit: 2 });
+  assert.deepEqual(first.items.map(item => item.id), ["c", "b"]); assert.equal(first.before, "b"); assert.equal(first.hasMore, true);
+  assert.deepEqual((await store.listWorkspaceConversations(user.id, agent.id, { before: first.before, limit: 2 })).items.map(item => item.id), ["a"]);
+  const call = { request_id: crypto.randomUUID(), method: "conversation.send", params: { text: "UNCONFIRMED PRIVATE PHRASE" } };
+  await store.reserveWorkspaceSubmission(user, agent, call);
+  await db.$executeRawUnsafe('UPDATE "WorkspaceSubmission" SET "createdAt" = ? WHERE "agentId" = ?', Date.now() - 130000, agent.id);
+  await store.dismissWorkspaceSubmission(user.id, agent.id, call.request_id);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id, { q: "UNCONFIRMED PRIVATE" })).items.length, 0);
+}));
+
+test("conversation result notifications use actual terminal facts, deduplicate native feed and keep decisions separate from read state", () => fixture(async ({ user, agent, store, save }) => {
+  const at = Date.now() - 1000;
+  await save("conversation.get", { conversation_id: "chat", turns: [{ turn_id: "old", text: "old", status: "completed", created_at: (at - 10000) / 1000 }] }, at);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items[0].systemEligible, false, "first history import cannot trigger result popups");
+  await save("conversation.get", { conversation_id: "chat", turns: [{ turn_id: "new", text: "new", status: "running", created_at: at / 1000 }] }, at + 1);
+  await save("conversation.get", { conversation_id: "chat", turns: [{ turn_id: "new", status: "completed", response: "private reply", updated_at: (at + 100) / 1000 }] }, at + 101);
+  let page = await store.getWorkspaceNotifications(user.id);
+  const result = page.items.find(item => item.target.turn_id === "new");
+  assert.equal(result.kind, "conversation_completed"); assert.equal(result.systemEligible, true); assert.equal(result.requiresAction, false);
+  assert.match(result.href, /conversation=chat/); assert.match(result.href, /turn=new/);
+  await save("collaboration.state", { pending_confirmations: [{ approval_id: "approval", kind: "task", subject_id: "task", status: "pending", question: "confirm?" }] }, at + 102);
+  await store.saveWorkspaceConversationState(user.id, agent.id, "chat", { readAt: Date.now() });
+  page = await store.getWorkspaceNotifications(user.id);
+  assert.equal(page.items.find(item => item.target.turn_id === "new").unread, false); assert.equal(page.pending, 1, "reading a chat cannot approve or remove its business decision");
+  await save("attention.list", attentionPage([attentionItem({ attention_id: "native-conversation", subject_id: "new", kind: "conversation_completed", target: { kind: "conversation", id: "chat", turn_id: "new" }, source_revision: "complete", created_at: at / 1000, updated_at: (at + 100) / 1000 })], 1), at + 103);
+  page = await store.getWorkspaceNotifications(user.id);
+  assert.equal(page.items.filter(item => item.target.kind === "conversation" && item.target.turn_id === "new").length, 1);
+  assert.equal(page.items.find(item => item.target.turn_id === "new").unread, false, "native projection retains an already-read local result");
+  await save("conversation.get", { conversation_id: "chat", turns: [{ turn_id: "failed", status: "failed", error: "private failure", updated_at: Date.now() / 1000 }] }, at + 104);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.find(item => item.target.turn_id === "failed").kind, "conversation_failed");
+}));
+
+
+test("background reads do not invent unread conversation activity but a later reply does", () => fixture(async ({ user, agent, store, save }) => {
+  const at = Date.now() - 10000;
+  await save("conversation.get", { conversation_id: "stable", turns: [{ turn_id: "turn", text: "hello", status: "running", created_at: at / 1000 }] }, at);
+  await store.saveWorkspaceConversationState(user.id, agent.id, "stable", { readAt: at + 10 });
+  const unchanged = { conversation_id: "stable", turns: [{ turn_id: "turn", text: "hello", status: "running", created_at: at / 1000 }] };
+  await save("conversation.get", unchanged, at + 100);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id)).items[0].unread, false);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id)).items[0].updatedAt, at);
+  await save("conversation.get", { conversation_id: "stable", turns: [{ turn_id: "turn", text: "hello", response: "actual reply", status: "completed", created_at: at / 1000 }] }, at + 200);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id)).items[0].unread, true);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id)).items[0].updatedAt, at + 200);
+  await store.saveWorkspaceConversationState(user.id, agent.id, "stable", { readAt: at + 210 });
+  await save("conversation.get", { conversation_id: "stable", turns: [{ turn_id: "turn", text: "hello", response: "actual reply", status: "completed", created_at: at / 1000 }] }, at + 300);
+  assert.equal((await store.listWorkspaceConversations(user.id, agent.id)).items[0].unread, false);
+}));
+
+
+test("old-host interrupted terminal turns produce a safe uncertain-result notification without resending", () => fixture(async ({ user, agent, store, save }) => {
+  const at = Date.now() - 1000;
+  await save("conversation.get", { conversation_id: "interrupted-chat", turns: [{ turn_id: "turn", text: "original request", status: "running", created_at: at / 1000 }] }, at);
+  await save("conversation.get", { conversation_id: "interrupted-chat", turns: [{ turn_id: "turn", status: "interrupted", error: "host restarted", updated_at: (at + 100) / 1000 }] }, at + 101);
+  const page = await store.getWorkspaceNotifications(user.id), item = page.items.find(item => item.target.turn_id === "turn");
+  assert.equal(item.kind, "conversation_failed"); assert.equal(item.systemEligible, true); assert.equal(item.requiresAction, false);
+  assert.match(item.summary, /尚不确定/); assert.match(item.summary, /不会自动重新发送/);
+  assert.equal((await store.getWorkspaceAgent(user.id, agent.id, "interrupted-chat")).conversation.turns[0].text, "original request");
+  await save("conversation.get", { conversation_id: "interrupted-chat", turns: [{ turn_id: "local-only", status: "interrupted", locally_unconfirmed: true }] }, at + 102);
+  assert.equal((await store.getWorkspaceNotifications(user.id)).items.some(item => item.target.turn_id === "local-only"), false, "unconfirmed local hints cannot create an authenticated terminal reminder");
+}));
+
+test("description reads do not enter the business ledger and old description audits cannot hide unknown writes", () => fixture(async ({ db, user, agent, store }) => {
+ const describe={request_id:crypto.randomUUID(),method:"collaboration.execute",params:{action:"describe"}};
+ assert.equal(await store.reserveWorkspaceOperation(user.id,agent.id,describe),null);
+ assert.equal((await db.$queryRawUnsafe('SELECT COUNT(*) as n FROM "WorkspaceOperation"'))[0].n,0n);
+ const createdAt=Date.now()-120001,legacy={call:describe,phase:"uncertain",retryable:false,message:"old read",createdAt,updatedAt:createdAt};
+ const key=crypto.createHmac("sha256","isolated-workspace-fixture-secret").update("agent-workspace/storage/v1").digest(),nonce=crypto.randomBytes(12),cipher=crypto.createCipheriv("aes-256-gcm",key,nonce);
+ cipher.setAAD(Buffer.from(JSON.stringify([user.id,agent.id,"operation",describe.request_id])));
+ const bytes=Buffer.concat([cipher.update(JSON.stringify(legacy),"utf8"),cipher.final()]);
+ const payload=["v1",nonce.toString("base64"),cipher.getAuthTag().toString("base64"),bytes.toString("base64")].join(".");
+ await db.$executeRawUnsafe('INSERT INTO "WorkspaceOperation" ("agentId","requestId","method","phase","payload","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?)',agent.id,describe.request_id,describe.method,"uncertain",payload,createdAt,createdAt);
+ const write={request_id:crypto.randomUUID(),method:"collaboration.execute",params:{action:"prepare_task",task_id:"original-task"}};
+ await store.reserveWorkspaceOperation(user.id,agent.id,write);await store.updateWorkspaceOperation(user.id,agent.id,write.request_id,{phase:"uncertain",retryable:false});
+ const restored=await store.getWorkspaceOperations(user.id,agent.id);
+ assert.equal(restored.length,1);assert.deepEqual(restored[0].call,write);assert.equal(restored[0].phase,"uncertain");
+ assert.equal((await db.$queryRawUnsafe('SELECT COUNT(*) as n FROM "WorkspaceOperation"'))[0].n,2n,"old read audit remains stored");
 }));

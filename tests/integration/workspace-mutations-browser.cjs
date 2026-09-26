@@ -43,7 +43,7 @@ async function main() {
     if (failure === "accepted_then_disconnect") { await route.fetch(); return route.abort("connectionreset"); }
     return route.continue();
   });
-  await page.goto(`${base}/login`);
+  await page.goto(`${base}/login?callbackUrl=/dashboard/agents`);
   await page.getByLabel("邮箱", { exact: true }).fill("owner-a@workspace.invalid");
   await page.getByLabel("密码", { exact: true }).fill("Workspace-smoke-fixture-2026");
   await page.getByRole("button", { name: "进入工作空间", exact: true }).click();
@@ -74,13 +74,16 @@ async function main() {
   await contact("过期请求测试联系人", "urn:agent-comm:agent:expired-browser-contact");
   nextFailure = "expired";
   await page.getByRole("button", { name: "添加并排队好友请求", exact: true }).click();
-  await page.getByRole("button", { name: "重新提交相同内容", exact: true }).waitFor();
-  const expired = writes.at(-1);
-  await page.getByRole("button", { name: "重新提交相同内容", exact: true }).click();
-  await page.locator("article").filter({ hasText: "过期请求测试联系人" }).waitFor();
-  assert.notEqual(writes.at(-1).request_id, expired.request_id);
-  assert.deepEqual(writes.at(-1).params, expired.params, "Receipt expiry recovery preserves the business identity and payload");
-  checks.push("已过期且未执行请求可显式重新提交；新 request ID 仍保留原 contact_id 和全部参数");
+  await page.getByText("请保留原请求，通过最新状态或本机 agent 核实结果。此动作不能换一个请求 ID 重做。", { exact: true }).waitFor();
+  const expired = writes.at(-1), writesAtExpiry = writes.length;
+  assert.equal(await page.getByRole("button", { name: "重新提交相同内容", exact: true }).count(), 0);
+  await page.reload(); await page.getByRole("tab", { name: "联系人", exact: true }).click();
+  await page.getByText("请保留原请求，通过最新状态或本机 agent 核实结果。此动作不能换一个请求 ID 重做。", { exact: true }).waitFor();
+  const ledger = await (await context.request.get(`${base}/api/agents/agent-a1/workspace/operations`)).json();
+  const retained = ledger.items.find(item => item.call.request_id === expired.request_id);
+  assert.deepEqual(retained.call, expired); assert.equal(retained.phase, "uncertain");
+  assert.equal(writes.length, writesAtExpiry, "expiry and reload cannot create or replay a friend request");
+  checks.push("过期回执不能证明好友申请未执行；账户保存原请求且刷新不重发、不换 ID 通用重启");
 
   await page.getByRole("tab", { name: "事项", exact: true }).click();
   await page.getByText("请核对：仅向小王发送明天下午 3 点的会议提议。\n不会创建日历，也不代表对方已经同意。", { exact: true }).waitFor();
@@ -108,12 +111,12 @@ async function main() {
   await page.getByRole("button", { name: "连接设置", exact: true }).click();
   await page.getByRole("button", { name: "重新检查连接", exact: true }).click();
   await page.getByText("当前连接尚未开放在网页添加联系人，请在连接设置中检查授权。", { exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "添加另一位联系人", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "添加并排队好友请求", exact: true }).count(), 0, "the unresolved original request and revoked permission expose no new-add submission");
   await page.getByRole("tab", { name: "事项", exact: true }).click();
   assert.equal(await page.locator("#subject-approval-web-fail").getByRole("button", { name: "同意本次请求", exact: true }).isDisabled(), true);
   checks.push("同步授权撤回后联系人和审批写入按钮均禁用");
   const report = await (await fetch(`${platform}/fixture/summary`)).json();
-  assert.equal(report.mutationContacts.length, 2);
+  assert.equal(report.mutationContacts.length, 1);
   assert.equal(report.mutationDecisions.length, 4);
   assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(output, "browser-report.json"), JSON.stringify({ checks, browserWrites: writes.length, contacts: report.mutationContacts.length, decisions: report.mutationDecisions.length, errors }, null, 2));

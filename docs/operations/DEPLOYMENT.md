@@ -58,6 +58,7 @@ npm run db:migrate
 
 - 新库创建 User、Agent、ControlRequest 及账户工作台持久副本；旧库保留原 User / Agent 数据。
 - ControlRequest 继续保存有限期加密投递信封。新增工作台副本和同步状态存储，与短期缓存分离；联系人视图、收件箱和会话内容使用 AES-GCM 静态加密。
+- 追加 WorkspaceOperation 与 WorkspaceConversationState，分别保留各类写操作的原请求/认证结果，以及加密会话主题、归档、草稿和阅读位置。迁移不重置身份、不删除旧会话；回滚保留新增表及原 NEXTAUTH_SECRET。升级验收核对同一请求 ID/参数跨进程仍可恢复，过期未知动作没有被重新投递，另一账户不能读取这些记录。
 - 已知会话、当前会话及未确认发送的原始请求在服务端恢复。消息和回合按 ID 累积，不能以远端最新 100 项窗口中缺少某条记录为由删除历史。
 - 将 Agent 全局 URN 唯一索引替换为 (userId, urn) 联合唯一索引。不同获准账户可以保存同一公共 agent URN。
 - 不删除旧 Contact、Message、HITLRequest、Transaction 表，也不删除旧 Agent 私钥列等历史列。新 Prisma 模型和 API 完全不访问这些旧业务字段。

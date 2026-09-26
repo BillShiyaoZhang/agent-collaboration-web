@@ -21,6 +21,7 @@ let child,server,offline=false,extraMessage=false,stopping=false,log='';
 const attentionMode=process.env.ATTENTION_FIXTURE==='1',fixtureAt=Math.floor(Date.now()/1000);
 const mutationMode=process.env.MUTATION_FIXTURE==='1',mutationContacts=new Map(),mutationDecisions=new Map(),mutationResults=new Map();
 const socialMode=process.env.SOCIAL_FIXTURE==='1', socialStates=new Map();
+const productMode=process.env.PRODUCT_FIXTURE==='1',productStates=new Map();
 function socialState(request) {
  const key=request.agent_urn+'|'+request.console_urn;
  if(!socialStates.has(key))socialStates.set(key,{revision:1,contacts:[{contact_id:'friend-online',urn:'urn:fixture:online',aliases:['在线好友'],connection_status:'connected',presence:{status:'online',expires_at:fixtureAt+3600}},{contact_id:'friend-rejected',urn:'urn:fixture:rejected',aliases:['被拒绝的好友'],connection_status:'rejected'},{contact_id:'friend-pending',urn:'urn:fixture:pending',aliases:['等待中的好友'],connection_status:'pending'}],contact_requests:[{request_id:'incoming-accept',direction:'incoming',peer_urn:'urn:fixture:alice',status:'pending',created_at:fixtureAt},{request_id:'incoming-reject',direction:'incoming',peer_urn:'urn:fixture:bob',status:'pending',created_at:fixtureAt},{request_id:'rejected-first',direction:'outgoing',peer_urn:'urn:fixture:rejected',status:'rejected',attempt:1,created_at:fixtureAt},{request_id:'pending-first',direction:'outgoing',peer_urn:'urn:fixture:pending',status:'pending',attempt:1,created_at:fixtureAt}],messages:[{message_id:'social-message',sender_urn:'urn:fixture:online',text:'这条消息需要两端同步已读',read:false,received_at:fixtureAt},{message_id:'social-message-web',sender_urn:'urn:fixture:online',text:'这条消息通过网页标为已读',read:false,received_at:fixtureAt}],sent_messages:[]});
@@ -48,7 +49,42 @@ function verifyBody(req,body){
  assert.ok(identity);assert.equal(crypto.verify(null,Buffer.from(JSON.stringify(body)),identity.ed.publicKey,Buffer.from(signature,'hex')),true);return identity;
 }
 function resultFor(request){
- if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode||socialMode?['attention.list']:[]),...(socialMode?['contacts.add','contacts.requests','contacts.respond','messages.send','inbox.mark_read','collaboration.execute']:[]),...(mutationMode?['contacts.add','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode||socialMode?['attention.list']:[]),...(socialMode?['contacts.add','contacts.requests','contacts.respond','messages.send','inbox.mark_read','collaboration.execute']:[]),...(mutationMode?['contacts.add','approval.respond']:[]),...(productMode?['collaboration.execute','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
+ if(productMode) {
+  const key=request.agent_urn+"|"+request.console_urn;
+  if(!productStates.has(key)) productStates.set(key,{tasks:[],operations:[],pending_confirmations:[],resources:[],inbox:[],contacts:[{contact_id:"product-peer",urn:"urn:fixture:product-peer",aliases:["小林"],connection_status:"connected"}],collaboration_v2:{collaborations:[],invitations:[]}});
+  const state=productStates.get(key),p=request.params;
+  if(request.method==="contacts.list")return {contacts:state.contacts};
+  if(request.method==="collaboration.state")return state;
+  if(request.method==="collaboration.execute") {
+   if(p.action==="describe")return {actions:["describe","register_resource","prepare_task","prepare_collaboration","prepare_action","prepare_worker_policy","dispatch","pause_worker","revoke","revoke_collaboration_maintenance"],business_capabilities:["propose_meeting","accept_meeting","share_slots","share_resource"],source_context_support:{rpc_param:"source_conversation_id"},background_worker:{kind:"finite_deterministic_meeting"}};
+   if(p.action==="prepare_task") {
+    assert.ok(state.contacts.some(c=>p.scope.recipient_ids.includes(c.contact_id)));assert.ok(p.scope.allowed_windows.length>0);
+    const source_context=p.source_conversation_id?{origin:"paired_control",conversation_id:p.source_conversation_id}:undefined;
+    const task={task_id:p.task_id,scope:p.scope,status:"pending",used_count:0,worker:{status:"disabled"},source_context};state.tasks.push(task);
+    const approval={approval_id:"approval-"+p.task_id,subject_id:p.task_id,kind:"task",subject_type:"task",status:"pending",question:"确切委托范围："+JSON.stringify(p.scope)+"。同意仅授权此范围，不代表邀请已经发送。",expires_at:p.scope.expires_at,source_context};state.pending_confirmations.push(approval);
+    return {status:"awaiting_approval",task,approval};
+   }
+   if(p.action==="prepare_collaboration") {
+    const operation={operation_id:p.operation_id,task_id:p.task_id,collaboration_id:p.collaboration_id,kind:p.kind,status:"awaiting_approval",text:"向小林发送当前会议邀请"};
+    state.operations.push(operation);state.pending_confirmations.push({approval_id:"approval-"+p.operation_id,subject_id:p.operation_id,kind:"collaboration_v2",subject_type:"collaboration_v2",question:"允许向小林发送本次会议邀请？",status:"pending",expires_at:fixtureAt+3600});return {operation,status:"awaiting_approval"};
+   }
+   if(p.action==="dispatch") { const op=state.operations.find(x=>x.operation_id===p.operation_id);assert.equal(op.status,"ready");op.status="accepted";state.collaboration_v2.collaborations.push({collaboration_id:op.collaboration_id,task_id:op.task_id,phase:"invited",joined:false,waiting_reason:"peer_join",peer_id:"product-peer",peer_urn:"urn:fixture:product-peer",initiator_urn:request.agent_urn,acceptances:{},agreement:null,maintenance:{revoked:false}});return {operation:op,status:"accepted"}; }
+   if(p.action==="prepare_worker_policy") {
+    const task=state.tasks.find(t=>t.task_id===p.task_id),c=state.collaboration_v2.collaborations.find(c=>c.collaboration_id===p.policy.collaboration_id),policy=p.policy;
+    assert.equal(task.status,"active");assert.equal(c.joined,true);assert.equal(c.task_id,task.task_id);assert.equal(c.agreement,null);
+    assert.deepEqual(Object.keys(policy).sort(),["collaboration_id","allow_propose","allow_accept","proposal","max_runs","max_sends","interval_seconds","expires_at"].sort());
+    assert.ok(policy.max_runs>=1&&policy.max_runs<=100);assert.ok(policy.max_sends>=1&&policy.max_sends<=32);assert.ok(policy.interval_seconds>=15&&policy.interval_seconds<=3600);assert.ok(Date.parse(policy.expires_at)<=Date.parse(task.scope.expires_at));
+    assert.equal(policy.allow_propose,false);assert.equal(policy.proposal,null);assert.equal(policy.allow_accept,true);assert.ok(task.scope.capabilities.includes("accept_meeting"));
+    task.worker={status:"pending",policy,runs_used:0,sends_used:0};
+    const approval={approval_id:"approval-worker-"+p.task_id,subject_id:p.task_id,kind:"worker_policy",status:"pending",question:"是否允许有限后台按以下确切范围推进？"+JSON.stringify(policy)+"；不调用模型，不创建日历。",expires_at:policy.expires_at,source_context:task.source_context};state.pending_confirmations.push(approval);
+    return {decision:"ask",...approval};
+   }
+   if(p.action==="pause_worker"){const task=state.tasks.find(t=>t.task_id===p.task_id);assert.equal(task.worker.status,"active");task.worker.status="paused";return {task_id:p.task_id,worker:task.worker};}
+   throw new Error("Unexpected product action "+p.action);
+  }
+  if(request.method==="approval.respond"){const a=state.pending_confirmations.find(x=>x.approval_id===p.approval_id);assert.ok(a);const task=state.tasks.find(x=>x.task_id===a.subject_id),op=state.operations.find(x=>x.operation_id===a.subject_id);if(task&&a.kind==="worker_policy")task.worker.status=p.decision==="approve"?"active":"revoked";else if(task)task.status=p.decision==="approve"?"active":"denied";if(op)op.status=p.decision==="approve"?"ready":"denied";state.pending_confirmations=state.pending_confirmations.filter(x=>x!==a);return {approval_id:a.approval_id,status:p.decision==="approve"?"approved_once":"denied",decision:p.decision==="approve"?"allow":"deny"};}
+ }
  if(socialMode){
   const state=socialState(request),params=request.params;
   if(request.method==='collaboration.execute')return params.action==='describe'?{actions:['describe','prepare_message'],action_fields:{prepare_message:{required:['recipient_urn','text'],optional:[]}}}:{status:'uncertain',instruction:'本机重启后尚不能确认操作，请查询记录核实。'};
@@ -115,7 +151,7 @@ function resultFor(request){
  if(request.method==='conversation.send'){
   const conv=request.params.conversation_id||request.request_id,id='turn-'+crypto.createHash('sha256').update(request.console_urn+'\0'+request.request_id).digest('hex').slice(0,40);
   const key=request.agent_urn+'|'+request.console_urn+'|'+conv;
-  if(!(turns.get(key)||[]).some(t=>t.turn_id===id))turns.set(key,[...(turns.get(key)||[]),{turn_id:id,text:request.params.text,response:'这是自动同步回来的回复',status:'completed',error:null,created_at:Date.now()/1000,updated_at:Date.now()/1000}]);
+  if(!(turns.get(key)||[]).some(t=>t.turn_id===id))turns.set(key,[...(turns.get(key)||[]),{turn_id:id,text:request.params.text,response:productMode?'**这是自动同步回来的回复**\n- 已保存结果\n\n| 状态 | 范围 |\n| --- | --- |\n| 完成 | 文本答复 |':'这是自动同步回来的回复',status:'completed',error:null,created_at:Date.now()/1000,updated_at:Date.now()/1000}]);
   return {status:'submitted',conversation_id:conv,turn_id:id};
  }
  if(request.method==='conversation.get')return {conversation_id:request.params.conversation_id,turns:turns.get(request.agent_urn+'|'+request.console_urn+'|'+request.params.conversation_id)||[]};
@@ -128,6 +164,10 @@ async function handle(req,res){
   const body=await read(req);if(typeof body.offline==='boolean')offline=body.offline;if(typeof body.extraMessage==='boolean')extraMessage=body.extraMessage;
   if(attentionMode&&typeof body.resolveApproval==='boolean')approvalResolved=body.resolveApproval;
   if(mutationMode&&typeof body.writesAllowed==='boolean')mutationWritesEnabled=body.writesAllowed;
+  if(productMode){
+   if(body.productPeerJoin)for(const state of productStates.values()){const c=state.collaboration_v2.collaborations.find(c=>c.task_id===body.productPeerJoin);if(c){c.joined=true;c.phase="negotiating";c.waiting_reason=null;}}
+   if(body.productCompletion&&body.conversation_id)for(const [key,value] of turns){if(key.endsWith("|"+body.conversation_id))value.push({turn_id:"fixture-background-"+Date.now(),conversation_id:body.conversation_id,status:"completed",text:"后台结果检查",response:"后台完成，未在事项页阅读",created_at:Date.now()/1000,updated_at:Date.now()/1000});}
+  }
   if(socialMode)for(const state of socialStates.values()){
    if(typeof body.externalOutgoing==='boolean'){
     const id='external-second',has=state.contact_requests.some(item=>item.request_id===id);

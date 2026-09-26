@@ -62,6 +62,9 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
     assert.deepEqual(events.at(-1),['read','owner','own-agent','',undefined],'empty conversation explicitly preserves a new chat');
     assert.equal((await agent.POST(req({action:'select_conversation',conversationId:null}),{params:{id:'own-agent'}})).status,200);
     assert.ok(events.some(e=>e[0]==='select'&&e[1]==='owner'&&e[3]===null));
+    assert.deepEqual(events.at(-1),['read','owner','own-agent','',undefined],'a new-chat selection reads its requested metadata even if another device changes account selection');
+    assert.equal((await agent.POST(req({action:'select_conversation',conversationId:'selected-chat'}),{params:{id:'own-agent'}})).status,200);
+    assert.deepEqual(events.at(-1),['read','owner','own-agent','selected-chat',undefined],'selection response is scoped to the caller conversation rather than the mutable account active ID');
     assert.equal((await agent.POST(req({action:'conversation.send',text:'never dispatch me'}),{params:{id:'own-agent'}})).status,400);
     assert.equal((await agent.POST(req({action:'select_conversation',conversationId:null},'https://attacker.example'),{params:{id:'own-agent'}})).status,403);
     assert.equal(events.some(e=>e[0]==='send'),false);
@@ -118,5 +121,43 @@ test('push subscription, display and test routes derive account from the session
     assert.equal((await route.POST(request({action:'receipt',...identity,status:'approved'}))).status,400);
     assert.equal((await route.POST(request({action:'receipt',...identity,status:'displayed'}))).status,200);assert.deepEqual(events.at(-1),['recordPushReceipt','owner',identity.deliveryId,identity.binding,'displayed']);
     const response=await route.GET(new Request('https://console.example/api/notifications/push?deviceId='+deviceId));assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/private.*no-store/);
+  }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
+});
+
+
+test('saved conversation and operation routes authenticate scope, validate origin and never accept business results',async()=>{
+  const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
+  let session=null;const events=[];
+  class ControlError extends Error { constructor(message,status){super(message);this.status=status;} }
+  const protocol=load('../../src/lib/control/control-protocol.ts');
+  const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
+  const store={};
+  for(const name of ['getWorkspaceOperations','reserveWorkspaceOperation','updateWorkspaceOperation','listWorkspaceConversations','saveWorkspaceConversationState'])
+    store[name]=async(...args)=>{events.push([name,...args]);if(args[1]!=='own-agent')throw new ControlError('not found',404);return name==='getWorkspaceOperations'?[]:{phase:'uncertain'};};
+  const deps={'@/lib/workspace/workspace-http':http,'@/lib/workspace/workspace-store':store,'@/lib/control/control-protocol':protocol};
+  const operations=load('../../src/app/api/agents/[id]/workspace/operations/route.ts',deps);
+  const conversations=load('../../src/app/api/agents/[id]/workspace/conversations/route.ts',deps);
+  const params={params:Promise.resolve({id:'own-agent'})};
+  const req=(body,origin='https://console.example')=>new Request('https://console.example/api/saved',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:typeof body==='string'?body:JSON.stringify(body)});
+  const get=query=>new Request('https://console.example/api/saved'+(query||''));
+  const call={request_id:'11111111-1111-4111-8111-111111111111',method:'messages.send',params:{recipient_urn:'urn:agent:friend',message_id:'message',text:'private message'}};
+  try{
+    assert.equal((await operations.GET(get(),params)).status,401);assert.equal((await conversations.POST(req({conversationId:null,draft:'saved'}),params)).status,401);assert.equal(events.length,0);
+    session={user:{id:'owner'}};
+    assert.equal((await operations.POST(req({action:'reserve',call},'https://attacker.invalid'),params)).status,403);
+    assert.equal((await operations.POST(req({action:'reserve',call,userId:'other'}),params)).status,400);
+    assert.equal((await operations.POST(req({action:'reserve',call:{...call,method:'contacts.list',params:{}}}),params)).status,400);
+    assert.equal((await operations.POST(req({action:'update',requestId:call.request_id,phase:'succeeded',result:{status:'success'}}),params)).status,400,'browsers cannot persist invented results');
+    const reserved=await operations.POST(req({action:'reserve',call}),params);assert.equal(reserved.status,200);assert.match(reserved.headers.get('cache-control'),/private.*no-store/);
+    assert.deepEqual(events.at(-1).slice(0,4),['reserveWorkspaceOperation','owner','own-agent',call]);
+    assert.equal((await operations.POST(req({action:'import_legacy',call}),params)).status,200);assert.equal(events.at(-1)[4].legacy,true);
+    assert.equal((await operations.GET(get(),{params:Promise.resolve({id:'foreign-agent'})})).status,404);
+    assert.equal((await conversations.GET(get('?q=old&archived=all&limit=2'),params)).status,200);assert.deepEqual(events.at(-1),['listWorkspaceConversations','owner','own-agent',{q:'old',archived:'all',limit:2}]);
+    assert.equal((await conversations.GET(get('?before=invalid%20cursor'),params)).status,400);
+    assert.equal((await conversations.GET(get('?limit=51'),params)).status,400);
+    assert.equal((await conversations.POST(req({conversationId:'chat',draft:'private draft',scrollTop:25,archived:true}),params)).status,200);
+    assert.deepEqual(events.at(-1),['saveWorkspaceConversationState','owner','own-agent','chat',{draft:'private draft',scrollTop:25,archived:true}]);
+    assert.equal((await conversations.POST(req({conversationId:'chat',draft:'x'.repeat(24001)}),params)).status,400);
+    assert.equal((await operations.POST(req('x'.repeat(32769)),params)).status,413);
   }finally{if(previous===undefined)delete process.env.NEXTAUTH_URL;else process.env.NEXTAUTH_URL=previous;}
 });

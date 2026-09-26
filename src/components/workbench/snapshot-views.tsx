@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
 import { useHydrated, useLocalTime } from "@/components/local-time";
-import { CollaborationSnapshot } from "@/components/workbench/collaboration-snapshot";
-import { MessageReadAction, SendPeerMessage } from "./social-panels";
+import { CollaborationOverview, CollaborationSnapshot } from "@/components/workbench/collaboration-snapshot";
+import { MessageReadAction, PeerCommunicationLog, SendPeerMessage } from "./social-panels";
 import { ApprovalRequests } from "./mutation-panels";
 import type { Workbench } from "./use-workbench";
 
@@ -83,7 +83,7 @@ export function ContactsSnapshot({ data, workbench, syncedAt }: { data: RemoteRe
       const connected = status === "connected", expiry = typeof presence.expires_at === "number" ? presence.expires_at * 1000 : Date.parse(string(presence.expires_at));
       const freshPresence = hydrated && connected && (presence.status === "online" ? Number.isFinite(expiry) && expiry > Date.now() : Date.now() - syncedAt < 60000);
       const online = freshPresence && presence.status === "online";
-      return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 flex-col items-start gap-3 rounded-2xl border p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}{urn && <details className="mt-2 text-xs text-muted-foreground"><summary className="inline-flex min-h-8 cursor-pointer items-center">查看 URN</summary><p className="mt-1 break-all font-mono leading-5">{urn}</p></details>}{status === "rejected" && <RetryRejectedContact contact={contact} workbench={workbench} />}{connected && <SendPeerMessage workbench={workbench} recipientUrn={urn} compact />}</div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
+      return <article key={string(contact.contact_id, urn || String(index))} className="flex min-w-0 flex-col items-start gap-3 rounded-2xl border p-3 transition-colors hover:bg-muted/25 sm:flex-row sm:p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-semibold text-primary">{Array.from(name)[0]}</div><div className="min-w-0 flex-1"><h3 className="break-words font-medium sm:truncate">{name}</h3><p className="mt-1 text-xs text-muted-foreground">{connected ? "已建立通讯录连接" : status === "pending" ? "请求待投递或待对方处理" : status === "rejected" ? "好友请求已拒绝" : "尚未建立通讯录连接"}{connected && <span className={online ? "ml-2 text-emerald-700" : "ml-2"}>● {online ? "在线" : freshPresence && presence.status === "offline" ? "离线" : "在线状态待更新"}</span>}</p>{aliases.length > 1 && <p className="mt-1 truncate text-xs text-muted-foreground">{aliases.slice(1).join(" · ")}</p>}{urn && <details className="mt-2 text-xs text-muted-foreground"><summary className="inline-flex min-h-8 cursor-pointer items-center">查看 URN</summary><p className="mt-1 break-all font-mono leading-5">{urn}</p></details>}{status === "rejected" && <RetryRejectedContact contact={contact} workbench={workbench} />}{connected && <><SendPeerMessage workbench={workbench} recipientUrn={urn} compact /><PeerCommunicationLog workbench={workbench} recipientUrn={urn} /></>}</div>{urn && <CopyValue value={urn} label={`复制 ${name} 的 URN`} compact />}</article>;
     })}</div>}
     <RawSnapshot data={data} />
   </>;
@@ -94,21 +94,19 @@ function ReadableDetail({ label, value }: { label: string; value: string }) {
   return <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs leading-5"><dt className="w-14 shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 flex-1 break-words">{value}</dd></div>;
 }
 
-export function TasksSnapshot({ data, workbench }: { data: RemoteRecord; workbench: Workbench }) {
-  const displayTime = useLocalTime();
+export function TasksSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench: Workbench; onContinue?: (message: string, conversationId?: string) => void }) {
   const tasks = records(data.tasks), approvals = records(data.pending_confirmations), operations = records(data.operations);
+  const view = record(data.collaboration ?? data.collaboration_v2);
+  const collaborations = records(data.collaborations ?? view.collaborations);
+  const invitations = records(data.invitations ?? view.invitations);
   return <>
-    <CollaborationSnapshot data={data} />
+    <CollaborationSnapshot data={data} workbench={workbench} onContinue={onContinue} />
     <ApprovalRequests approvals={approvals} workbench={workbench} />
-    {!tasks.length && !approvals.length && !operations.length && !records(data.collaborations).length && !records(record(data.collaboration ?? data.collaboration_v2).collaborations).length && !records(data.invitations).length && !records(record(data.collaboration ?? data.collaboration_v2).invitations).length && <EmptySnapshot kind="tasks" />}
-    <div className="space-y-3 px-5 pb-5">{tasks.map((task, index) => {
-      const scope = record(task.scope), id = string(task.task_id, String(index));
-      return <details id={`subject-${id}`} key={id} className="rounded-2xl border p-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-3"><h3 className="min-w-0 break-words font-medium">{string(scope.purpose, id)}</h3><StatusBadge value={task.status} /></summary><div className="mt-3 border-t pt-3"><p className="break-all text-xs text-muted-foreground">事项 ID · {id}</p><dl className="mt-3 space-y-1.5"><ReadableDetail label="主题" value={string(scope.topic)} /><ReadableDetail label="参与者" value={strings(scope.participant_ids).join("、")} /><ReadableDetail label="接收者" value={strings(scope.recipient_ids).join("、")} /><ReadableDetail label="有效期至" value={displayTime(scope.expires_at)} /></dl>{operations.filter(operation => operation.task_id === task.task_id).map((operation, operationIndex) => <div key={string(operation.operation_id, String(operationIndex))} className="mt-3 rounded-xl bg-muted/50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-muted-foreground">{string(operation.operation_id, "协作动作")}</p><StatusBadge value={operation.status} /></div><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{string(operation.text)}</p>{operation.status === "accepted" && <p className="mt-2 text-xs text-muted-foreground">本机队列已接收；尚不代表对方同意或事项完成。</p>}</div>)}</div></details>;
-    })}</div>
+    {!tasks.length && !approvals.length && !operations.length && !collaborations.length && !invitations.length && <EmptySnapshot kind="tasks" />}
+    <div className="space-y-3 px-3 pb-5 sm:px-5">{tasks.filter(task => !collaborations.some(collaboration => collaboration.task_id === task.task_id)).map(task => <CollaborationOverview key={string(task.task_id)} workbench={workbench} taskId={string(task.task_id)} onContinue={onContinue} />)}</div>
     <RawSnapshot data={data} />
   </>;
 }
-
 function messageText(value: unknown): { text: string; structured: boolean } {
   const text = string(value);
   try { const content = record(JSON.parse(text)); if (content.protocol === "agent-comm-collaboration/v1" && typeof content.text === "string") return { text: content.text, structured: true }; } catch { /* Most peer messages are plain text. */ }

@@ -13,7 +13,7 @@ async function main(){
   Object.defineProperty(window,'Notification',{value:FakeNotification,configurable:true});
  });
  const page=await context.newPage();page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
- await page.goto(base+'/login');await page.getByLabel('邮箱',{exact:true}).fill('owner-a@workspace.invalid');await page.getByLabel('密码',{exact:true}).fill('Workspace-smoke-fixture-2026');await page.getByRole('button',{name:'进入工作空间',exact:true}).click();await page.waitForURL('**/dashboard/agents');
+ await page.goto(base+'/login?callbackUrl=/dashboard/agents');await page.getByLabel('邮箱',{exact:true}).fill('owner-a@workspace.invalid');await page.getByLabel('密码',{exact:true}).fill('Workspace-smoke-fixture-2026');await page.getByRole('button',{name:'进入工作空间',exact:true}).click();await page.waitForURL('**/dashboard/agents');
  const bell=page.getByRole('link',{name:/提醒中心，2 条未读，2 项待处理/});await bell.waitFor({timeout:45000});
  assert.equal(await page.evaluate(()=>window.__notificationCalls.length),0);
  await bell.click();await page.getByRole('heading',{name:'提醒中心',exact:true}).waitFor();await page.getByRole('heading',{name:'确认会议时间',exact:true}).first().waitFor();

@@ -158,7 +158,7 @@ async function auditPage(page, label, { skip = true, axe = true } = {}) {
 }
 
 async function login(page) {
-  await page.goto(`${workspaceBase}/login`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${workspaceBase}/login?callbackUrl=/dashboard/agents`, { waitUntil: "domcontentloaded" });
   await page.getByLabel("邮箱", { exact: true }).fill("owner-a@workspace.invalid");
   await page.getByLabel("密码", { exact: true }).fill("Workspace-smoke-fixture-2026");
   await page.getByRole("button", { name: "进入工作空间", exact: true }).click();

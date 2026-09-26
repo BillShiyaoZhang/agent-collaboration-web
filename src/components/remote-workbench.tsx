@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bot, ClipboardList, Inbox, MessageCircle, RefreshCw, Settings2, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,8 +39,44 @@ function AgentWorkbench({ agent, initial }: { agent: Connection; initial: Worksp
   const search = useSearchParams();
   const requestedTab = search.get("tab");
   const [activeTab, setActiveTab] = useState<Tab>(() => (["contacts", "tasks", "inbox"].includes(requestedTab || "") ? requestedTab as Tab : getDraft(agent.id)?.tab as Tab) || "conversation");
-  useEffect(() => { if (requestedTab === "contacts" || requestedTab === "tasks" || requestedTab === "inbox") setActiveTab(requestedTab); }, [requestedTab]);
+  useEffect(() => { if (requestedTab === "conversation" || requestedTab === "contacts" || requestedTab === "tasks" || requestedTab === "inbox") setActiveTab(requestedTab); }, [requestedTab]);
   useEffect(() => { saveDraft(agent.id, { tab: activeTab }); }, [agent.id, activeTab, saveDraft]);
+  const requestedConversation=search.get("conversation");
+  const linkedConversation=useRef("");
+  const [linkError,setLinkError]=useState("");
+  const [pendingDiscussion,setPendingDiscussion]=useState<{message:string;conversationId:string}|null>(null);
+  async function continueDiscussion(message:string, sourceConversationId?:string) {
+    if(w.selectingConversation || w.submission)return;
+    const target=sourceConversationId || w.conversationId;
+    if(target!==w.conversationId) {
+      const known=w.conversations.some(value=>value.id===target);
+      const opened=known ? await w.selectConversation(target) : w.canReadConversation ? await w.readConversation(target) : false;
+      if(!opened){setLinkError("暂时无法打开这件事的原对话，尚未加入讨论草稿。恢复连接后可再次选择继续讨论。");return;}
+    }
+    setPendingDiscussion({message,conversationId:target});
+  }
+  const {conversationId:discussionConversationId,selectingConversation:discussionSelecting,setText:setDiscussionText,composer:discussionComposer}=w;
+  useEffect(()=>{
+    if(!pendingDiscussion || discussionSelecting)return;
+    if(discussionConversationId!==pendingDiscussion.conversationId){setPendingDiscussion(null);return;}
+    setDiscussionText(previous=>previous.trim() ? `${previous}\n\n${pendingDiscussion.message}` : pendingDiscussion.message);
+    setActiveTab("conversation");setPendingDiscussion(null);
+    requestAnimationFrame(()=>discussionComposer.current?.focus());
+  },[pendingDiscussion,discussionConversationId,discussionSelecting,setDiscussionText,discussionComposer]);
+  async function openLinkedConversation(id:string) {
+    setLinkError("");
+    const known=w.conversations.some(v=>v.id===id);
+    const ok=known ? await w.selectConversation(id) : w.canReadConversation ? await w.readConversation(id) : false;
+    if(!ok)setLinkError("暂时无法打开通知中的原对话。恢复连接后可重试读取，保存的当前草稿仍保留。");
+  }
+  useEffect(()=>{
+    if(!requestedConversation || requestedConversation===linkedConversation.current || w.selectingConversation || w.submission || (!w.canReadConversation && !w.conversations.some(v=>v.id===requestedConversation)))return;
+    linkedConversation.current=requestedConversation;void openLinkedConversation(requestedConversation);
+    // One attempt per link. Failed reads require an explicit retry; re-renders never loop a POST.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[requestedConversation,w.selectingConversation,w.submission,w.canReadConversation,w.conversations]);
+  const requestedTurn=search.get("turn");
+  useEffect(()=>{if(requestedTurn && w.turns.some(t=>t.turn_id===requestedTurn)) document.getElementById("turn-"+requestedTurn)?.scrollIntoView({block:"center"});},[requestedTurn,w.turns]);
   const tabs = tabItems.filter(tab => tab.methods.some(w.available) || (tab.id === "conversation" ? !!w.conversations.length || !!w.turns.length || !!w.submission : !!w.snapshots[readMethods[tab.id]]));
   const visibleTab = tabs.some(tab => tab.id === activeTab) ? activeTab : tabs[0]?.id;
   const snapshotMethod = visibleTab && visibleTab !== "conversation" ? readMethods[visibleTab] : null;
@@ -60,14 +96,15 @@ function AgentWorkbench({ agent, initial }: { agent: Connection; initial: Worksp
   }, [subject, visibleTab, hasSubjectSnapshot]);
 
   return <div className="mx-auto max-w-6xl space-y-6 pb-6">
-    <header className="flex flex-wrap items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3.5"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Bot className="h-7 w-7" strokeWidth={1.6} /></div><div className="min-w-0"><div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground"><span>远程工作台</span><span>·</span><span>{syncLabel(w.sync, !!w.capabilitySnapshot)}</span></div><h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{agent.name}</h1></div></div><Button id="connection-settings-toggle" variant="outline" size="sm" className="gap-2 rounded-xl bg-card" onClick={() => w.setPairingOpen(previous => !previous)} aria-expanded={w.pairingOpen} aria-controls="pairing-panel"><Settings2 className="h-4 w-4" />连接设置</Button></header>
+    <header className="flex flex-wrap items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3.5"><div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Bot className="h-7 w-7" strokeWidth={1.6} /></div><div className="min-w-0"><div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground"><span>我的 agent</span><span>·</span><span>{syncLabel(w.sync, !!w.capabilitySnapshot)}</span></div><h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{agent.name}</h1></div></div><Button id="connection-settings-toggle" variant="outline" size="sm" className="gap-2 rounded-xl bg-card" onClick={() => w.setPairingOpen(previous => !previous)} aria-expanded={w.pairingOpen} aria-controls="pairing-panel"><Settings2 className="h-4 w-4" />连接设置</Button></header>
+    {linkError && <div role="alert" className="rounded-xl border p-3 text-sm"><p>{linkError}</p><Button variant="outline" size="sm" className="mt-2" disabled={w.selectingConversation || !!w.busy["conversation.get"]} onClick={()=>{if(requestedConversation)void openLinkedConversation(requestedConversation);}}>重试打开原对话</Button></div>}
     {w.cacheError && <p role="status" className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-4 py-3 text-xs leading-6 text-amber-900">{w.cacheError}</p>}
     <div id="pairing-panel" hidden={!showConnectionSettings}><PairingPanel agent={agent} workbench={w} featureCount={tabs.length} /></div>
     {!w.capabilitySnapshot && <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-10 text-center"><span className="mb-4 rounded-2xl bg-muted p-3"><Sparkles className="h-6 w-6 text-muted-foreground" strokeWidth={1.5} /></span><h2 className="font-medium">{w.sync.status === "needs_pairing" ? "完成一次配对，之后自动连接" : w.sync.status === "policy_paused" ? "远程同步已暂停" : w.sync.status === "policy_unavailable" ? "平台政策暂不可核验" : "正在连接你的 agent"}</h2><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{w.sync.status === "needs_pairing" ? "请在 agent 所在设备确认配对。完成后，这里会自动同步。" : w.sync.error || "正在后台读取对话、联系人和协作事项。你可以继续浏览，内容会自动出现。"}</p></div>}
     {w.capabilitySnapshot && !tabs.length && <div className="rounded-2xl border bg-card p-8 text-center"><h2 className="font-medium">已验证身份，暂未开放工作台功能</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">请检查 agent 适配器与本机授权范围，再重新检查连接。</p></div>}
     {!!tabs.length && <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
       <div role="tablist" aria-label="工作台功能" className="flex overflow-x-auto border-b bg-muted/20 px-2 pt-2 sm:px-5">{tabs.map((tab, index) => <button type="button" role="tab" id={`tab-${tab.id}`} aria-controls={`panel-${tab.id}`} aria-selected={visibleTab === tab.id} tabIndex={visibleTab === tab.id ? 0 : -1} key={tab.id} onClick={() => setActiveTab(tab.id)} onKeyDown={event => { let next = index; if (event.key === "ArrowRight") next = (index + 1) % tabs.length; else if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = tabs.length - 1; else return; event.preventDefault(); setActiveTab(tabs[next].id); document.getElementById(`tab-${tabs[next].id}`)?.focus(); }} className={cn("relative flex min-h-12 min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-t-xl px-2 text-xs sm:flex-none sm:gap-2 sm:px-4 sm:text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", visibleTab === tab.id ? "bg-card font-semibold text-primary after:absolute after:inset-x-4 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground")}><tab.icon className="h-4 w-4" strokeWidth={1.8} />{tab.label}</button>)}</div>
-      {visibleTab === "conversation" ? <ConversationPanel workbench={w} agentName={agent.name} /> : visibleTab && snapshotMethod ? <div role="tabpanel" id={`panel-${visibleTab}`} aria-labelledby={`tab-${visibleTab}`}><div className="flex flex-wrap items-start justify-between gap-3 p-5"><div className="min-w-0"><h2 className="font-medium">{tabs.find(tab => tab.id === visibleTab)?.label}</h2><p className="mt-1.5 text-xs leading-5 text-muted-foreground">{descriptions[visibleTab]}</p>{snapshot && <p className="mt-2 text-xs text-muted-foreground">已保存 · 最近同步 {displayTime(snapshot.time / 1000)}</p>}</div><Button variant="outline" size="sm" className="gap-1.5 rounded-xl" disabled={!!w.busy[snapshotMethod] || !w.available(snapshotMethod)} onClick={() => void w.invoke(snapshotMethod)}><RefreshCw className={cn("h-3.5 w-3.5", w.busy[snapshotMethod] && "animate-spin")} />刷新</Button></div>{visibleTab === "contacts" && <><AddContactPanel workbench={w} /><FriendRequests workbench={w} /></>}{visibleTab === "inbox" && <><SendPeerMessage workbench={w} /><SentMessages workbench={w} /></>}{visibleTab === "tasks" && <CollaborationActions workbench={w} />}{(w.busy[snapshotMethod] || w.errors[snapshotMethod]) && <div className="px-5 pb-4"><RequestFeedback busy={w.busy[snapshotMethod]} error={w.errors[snapshotMethod]} onRetry={() => void w.invoke(snapshotMethod)} /></div>}{!snapshot && !w.errors[snapshotMethod] && !["offline", "needs_pairing", "policy_paused", "policy_unavailable"].includes(w.sync.status) && <div aria-hidden className="space-y-3 px-5 pb-6">{[1, 2, 3].map(key => <div key={key} className="h-24 animate-pulse rounded-2xl bg-muted/60" />)}</div>}{!snapshot && ["offline", "needs_pairing", "policy_paused", "policy_unavailable"].includes(w.sync.status) && <p role="status" className="px-5 pb-8 text-sm leading-6 text-muted-foreground">这部分内容尚未同步。{w.sync.status === "policy_paused" ? "确认或恢复政策后会继续读取。" : w.sync.status === "policy_unavailable" ? "平台政策核验恢复后会继续读取。" : "连接恢复后会自动读取。"}</p>}{snapshot && (visibleTab === "contacts" ? <ContactsSnapshot data={snapshot.data} workbench={w} syncedAt={snapshot.time} /> : visibleTab === "tasks" ? <TasksSnapshot data={snapshot.data} workbench={w} /> : <InboxSnapshot data={snapshot.data} workbench={w} />)}</div> : null}
+      {visibleTab === "conversation" ? <ConversationPanel workbench={w} agentName={agent.name} /> : visibleTab && snapshotMethod ? <div role="tabpanel" id={`panel-${visibleTab}`} aria-labelledby={`tab-${visibleTab}`}><div className="flex flex-wrap items-start justify-between gap-3 p-5"><div className="min-w-0"><h2 className="font-medium">{tabs.find(tab => tab.id === visibleTab)?.label}</h2><p className="mt-1.5 text-xs leading-5 text-muted-foreground">{descriptions[visibleTab]}</p>{snapshot && <p className="mt-2 text-xs text-muted-foreground">已保存 · 最近同步 {displayTime(snapshot.time / 1000)}</p>}</div><Button variant="outline" size="sm" className="gap-1.5 rounded-xl" disabled={!!w.busy[snapshotMethod] || !w.available(snapshotMethod)} onClick={() => void w.invoke(snapshotMethod)}><RefreshCw className={cn("h-3.5 w-3.5", w.busy[snapshotMethod] && "animate-spin")} />刷新</Button></div>{visibleTab === "contacts" && <><AddContactPanel workbench={w} /><FriendRequests workbench={w} /></>}{visibleTab === "inbox" && <><SendPeerMessage workbench={w} /><SentMessages workbench={w} /></>}{visibleTab === "tasks" && <CollaborationActions workbench={w} />}{(w.busy[snapshotMethod] || w.errors[snapshotMethod]) && <div className="px-5 pb-4"><RequestFeedback busy={w.busy[snapshotMethod]} error={w.errors[snapshotMethod]} onRetry={() => void w.invoke(snapshotMethod)} /></div>}{!snapshot && !w.errors[snapshotMethod] && !["offline", "needs_pairing", "policy_paused", "policy_unavailable"].includes(w.sync.status) && <div aria-hidden className="space-y-3 px-5 pb-6">{[1, 2, 3].map(key => <div key={key} className="h-24 animate-pulse rounded-2xl bg-muted/60" />)}</div>}{!snapshot && ["offline", "needs_pairing", "policy_paused", "policy_unavailable"].includes(w.sync.status) && <p role="status" className="px-5 pb-8 text-sm leading-6 text-muted-foreground">这部分内容尚未同步。{w.sync.status === "policy_paused" ? "确认或恢复政策后会继续读取。" : w.sync.status === "policy_unavailable" ? "平台政策核验恢复后会继续读取。" : "连接恢复后会自动读取。"}</p>}{snapshot && (visibleTab === "contacts" ? <ContactsSnapshot data={snapshot.data} workbench={w} syncedAt={snapshot.time} /> : visibleTab === "tasks" ? <TasksSnapshot data={snapshot.data} workbench={w} onContinue={continueDiscussion} /> : <InboxSnapshot data={snapshot.data} workbench={w} />)}</div> : null}
     </section>}
   </div>;
 }

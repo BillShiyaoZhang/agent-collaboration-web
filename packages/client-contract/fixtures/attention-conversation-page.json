@@ -1,0 +1,18 @@
+{
+  "schema": "agent-comm-attention/v1",
+  "items": [{
+    "attention_id": "attention-conversation-fixture",
+    "kind": "conversation_completed",
+    "subject_id": "chat-1",
+    "source_revision": "completed",
+    "revision": 8,
+    "state": "open",
+    "title": "对话有新回复",
+    "safe_summary": "Agent 已结束这一回合；请回到原对话查看实际回复。",
+    "target": {"kind": "conversation", "id": "chat-1", "turn_id": "turn-1"},
+    "created_at": 1789430400,
+    "updated_at": 1789430410
+  }],
+  "cursor": 8,
+  "has_more": false
+}

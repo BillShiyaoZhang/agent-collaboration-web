@@ -33,7 +33,7 @@ node tests/integration/workspace-resilience.cjs
 
 构建后，将环境变量 `MUTATION_FIXTURE` 设为 `1` 再启动同一 fixture，然后运行
 `node tests/integration/workspace-mutations-browser.cjs`。它使用隔离账户，检查联系人确认、
-断线后保留原请求、请求过期后显式恢复、审批同意/拒绝、Agent 终态同步、权限撤回和手机布局。
+断线后保留原请求、过期回执保持未知且禁止好友申请换 ID 重放、审批同意/拒绝、Agent 终态同步、权限撤回和手机布局。
 报告与截图写入 `build/workspace-mutations-preview/`。
 
 ### 提醒与无障碍浏览器检查
@@ -92,3 +92,16 @@ python -B tests/integration/web_two_agent_stability.py --platform PATH_TO_PLATFO
 报告与截图保存在 `build/workspace-social-preview/`。`PLAYWRIGHT_MODULE`、`CHROME_EXECUTABLE` 可指定已有浏览器测试工具。
 
 `npm test` 另验证 agent 权威好友快照、旧消息已读更新、已处理通知计数、后台推送撤回和服务工作线程在关闭网页时关闭原通知。
+
+workspace-store.test.cjs 另用真实临时 SQLite 验证操作账本的账户隔离、静态加密、原 ID/参数绑定、迁移重跑保留、过期和旧浏览器记录不续期、认证社交状态核实；会话主题/归档/草稿/阅读位置、等时分页和仅已保存历史搜索；对话完成通知首次历史抑制、原生提醒归并以及阅读不解除审批。workspace-routes.test.cjs 检查新接口的登录、同源、字段/大小约束及拒绝浏览器伪造结果；control.test.cjs 检查账本不可写时不会投递 RPC。它们不替代真实宿主、浏览器多设备或生产部署验收。
+
+### 聊天与目标协作故事
+
+生产构建后，以 PRODUCT_FIXTURE=1 启动 workspace-fixture.cjs，再运行 product-stories-browser.cjs。
+它使用隔离合成账号与签名 MQ 往返，验证默认聊天入口、格式化答复、账号草稿、主题搜索归档、
+联系人/目标表单、任务委托与邀请的独立审批、来源关联回到原聊天，以及 320/390 手机布局。
+输出在 build/workspace-sync-preview/product。此验收不操作真实 agent，不证明真实用户可用性研究或外部业务完成。
+
+mutation-recovery-policy.test.cjs 验证联系人添加、任意协作执行与缺少稳定 message_id 的旧消息发送不能换 RPC ID 通用重启；只有同一审批、好友请求或消息的确切对象可显式核实后继续。
+
+draft-cache.test.cjs 验证另一设备的服务端草稿优先于已保存旧缓存、仅未落盘编辑可覆盖、迟到保存及读取响应不能覆盖新编辑；workspace-browser.cjs 通过两个独立浏览器上下文核对跨设备切换、重新挂载、700ms 前导航及迟到读取。明确 action=describe 的协作功能说明属于只读，旧说明账本仍保留审计但不作为待执行写操作恢复。

@@ -39,6 +39,9 @@ function availableMethods(capabilities) {
 }
 exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"];
 const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"]);
+// These authenticated agent errors establish rejection before execution. Other
+// errors may follow a committed side effect or response serialization failure.
+const NOT_EXECUTED_ERRORS = new Set(["not_paired", "owner_mismatch", "method_not_allowed", "unsupported_method", "invalid_params", "queue_full", "pairing_expired", "pairing_revoked"]);
 function record(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -154,11 +157,14 @@ class WorkbenchClient {
                 throw new WorkbenchError("返回内容与本次请求不匹配，尚不能确认结果。", call, true, writing);
             }
             authenticated = true;
-            this.calls.delete(key);
             if (response.error) {
                 const error = record(response.error), code = string(error.code);
-                throw new WorkbenchError(remoteErrors[code] || string(error.message, "Agent 未能完成这次请求。"), call, false, false);
+                const uncertain = writing && !NOT_EXECUTED_ERRORS.has(code);
+                if (!uncertain) this.calls.delete(key);
+                const message = remoteErrors[code] || string(error.message, "Agent 未能完成这次请求。");
+                throw new WorkbenchError(uncertain ? message + " 原请求已保留，请先核对状态，不要重新发起同一动作。" : message, call, false, uncertain);
             }
+            this.calls.delete(key);
             return record(response.result);
         }
         catch (error) {
@@ -298,6 +304,7 @@ function canonicalJSON(value) {
 function validateAttentionPage(value) {
     const page = record(value);
     const stable = value => typeof value === "string" && value.length > 0 && value.length <= 512;
+    const turnId = value => typeof value === "string" && new RegExp(exports.STABLE_ID_PATTERN).test(value);
     const seconds = value => typeof value === "number" && Number.isFinite(value) && value >= 0;
     if (page.schema !== "agent-comm-attention/v1" || !Array.isArray(page.items) || page.items.length > 100 ||
         !Number.isSafeInteger(page.cursor) || page.cursor < 0 || typeof page.has_more !== "boolean") throw new Error("Invalid attention page");
@@ -307,7 +314,8 @@ function validateAttentionPage(value) {
             !Number.isSafeInteger(item.revision) || item.revision < 1 || item.revision > page.cursor ||
             !(typeof item.source_revision === "string" || Number.isSafeInteger(item.source_revision)) ||
             !["open", "resolved", "superseded", "expired"].includes(item.state) || typeof item.title !== "string" || item.title.length > 1000 ||
-            typeof item.safe_summary !== "string" || item.safe_summary.length > 8000 || !["task", "inbox", "approval", "contact"].includes(item.target?.kind) || !stable(item.target.id) ||
+            typeof item.safe_summary !== "string" || item.safe_summary.length > 8000 || !["task", "inbox", "approval", "contact", "conversation"].includes(item.target?.kind) || !stable(item.target.id) ||
+            (item.target.kind === "conversation" && (!turnId(item.target.id) || !turnId(item.target.turn_id))) || (item.target.turn_id != null && !turnId(item.target.turn_id)) ||
             !seconds(item.created_at) || !seconds(item.updated_at) || (item.expires_at != null && !seconds(item.expires_at))) throw new Error("Invalid attention item");
         ids.add(item.attention_id);
     }
@@ -317,6 +325,7 @@ function attentionRequiresAction(kind, state) {
     return state === "open" && ["owner_decision_required", "needs_recovery", "connection_action_required", "needs_response", "new_collaboration_request", "friend_request_received"].includes(kind);
 }
 function notificationRoute(agentId, target) {
+    if (target.kind === "conversation") return `/dashboard/agents/${encodeURIComponent(agentId)}?tab=conversation&conversation=${encodeURIComponent(target.id)}&turn=${encodeURIComponent(target.turn_id || "")}`;
     return `/dashboard/agents/${encodeURIComponent(agentId)}?tab=${target.kind === "inbox" ? "inbox" : target.kind === "contact" ? "contacts" : "tasks"}&subject=${encodeURIComponent(target.id)}`;
 }
 exports.validateAttentionPage = validateAttentionPage;

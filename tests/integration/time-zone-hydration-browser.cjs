@@ -21,7 +21,7 @@ async function inspect(timezoneId) {
   page.on('pageerror', error => { pageErrors.push(error.message); collect(error.message); });
   page.on('console', message => { if (message.type() === 'error') collect(message.text()); });
   try {
-    await page.goto(`${base}/login`);
+    await page.goto(`${base}/login?callbackUrl=/dashboard/agents`);
     await page.getByLabel('邮箱', { exact: true }).fill('owner-a@workspace.invalid');
     await page.getByLabel('密码', { exact: true }).fill('Workspace-smoke-fixture-2026');
     await page.getByRole('button', { name: '进入工作空间', exact: true }).click();

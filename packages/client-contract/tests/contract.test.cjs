@@ -141,3 +141,49 @@ test('friend request targets route to contacts and social writes only invalidate
   for (const method of ['contacts.respond', 'messages.send', 'inbox.mark_read', 'collaboration.execute']) assert.equal(c.AUTOMATIC_METHODS.has(method), false);
   assert.equal(c.AUTOMATIC_METHODS.has('contacts.requests'), true);
 });
+
+test('conversation result notices deep-link the exact turn without demanding an owner action', () => {
+  const page = require('../fixtures/attention-conversation-page.json');
+  assert.deepEqual(api.validateAttentionPage(page), page);
+  const target = page.items[0].target;
+  assert.equal(api.notificationRoute('agent/a', target), '/dashboard/agents/agent%2Fa?tab=conversation&conversation=chat-1&turn=turn-1');
+  assert.equal(api.attentionRequiresAction('conversation_completed', 'open'), false);
+  assert.equal(api.attentionRequiresAction('conversation_failed', 'open'), false);
+  for (const turn_id of [undefined, 'bad/id', '']) {
+    const invalid = structuredClone(page);
+    invalid.items[0].target.turn_id = turn_id;
+    assert.throws(() => api.validateAttentionPage(invalid), /Invalid attention item/);
+  }
+});
+
+
+test('authenticated write errors preserve the original action when execution cannot be ruled out', async () => {
+  const methods = ['conversation.send', 'contacts.add', 'approval.respond', 'contacts.respond', 'messages.send', 'inbox.mark_read', 'collaboration.execute'];
+  for (const method of methods) for (const code of ['internal_error', 'result_too_large', 'request_conflict', 'new_unknown_error']) {
+    let ids = 0;
+    const client = new api.WorkbenchClient('agent', async (_url, init) => {
+      const sent = JSON.parse(init.body);
+      return Response.json({status:'complete',request_id:sent.request_id,response:{request_id:sent.request_id,method:sent.method,error:{code,message:'failure after possible commit'}}});
+    }, async () => {}, () => `request-${++ids}`);
+    const original = client.prepare(method, {target:'same-object',content:'same-body'});
+    await assert.rejects(client.execute(original, new AbortController().signal), error => error.uncertain && !error.retryable && error.call === original);
+    assert.strictEqual(client.prepare(method, {content:'same-body',target:'same-object'}), original, `${method}/${code} must retain ID and payload`);
+    assert.equal(ids, 1);
+  }
+});
+
+test('authenticated pre-execution rejection and read errors allow a fresh request', async () => {
+  for (const [method, codes] of [['messages.send',['not_paired','owner_mismatch','method_not_allowed','unsupported_method','invalid_params','queue_full','pairing_expired','pairing_revoked']], ['conversation.get',['internal_error','result_too_large','request_conflict']]]) {
+    for (const code of codes) {
+      let ids = 0;
+      const client = new api.WorkbenchClient('agent', async (_url, init) => {
+        const sent = JSON.parse(init.body);
+        return Response.json({status:'complete',request_id:sent.request_id,response:{request_id:sent.request_id,method:sent.method,error:{code,message:'rejected'}}});
+      }, async () => {}, () => `request-${++ids}`);
+      const original = client.prepare(method, {text:'same'});
+      await assert.rejects(client.execute(original, new AbortController().signal), error => !error.uncertain && !error.retryable);
+      assert.notStrictEqual(client.prepare(method, {text:'same'}), original);
+      assert.equal(ids, 2);
+    }
+  }
+});
