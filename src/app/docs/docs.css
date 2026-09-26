@@ -1,0 +1,117 @@
+/* Scoped styles migrated from site/docs/index.html. */
+
+    .public-docs { color-scheme: light; --paper: #f7f8f2; --white: #fffefa; --ink: #183d34; --muted: #5a6b60; --lime: #dcefad; --line: #dce2d7; --soft: #edf0e7; --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+    .public-docs * { box-sizing: border-box; }
+    .public-docs { scroll-behavior: smooth; font-size: 1rem; -webkit-text-size-adjust: 100%; }
+    .public-docs { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); line-height: 1.7; }
+    .public-docs a { color: inherit; text-underline-offset: 4px; overflow-wrap: anywhere; }
+    .public-docs a:focus-visible, .public-docs button:focus-visible { outline: 3px solid #4d7748; outline-offset: 4px; }
+    .public-docs button { font: inherit; cursor: pointer; }
+    .public-docs .wrap { width: min(1120px, calc(100% - 64px)); margin-inline: auto; }
+    .public-docs .skip-link { position: absolute; top: -100px; left: 16px; z-index: 5; padding: 9px 16px; background: var(--ink); color: white; border-radius: 6px; }
+    .public-docs .skip-link:focus { top: 12px; }
+    .public-docs .site-header { border-bottom: 1px solid var(--line); }
+    .public-docs .header-inner { min-height: 84px; display: flex; justify-content: space-between; align-items: center; gap: 22px; }
+    .public-docs .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 700; letter-spacing: -.045em; text-decoration: none; white-space: nowrap; }
+    .public-docs .brand-mark { width: 32px; height: 32px; }
+    .public-docs .header-right, .public-docs .nav-links, .public-docs .languages { display: flex; align-items: center; }
+    .public-docs .header-right { gap: 28px; }
+    .public-docs .nav-links { gap: 24px; font-size: 15px; }
+    .public-docs .nav-links a { min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; }
+    .public-docs .nav-links a:hover { text-decoration: underline; }
+    .public-docs .nav-links [aria-current="page"] { font-weight: 700; }
+    .public-docs .languages { gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 24px; }
+    .public-docs .languages button { border: 0; background: transparent; color: var(--muted); font-size: 14px; min-width: 44px; min-height: 44px; padding: 7px; border-radius: 20px; }
+    .public-docs .languages button[aria-pressed="true"] { background: var(--ink); color: var(--white); }
+    .public-docs .hero { padding-block: 76px 68px; max-width: 810px; }
+    .public-docs .eyebrow { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; font-size: 14px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+    .public-docs .eyebrow::before { content: ""; width: 21px; height: 2px; background: currentColor; }
+    .public-docs h1, .public-docs h2, .public-docs h3, .public-docs p { margin-top: 0; }
+    .public-docs h1, .public-docs h2, .public-docs h3 { line-height: 1.32; }
+    .public-docs h1 { font-size: clamp(2.25rem, 4.6vw, 3.5rem); letter-spacing: -.045em; margin-bottom: 20px; }
+    .public-docs .hero-intro { color: var(--muted); font-size: 18px; line-height: 1.9; margin-bottom: 0; }
+    .public-docs .role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding-bottom: 76px; }
+    .public-docs .role-card { display: flex; flex-direction: column; min-height: 330px; background: var(--white); border: 1px solid var(--line); border-top: 4px solid var(--ink); border-radius: 0 0 10px 10px; padding: 28px; }
+    .public-docs .role-index { color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .08em; margin-bottom: 33px; }
+    .public-docs .role-card h2 { font-size: 24px; letter-spacing: -.02em; margin-bottom: 15px; }
+    .public-docs .role-card p { color: var(--muted); font-size: 15px; margin-bottom: 25px; }
+    .public-docs .role-card a { margin-top: auto; display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; font-size: 15px; }
+    .public-docs .section { border-top: 1px solid var(--line); padding-block: 58px 70px; }
+    .public-docs .section-head { display: grid; grid-template-columns: 1fr 1fr; gap: 45px; align-items: end; margin-bottom: 27px; }
+    .public-docs .section-head h2 { font-size: clamp(1.7rem, 3vw, 2.25rem); letter-spacing: -.03em; margin-bottom: 0; }
+    .public-docs .section-head p { color: var(--muted); margin-bottom: 0; }
+    .public-docs .component-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .public-docs .component { border: 1px solid var(--line); background: var(--soft); border-radius: 9px; padding: 24px; }
+    .public-docs .component h3 { font-size: 18px; margin-bottom: 8px; }
+    .public-docs .component p { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+    .public-docs .component a { display: inline-flex; min-height: 44px; align-items: center; font-size: 14px; font-weight: 650; }
+    .public-docs .more-links { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-top: 24px; font-size: 15px; }
+    .public-docs .more-links a { min-height: 44px; display: inline-flex; align-items: center; }
+    .public-docs .source-note { border-top: 1px solid var(--line); padding-block: 30px 42px; color: var(--muted); font-size: 14px; }
+    .public-docs .source-note p { margin-bottom: 0; }
+    .public-docs .source-note a { display: inline-flex; min-height: 2.75rem; align-items: center; }
+    .public-docs .site-footer { border-top: 1px solid var(--line); padding-block: 30px; font-size: 14px; color: var(--muted); }
+    .public-docs .footer-inner { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 15px; }
+    .public-docs .footer-inner a { margin-left: 18px; }
+    .public-docs .reader-shell { width: min(960px, calc(100% - 64px)); margin: 0 auto; padding-block: 38px 90px; }
+    .public-docs .reader-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+    .public-docs .reader-breadcrumb a { min-height: 44px; display: inline-flex; align-items: center; }
+    .public-docs .reader-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; border-bottom: 1px solid var(--line); padding: 12px 0 20px; font-size: 14px; color: var(--muted); }
+    .public-docs .reader-toolbar a { min-height: 44px; display: inline-flex; align-items: center; }
+    .public-docs .reader-status { min-height: 90px; padding-block: 26px; color: var(--muted); }
+    .public-docs .reader-status:empty { display: none; }
+    .public-docs .markdown { background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: clamp(24px, 5vw, 60px); color: #233e35; overflow-wrap: anywhere; }
+    .public-docs .markdown > :first-child { margin-top: 0; }
+    .public-docs .markdown > :last-child { margin-bottom: 0; }
+    .public-docs .markdown h1, .public-docs .markdown h2, .public-docs .markdown h3, .public-docs .markdown h4, .public-docs .markdown h5, .public-docs .markdown h6 { color: var(--ink); scroll-margin-top: 24px; letter-spacing: -.025em; }
+    .public-docs .markdown h1 { font-size: clamp(2rem, 4vw, 2.75rem); margin: 0 0 26px; }
+    .public-docs .markdown h2 { font-size: 1.65rem; margin: 43px 0 16px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+    .public-docs .markdown h3 { font-size: 1.25rem; margin: 31px 0 12px; }
+    .public-docs .markdown h4, .public-docs .markdown h5, .public-docs .markdown h6 { margin: 24px 0 10px; }
+    .public-docs .markdown p, .public-docs .markdown ul, .public-docs .markdown ol, .public-docs .markdown pre, .public-docs .markdown table, .public-docs .markdown blockquote { margin: 0 0 19px; }
+    .public-docs .markdown ul, .public-docs .markdown ol { padding-left: 1.65em; }
+    .public-docs .markdown li { margin: 5px 0; }
+    .public-docs .markdown li > p { margin-bottom: 7px; }
+    .public-docs .markdown a { color: #155e51; }
+    .public-docs .markdown a:hover { color: #0a4439; }
+    .public-docs .markdown code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .9em; background: #ecf1e7; border-radius: 4px; padding: .12em .3em; }
+    .public-docs .markdown pre { overflow-x: auto; padding: 18px 20px; border-radius: 8px; background: #193b32; color: #f2f8ee; line-height: 1.5; }
+    .public-docs .markdown pre code { background: none; padding: 0; color: inherit; font-size: 13px; }
+    .public-docs .markdown blockquote { border-left: 4px solid #b1c99a; padding: 4px 0 4px 18px; color: var(--muted); }
+    .public-docs .markdown blockquote > :last-child { margin-bottom: 0; }
+    .public-docs .markdown .table-scroll { overflow-x: auto; margin-bottom: 20px; }
+    .public-docs .markdown table { width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 14px; }
+    .public-docs .markdown th, .public-docs .markdown td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; min-width: 110px; }
+    .public-docs .markdown th { background: var(--soft); }
+    .public-docs .markdown tr:nth-child(even) td { background: #fafbf6; }
+    .public-docs .markdown hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+    .public-docs .markdown img { max-width: 100%; height: auto; }
+    .public-docs .reader-end { margin-top: 24px; display: flex; gap: 12px 24px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+    .public-docs .reader-end a { min-height: 44px; display: inline-flex; align-items: center; }
+    .public-docs [hidden] { display: none !important; }
+    @media (max-width: 780px) {
+      .public-docs .wrap, .public-docs .reader-shell { width: calc(100% - 40px); }
+      .public-docs .header-inner { min-height: 76px; }
+      .public-docs .header-right { gap: 14px; }
+      .public-docs .nav-links { gap: 14px; }
+      .public-docs .nav-links .secondary { display: none; }
+      .public-docs .hero { padding-block: 52px 45px; }
+      .public-docs .role-grid { grid-template-columns: 1fr; gap: 14px; padding-bottom: 52px; }
+      .public-docs .role-card { min-height: 0; padding: 24px; }
+      .public-docs .role-index { margin-bottom: 18px; }
+      .public-docs .component-grid { grid-template-columns: 1fr; gap: 12px; }
+      .public-docs .section-head { grid-template-columns: 1fr; gap: 10px; }
+      .public-docs .reader-shell { padding-top: 20px; }
+      .public-docs .markdown { padding: 24px 20px; }
+    }
+    @media (max-width: 470px) {
+      .public-docs .wrap, .public-docs .reader-shell { width: calc(100% - 32px); }
+      .public-docs .header-inner { flex-wrap: wrap; padding-block: 12px; gap: 3px; }
+      .public-docs .header-right { width: 100%; justify-content: space-between; }
+      .public-docs .brand { font-size: 19px; }
+      .public-docs .brand-mark { width: 28px; height: 28px; }
+      .public-docs .nav-links { font-size: 14px; }
+      .public-docs .hero-intro { font-size: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .public-docs { scroll-behavior: auto; } }
+  

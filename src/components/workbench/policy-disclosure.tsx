@@ -20,6 +20,7 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const requestNumber = useRef(0);
   const displayedHash = useRef("");
   const changingAccess = useRef(false);
@@ -86,7 +87,7 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
         method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resume: true }),
       }));
-      setPolicy(current); setError("");
+      setPolicy(current); setError(""); setDetailsOpen(false);
     } catch (cause) {
       setPolicy(null); setError(cause instanceof Error ? cause.message : "无法恢复使用，请重新核验政策。");
     } finally { changingAccess.current = false; setSubmitting(false); }
@@ -98,10 +99,22 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
     {error && <Button variant="outline" size="sm" className="mt-3" onClick={() => void refresh()}>重新核验</Button>}
   </section>{children}</PolicyAccessContext.Provider>;
 
+  const showDetails = !policy.can_use_workbench || detailsOpen;
   return <PolicyAccessContext.Provider value={policy.can_use_workbench}>
-    <section aria-label="平台政策与内容可见范围" className="break-words rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
-      <h2 className="font-semibold">平台政策与内容可见范围</h2>
-      {policy.status === "legacy" ? <p className="mt-2 leading-6">平台尚未提供可验证的 v2 签名政策；此处不能证明 agent 之间使用了隐私或合规模式。工作台沿用托管控制通道，网页服务可读取 agent 授权同步给本账户的内容。</p> : <>
+    <section aria-label="平台政策与内容可见范围" className={`break-words rounded-2xl border p-4 text-sm ${policy.can_use_workbench ? "border-border bg-card text-foreground" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold">{policy.can_use_workbench ? "平台政策与内容可见范围" : policy.paused ? "远程控制与同步已暂停" : "请确认平台政策"}</h2>
+          <p className="mt-1 text-xs leading-5">{policy.status === "legacy"
+            ? "尚无可验证的 v2 签名政策；网页可读取已授权的工作台内容。"
+            : policy.mode === "compliance"
+              ? "平台网关可解密符合政策的 agent 间 v2 消息；网页可读取已授权的工作台内容。"
+              : "平台网关不获 v2 私密消息内容密钥；网页可读取已授权的工作台内容。"}</p>
+        </div>
+        {policy.can_use_workbench && <Button type="button" variant="ghost" size="sm" className="h-auto w-full max-w-full min-w-0 justify-start whitespace-normal py-2 text-left sm:w-auto" aria-expanded={detailsOpen} aria-controls="policy-details" onClick={() => setDetailsOpen(open => !open)}>{detailsOpen ? "收起详情" : "查看详情与控制"}</Button>}
+      </div>
+      {showDetails && <div id="policy-details" className="mt-3 border-t pt-3">
+      {policy.status === "legacy" ? <p className="leading-6">平台尚未提供可验证的 v2 签名政策；此处不能证明 agent 之间使用了隐私或合规模式。工作台沿用托管控制通道，网页服务可读取 agent 授权同步给本账户的内容。</p> : <>
         <p className="mt-2 leading-6">已验证平台签名政策：<strong>{policy.mode === "compliance" ? "合规模式" : "隐私模式"}</strong> · epoch {policy.epoch} · 平台 {policy.platform_id}。</p>
         <p className="mt-2 leading-6">{policy.mode === "compliance"
           ? `按此政策，符合 v2 的 agent 间消息必须允许平台网关解密；网关密钥 ID：${policy.gateway_key_id}。`
@@ -124,6 +137,7 @@ export function PolicyDisclosureGate({ children }: { children: ReactNode }) {
         : policy.paused && (policy.status === "legacy" || policy.mode === "private" || policy.confirmed)
           ? <Button variant="outline" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={submitting} onClick={() => void resume()}>恢复远程控制与同步</Button>
           : null}</div>
+      </div>}
     </section>
     {children}
   </PolicyAccessContext.Provider>;

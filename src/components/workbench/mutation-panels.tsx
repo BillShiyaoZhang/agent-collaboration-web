@@ -48,7 +48,7 @@ export function AddContactPanel({ workbench: w }: { workbench: Workbench }) {
   }
 
   return <section className="mx-3 mb-5 rounded-2xl border bg-muted/20 p-3 sm:mx-5 sm:p-4" aria-label="添加联系人">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-medium">添加联系人</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，本机 agent 会将好友请求排队并尝试投递。对方收到并接受后，双方才建立通讯录连接，可以互发普通消息。若这个 URN 已在通讯录且上次请求被拒绝，请从该联系人卡片重新发起。</p></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div>{shown && <h3 className="text-sm font-medium">添加联系人</h3>}{open && !locked && <p className="mt-1 text-xs leading-6 text-muted-foreground">填写对方的称呼与 URN，本机 agent 会将好友请求排队并尝试投递。对方收到并接受后，双方才建立通讯录连接，可以互发普通消息。若这个 URN 已在通讯录且上次请求被拒绝，请从该联系人卡片重新发起。</p>}</div>
       {!shown && <Button type="button" size="sm" className="h-auto max-w-full whitespace-normal py-2 text-center" disabled={!allowed} onClick={() => setOpen(true)}><Plus className="h-4 w-4 shrink-0" />添加联系人</Button>}
     </div>
     {!w.canAddContact && <p className="mt-2 text-xs leading-6 text-muted-foreground">{w.available("contacts.add") ? "此连接的授权已失效，请先在连接设置中重新配对。" : "当前连接尚未开放在网页添加联系人，请在连接设置中检查授权。"}</p>}
@@ -71,6 +71,7 @@ export function ApprovalRequests({ approvals, workbench: w }: { approvals: Remot
   const hydrated = useHydrated();
   const recent = w.mutations.approvalActions.filter(action => !approvals.some(approval => approval.approval_id === action.call.params.approval_id));
   if (!approvals.length && !recent.length) return null;
+  if (!approvals.length && recent.every(action => action.phase === "succeeded")) return <details className="mx-5 mb-5 rounded-2xl border p-4" aria-label="最近的授权回应"><summary className="cursor-pointer text-sm font-medium">最近的授权回应 · {recent.length} 项</summary>{recent.map(action => <div key={action.call.request_id} className="mt-3 border-t pt-3"><p className="text-xs leading-6 text-muted-foreground">已提交{action.call.params.decision === "approve" ? "同意" : "拒绝"}。最新同步内容中已没有这条待确认请求，可查看事项进展核实。</p><ActionFeedback action={action} onRefresh={() => void w.mutations.refresh()} /></div>)}</details>;
   return <section className="mx-5 mb-5 rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4" aria-label="授权确认">
     <div className="flex items-start gap-3"><ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><h3 className="text-sm font-semibold text-amber-950">{approvals.length ? `${approvals.length} 项需要你确认` : "最近的授权回应"}</h3><p className="mt-1 text-xs leading-6 text-amber-800">请核对完整请求后选择同意或拒绝，处理结果会从 agent 同步。</p></div></div>
     {!w.canRespondApproval && <p className="mt-3 text-xs leading-6 text-amber-900">{w.available("approval.respond") ? "此连接的授权已失效，请先在连接设置中重新配对。" : "当前连接尚未开放网页授权确认。请检查连接设置，或从 agent 的原生渠道回应。"}</p>}

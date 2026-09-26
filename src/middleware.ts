@@ -3,13 +3,14 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 // List of public routes that don't require authentication
-const publicRoutes = ["/login", "/register", "/api/auth"];
+const publicRoutes = ["/", "/docs", "/docs/", "/login", "/register", "/api/auth"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check if the route is public
   const isPublicRoute = publicRoutes.some((route) => pathname === route || (route === "/api/auth" && pathname.startsWith(route + "/")))
+    || pathname.startsWith("/docs/source/")
     || pathname === "/api/onboarding" || /^\/api\/onboarding\/[0-9a-f-]{36}$/.test(pathname)
     || pathname === "/agent-install.md" || pathname === "/llms.txt";
 

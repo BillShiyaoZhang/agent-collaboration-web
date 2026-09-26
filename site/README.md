@@ -1,34 +1,15 @@
-# Agent Comm 官网
+# 官网与文档入口
 
-面向第一次接触 Agent Comm 的用户，介绍整体用途、四个项目的分工和首次接入步骤。中英文静态首页在 [index.html](index.html)。[docs/index.html](docs/index.html) 是按用户、使用项目的 agent、开发者分组的文档入口。
+官网首页 `/`、文档入口 `/docs/`、登录与工作台由同一个 Next.js 应用提供。现行代码在 [`src/app/page.tsx`](../src/app/page.tsx)、[`src/components/public/`](../src/components/public/) 和 [`src/app/docs/`](../src/app/docs/)；公开导航可在首页、文档和工作台之间切换。修改这些页面后要构建并发布 Web，不再靠替换 nginx 挂载的 HTML 更新。
 
-官网与远程工作台同属 Web 仓库维护，但不依赖 Next.js 构建，也不嵌入 Platform 的 Go 程序。[部署仓库](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)通过 nginx 将此目录只读挂载到 `/srv/site`：`/` 读取首页，`/docs/` 读取统一文档入口。工作台仍使用原有路由；[Platform API 参考](https://agent-communication.online/docs/?path=platform/guides/API.md)由同一阅读器打开。
+本目录的 [`index.html`](index.html) 与 [`docs/index.html`](docs/index.html) 是迁移前静态页面的历史参考，现行服务不读取它们。维护文案、样式和交互时应修改上述 Next.js 文件，并同时核对中英文、窄屏、键盘与缩放显示。
 
-## 文档门户
+## 文档原文
 
-文档阅读页用 `/docs/?path=deploy/users/README.md` 这样的可分享地址，从 `/docs/source/` 获取 Markdown 原文并在浏览器中排版。原文由部署仓库把四个仓库各自的 `docs/` 只读挂载给 nginx；门户不维护另一份文档副本：
+文档阅读器保留 `/docs/?path=deploy/users/README.md` 等可分享地址，从 `/docs/source/` 读取四仓原始 Markdown。根部署项目把四仓 `docs/` 只读挂载给 nginx 和 Web；nginx 保留现行公开路径白名单、旧 `/docs/api/` 和 `/guide/` 跳转。Next.js 原文路由使用相同的仓库和目录白名单，可供直接访问 Web 与本地开发；非法路径、历史记录和目录外符号链接返回 404。
 
-| 原仓库 `docs/` | 原文地址前缀 |
-| --- | --- |
-| 部署仓库 | `/docs/source/deploy/` |
-| Web | `/docs/source/web/` |
-| Platform | `/docs/source/platform/` |
-| agent-comm SDK / Runtime | `/docs/source/sdk/` |
+独立 Web 镜像只包含 Web 仓库自身的 `docs/`。完整文档门户需要根部署项目的四仓只读挂载；独立部署时可通过 `DOCS_SOURCE_ROOT` 提供四个原文目录。阅读器在某份原文不可用时提供源码仓库链接。
 
-只公开现行操作和技术指南；日期化的发布与验收记录仍从 GitHub 查看。阅读器会把公开 `docs/` 内的相对 Markdown 链接留在门户，把不在公开范围的仓库文件链接指向对应 GitHub 仓库。原始 `.md` 地址也可供 agent 直接读取；阅读器需要 JavaScript，但页面在禁用 JavaScript 时提供三类读者的原文入口。
+## 检查
 
-## 更新与检查
-
-1. 编辑 `index.html` 或 `docs/index.html`，同时更新中文及对应 `data-en` 内容。修改门户文档链接时，确认目标仍在部署仓库的公开路径清单内。
-2. 用静态 HTTP 服务预览首页与门户，检查中文、英文、手机窄屏、页内链接和复制说明；禁用 JavaScript 后中文首页仍应完整可读。文档读取还需在部署 nginx 路由下检查 `/docs/source/`、API 阅读视图、旧 `/docs/api/` 跳转和跨仓相对链接。
-3. 发布时把审核后的文件同步到服务器已挂载的 `site` 目录。仅改静态内容无需重建或重启 Web、Platform 或 nginx。首次启用目录挂载、修改 nginx 路由时，仍需要部署相应配置。
-
-页面使用系统字体与内联图形，没有外部前端依赖。控制台地址、授权范围和期限由用户决定；示意对话不代表真实执行结果。
-
-## Hermes 自动接入入口
-
-首页 HTML 的 head 与正文都链接到同域 `/agent-install.md`，`/llms.txt` 提供简短机器入口。这两个文件由 Next.js 的 `public/` 目录提供，middleware 明确允许匿名读取；它们需要随 Web 镜像发布，不能只替换静态首页。现有 nginx 默认 Web 路由可直接转发这两个路径。
-
-当前指南要求完整安装 ZIP 内的 `onboard_hermes.py`。Hermes 自行安装和启动本机组件、发起签名申请，网页用户在 `/connect/{code}` 核对具体身份、方法和期限后确认，本机后台程序自动取得控制台签名并配对。网页不需要用户复制命令回 Hermes。公开 claim code 与不公开的本机轮询 secret 分离；默认七天读取与对话权限。旧手动接入仍保留在包内 README。
-
-部署时必须同步 Web API/UI、公开指南、静态首页和包含新入口的完整安装包；指南不能先指向尚未分发的脚本。
+运行 Web 的 `npm test` 与 `npm run build`，再核对中文、英文、320px 宽度、200% 文字缩放、键盘跳转、复制接入说明和 `/docs/?path=platform/guides/API.md`。在组合部署下核对 `/docs/source/` 的公开与拒绝路径、`/docs/api/` 和 `/guide/` 的跳转，以及公开 `/agent-install.md`、`/llms.txt` 和下载清单。一次性 Hermes 授权仍在 `/connect/{code}`；不要把手工配对写成首装必经步骤。

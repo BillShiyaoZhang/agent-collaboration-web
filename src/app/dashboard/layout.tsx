@@ -7,6 +7,7 @@ import { WorkspaceProvider } from "@/components/workspace-provider";
 import { NotificationProvider } from "@/components/notification-provider";
 import { getWorkspaceOverview } from "@/lib/workspace/workspace-store";
 import { PolicyDisclosureGate } from "@/components/workbench/policy-disclosure";
+import { AppFrame } from "@/components/layout/app-frame";
 
 export default async function DashboardLayout({
   children,
@@ -21,6 +22,7 @@ export default async function DashboardLayout({
 
   const workspace = await getWorkspaceOverview(session.user.id);
   return (
+    <AppFrame>
     <WorkspaceProvider key={session.user.id} initial={workspace}>
     <NotificationProvider accountId={session.user.id}>
     <div className="flex h-full min-h-0">
@@ -33,5 +35,6 @@ export default async function DashboardLayout({
     </div>
     </NotificationProvider>
     </WorkspaceProvider>
+    </AppFrame>
   );
 }

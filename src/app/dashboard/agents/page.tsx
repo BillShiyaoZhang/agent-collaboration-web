@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Bot, Check, CheckCheck, ChevronRight, CircleAlert, Fingerprint, Inbox, Loader2, MessageSquare, Plus, RefreshCw, Search, ShieldCheck, Users, X } from "lucide-react";
+import { ArrowRight, Bot, Check, ChevronRight, CircleAlert, Fingerprint, Inbox, Loader2, MessageSquare, Plus, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -169,12 +169,7 @@ export default function AgentsPage() {
                     </div>
                     <h2 className="truncate text-lg font-semibold tracking-tight" title={agent.name}>{agent.name}</h2>
                     <p className="mt-2 truncate font-mono text-xs leading-5 text-muted-foreground" title={agent.urn}>{agent.urn}</p>
-                    <div className="mb-5 mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground" title="工作台功能区，可用功能以 agent 授权为准">
-                      <span className="inline-flex items-center gap-1.5"><Users className="h-3.5 w-3.5" aria-hidden="true" />联系人</span>
-                      <span className="inline-flex items-center gap-1.5"><CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />事项</span>
-                      <span className="inline-flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />对话</span>
-                    </div>
-                    <div className="mt-auto flex items-center justify-between border-t pt-4 text-xs"><span className="min-w-0 pr-2 text-muted-foreground"><span className="block">{syncLabel(agent.sync, !!agent.sync.lastSuccessAt)}</span>{agent.sync.lastSuccessAt && <span className="mt-1 block text-xs">最近同步 {displayTime(agent.sync.lastSuccessAt / 1000)}</span>}</span><span className="flex items-center gap-1 font-medium text-primary">打开<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span></div>
+                    <div className="mt-5 flex items-center justify-between border-t pt-4 text-xs"><span className="min-w-0 pr-2 text-muted-foreground"><span className="block">{syncLabel(agent.sync, !!agent.sync.lastSuccessAt)}</span>{agent.sync.lastSuccessAt && <span className="mt-1 block text-xs">最近同步 {displayTime(agent.sync.lastSuccessAt / 1000)}</span>}</span><span className="flex items-center gap-1 font-medium text-primary">打开<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span></div>
                   </Link>
                 ))}
               </div>
@@ -186,7 +181,6 @@ export default function AgentsPage() {
                 <Button variant="outline" className="mt-5 rounded-xl" onClick={() => { setQuery(""); searchInput.current?.focus(); }}>清空搜索</Button>
               </div>
             )}
-            <p className="flex items-start gap-2 px-1 pt-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />所有连接都在后台自动同步。Agent 暂时离线时，仍可查看已保存的内容。</p>
           </section>
         )}
 
@@ -203,7 +197,7 @@ export default function AgentsPage() {
               </div>
               <h2 id="empty-title" className="relative text-xl font-semibold tracking-tight sm:text-2xl">连接你的第一个 agent</h2>
               <p className="relative mt-3 max-w-sm text-sm leading-7 text-muted-foreground">让已经能正常使用的 Hermes 从官网发起连接，<br className="hidden sm:block" />在网页核对授权后，它会自动出现在这里。</p>
-              <Button asChild className="relative mt-7 h-11 gap-2 rounded-xl px-6"><Link href="https://agent-communication.online/#start">查看 Hermes 首次接入步骤<ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" /></Link></Button>
+              <Button asChild className="relative mt-7 h-11 gap-2 rounded-xl px-6"><Link href="/#start">查看 Hermes 首次接入步骤<ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" /></Link></Button>
               <Button variant="ghost" onClick={() => changeOpen(true)} className="relative mt-2 h-11 rounded-xl text-sm">已手工安装？添加连接</Button>
             </div>
             <div className="border-t bg-muted/30 px-6 py-6 sm:px-8">

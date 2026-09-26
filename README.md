@@ -113,7 +113,7 @@ src/
     shared/            # 数据库连接和通用辅助函数
 packages/client-contract/ # 多端共享契约和 fixtures
 prisma/                # 数据模型与兼容迁移
-site/                  # 独立静态官网
+site/                  # 旧官网 HTML 留作历史参考；现行页面在 src/app/
 tests/{unit,integration,fixtures}/
 docs/{architecture,operations}/
 ```
@@ -125,7 +125,7 @@ docs/{architecture,operations}/
 普通用户无需启动这个源码项目。需要开发或自行部署时，请看：
 
 - [技术参考：架构、接入命令、权限与验证](docs/architecture/TECHNICAL_REFERENCE.md)
-- [官网静态页面：内容维护与独立发布](site/README.md)
+- [官网与文档入口：Next.js 页面和历史静态文件](site/README.md)
 - [多端共享模块：客户端接口、历史分页与跨端重试](packages/client-contract/README.md)
 - [云端部署与数据库迁移](docs/operations/DEPLOYMENT.md)
 - [完整部署项目](https://github.com/BillShiyaoZhang/agent-collaboration-deploy)

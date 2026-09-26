@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { Footer } from "@/components/layout/footer";
 
 export const metadata: Metadata = {
   title: { default: "Agent Comm · 我的工作空间", template: "%s · Agent Comm" },
@@ -19,12 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>
-        <div className="flex h-dvh flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
-          <Footer />
-        </div>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

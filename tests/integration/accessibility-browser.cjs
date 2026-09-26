@@ -1,8 +1,6 @@
-// Manual accessibility regression check for the site and authenticated workspace.
+// Manual accessibility regression check for the public Next pages and authenticated workspace.
 //
-// The workspace side uses the loopback-only workspace-fixture.cjs. Start a built
-// app with that fixture first, then run this script. A static HTTP server is
-// created here for site/index.html so the public page is tested in isolation.
+// Use the loopback-only workspace-fixture.cjs to serve the built Next app.
 //
 // Example:
 //   npm run build
@@ -17,11 +15,9 @@ const axePath = (() => {
 })();
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const http = require("node:http");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../..");
-const siteFile = path.join(root, "site/index.html");
 const workspaceBase = process.env.WORKSPACE_BROWSER_URL || "http://127.0.0.1:3062";
 const fixtureBase = process.env.WORKSPACE_FIXTURE_URL || "http://127.0.0.1:3061";
 for (const value of [workspaceBase, fixtureBase]) {
@@ -33,7 +29,6 @@ fs.mkdirSync(output, { recursive: true });
 const checks = [];
 const errors = [];
 let browser;
-let staticServer;
 
 async function dimensions(page) {
   return page.evaluate(() => ({
@@ -96,6 +91,8 @@ async function targetFailures(page) {
   return page.evaluate(() => [...document.querySelectorAll("a, button, input, textarea, select, summary, [role=button], [role=tab]")].filter(element => {
     if (element.closest('[aria-hidden="true"]') || element.classList.contains("sr-only")) return false;
     const style = getComputedStyle(element);
+    // Inline links in Markdown prose use the target-size exception for text in a sentence.
+    if (element.tagName === "A" && element.closest("#reader-content") && style.display === "inline") return false;
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") return false;
     return rect.width < 24 || rect.height < 24;
@@ -160,21 +157,6 @@ async function auditPage(page, label, { skip = true, axe = true } = {}) {
   checks.push(`${label}: readable text, 16px inputs, touch targets, reflow and 200% root scale passed`);
 }
 
-async function serveSite() {
-  staticServer = http.createServer((request, response) => {
-    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
-    if (pathname === "/" || pathname === "/index.html") {
-      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(fs.readFileSync(siteFile));
-      return;
-    }
-    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end("Not found");
-  });
-  await new Promise(resolve => staticServer.listen(0, "127.0.0.1", resolve));
-  return `http://127.0.0.1:${staticServer.address().port}`;
-}
-
 async function login(page) {
   await page.goto(`${workspaceBase}/login`, { waitUntil: "domcontentloaded" });
   await page.getByLabel("邮箱", { exact: true }).fill("owner-a@workspace.invalid");
@@ -184,18 +166,57 @@ async function login(page) {
 }
 
 async function main() {
-  const staticBase = await serveSite();
   browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   page.on("pageerror", error => errors.push(error.message));
 
-  await page.goto(staticBase, { waitUntil: "domcontentloaded" });
-  await auditPage(page, "public site desktop");
+  await page.goto(`${workspaceBase}/`, { waitUntil: "networkidle" });
+  await page.locator('header a[href^="/docs"]').first().waitFor();
+  assert.equal(await page.locator('header a[href="/"]').count() > 0, true, "public navigation must return home");
+  assert.equal(await page.locator('header a[href="/dashboard"]').count() > 0, true, "public navigation must reach the workspace");
+  await auditPage(page, "public home desktop");
+  await page.evaluate(() => { window.__publicNavState = "same-document"; });
+  await page.locator('header a[href^="/docs"]').first().click();
+  await page.waitForURL(url => /^\/docs\/?$/.test(url.pathname));
+  assert.equal(await page.evaluate(() => window.__publicNavState), "same-document", "home to docs should use in-app navigation");
+  assert.equal(await page.title(), "文档 / Documentation · Agent Comm", "docs title should not duplicate the app name");
+  await auditPage(page, "public docs desktop");
+  checks.push("home and docs share the Next app navigation without reloading the document");
+  await page.getByRole("link", { name: "阅读用户指南 →", exact: true }).click();
+  await page.locator("#reader-content h1").waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("path"), "deploy/users/README.md");
+  assert.equal(await page.locator("#reader-raw").getAttribute("href"), "/docs/source/deploy/users/README.md");
+  await auditPage(page, "public docs reader desktop");
+  const publicSource = await context.request.get(`${workspaceBase}/docs/source/platform/guides/API.md`);
+  assert.equal(publicSource.status(), 200, "published API guide should load from the same Next app");
+  assert.match(publicSource.headers()["content-type"] || "", /^text\/plain/i);
+  for (const key of ["deploy/testing/RETEST_PLAN_2026-09-24.md", "sdk/architecture/CAPABILITY_SKILL_MAP.md", "deploy/.env.md", "toString/README.md"]) {
+    const response = await context.request.get(`${workspaceBase}/docs/source/${key}`);
+    assert.equal(response.status(), 404, `unpublished source must be hidden: ${key}`);
+  }
+  await page.goto(`${workspaceBase}/docs/?path=deploy%2Ftesting%2FRETEST_PLAN_2026-09-24.md`, { waitUntil: "domcontentloaded" });
+  await page.getByText("此文档不在公开指南中。", { exact: true }).waitFor();
+  assert.equal(await page.locator("#reader-content").count(), 0);
+  await page.locator('header a[href="/dashboard"]').click();
+  await page.waitForURL(/\/login\?/);
+  assert.equal(new URL(page.url()).searchParams.get("callbackUrl"), "/dashboard", "docs workspace link should preserve the requested destination");
+  checks.push("published guides render in the app; private source files stay unavailable; docs workspace navigation reaches login with its destination");
   await page.setViewportSize({ width: 320, height: 740 });
-  await page.goto(staticBase, { waitUntil: "domcontentloaded" });
-  await auditPage(page, "public site 320px");
+  await page.goto(`${workspaceBase}/`, { waitUntil: "domcontentloaded" });
+  await auditPage(page, "public home 320px");
+  await page.getByRole("button", { name: "EN", exact: true }).click();
+  await assertNoOverflow(page, "public home 320px in English");
+  await assertTouchTargets(page, "public home 320px in English");
+  await page.goto(`${workspaceBase}/docs/`, { waitUntil: "domcontentloaded" });
+  await auditPage(page, "public docs 320px");
+  await page.waitForFunction(() => document.querySelector('button[lang="en"]')?.getAttribute("aria-pressed") === "true");
+  assert.match(await page.getByRole("heading", { level: 1 }).textContent(), /^[A-Za-z]/, "English navigation should show English content");
+  assert.equal(await page.title(), "文档 / Documentation · Agent Comm");
+  await assertNoOverflow(page, "public docs 320px in English");
+  await assertTouchTargets(page, "public docs 320px in English");
+  checks.push("public home and docs remain usable at 320px in both languages");
 
   await page.setViewportSize({ width: 1440, height: 1050 });
   await page.goto(`${workspaceBase}/login`, { waitUntil: "domcontentloaded" });
@@ -212,6 +233,15 @@ async function main() {
   await page.setViewportSize({ width: 1440, height: 1050 });
   await login(page);
   await auditPage(page, "agents desktop");
+  const policyDetails = page.getByRole("button", { name: "查看详情与控制", exact: true });
+  await policyDetails.waitFor();
+  assert.equal(await policyDetails.getAttribute("aria-expanded"), "false", "usable policy details should start collapsed");
+  assert.equal(await page.locator("#policy-details").count(), 0);
+  await policyDetails.click();
+  assert.equal(await page.getByRole("button", { name: "收起详情", exact: true }).getAttribute("aria-expanded"), "true");
+  await page.getByRole("button", { name: "收起详情", exact: true }).click();
+  assert.equal(await page.locator("#policy-details").count(), 0);
+  checks.push("verified policy summary stays visible while optional details can be opened and closed");
 
   // The Add connection dialog is a representative Radix modal. Escape must
   // close it and return focus to the trigger instead of leaving focus in the DOM.
@@ -228,6 +258,14 @@ async function main() {
   await firstAgent.click();
   await page.waitForURL("**/dashboard/agents/agent-a1");
   await page.getByRole("tab", { name: "对话", exact: true }).click();
+  const connectionSettings = page.getByRole("button", { name: "连接设置", exact: true });
+  assert.equal(await connectionSettings.getAttribute("aria-expanded"), "false", "connected workbench settings should start collapsed");
+  assert.equal(await page.locator("#pairing-panel").getAttribute("hidden"), "", "successful pairing should not dominate the workbench");
+  await connectionSettings.click();
+  await page.getByRole("region", { name: "控制台配对", exact: true }).waitFor();
+  await connectionSettings.click();
+  assert.equal(await connectionSettings.getAttribute("aria-expanded"), "false");
+  checks.push("connected workbench keeps pairing details behind the connection settings control");
   const composer = page.getByRole("textbox", { name: "给 agent 的消息", exact: true });
   await composer.waitFor();
   assert.equal(Number.parseFloat(await composer.evaluate(element => getComputedStyle(element).fontSize)) >= 16, true, "conversation composer must use at least 16px text");
@@ -269,7 +307,7 @@ async function main() {
   await auditPage(page, "notifications 320px");
 
   assert.deepEqual(errors, [], `browser page errors: ${JSON.stringify(errors)}`);
-  fs.writeFileSync(path.join(output, "report.json"), JSON.stringify({ checks, errors, axe: Boolean(axePath), staticBase, workspaceBase }, null, 2));
+  fs.writeFileSync(path.join(output, "report.json"), JSON.stringify({ checks, errors, axe: Boolean(axePath), workspaceBase }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, checks, errors, axe: Boolean(axePath) }, null, 2));
 }
 
@@ -279,5 +317,4 @@ main().catch(async error => {
   process.exitCode = 1;
 }).finally(async () => {
   await browser?.close();
-  if (staticServer) await new Promise(resolve => staticServer.close(resolve));
 });

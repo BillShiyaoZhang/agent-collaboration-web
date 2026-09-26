@@ -49,7 +49,7 @@ node tests/integration/workspace-resilience.cjs
 构建后，以 `ATTENTION_FIXTURE=1` 启动同一 fixture，再运行
 `node tests/integration/notifications-browser.cjs`。脚本用浏览器通知桩检查跨连接待办、已读与待处理计数、并发标签投递声明、跨源拒绝和 390px 页面；不发送真实系统通知。结果写入 `build/notifications-preview/`。
 
-普通 fixture 启动后运行 `node tests/integration/accessibility-browser.cjs`。它检查官网、登录/注册、工作台和提醒中心的键盘入口、触控目标、文字与输入字号、320px 回流及 200% 根字号；安装了 `axe-core` 时也运行颜色对比检查。报告写入 `build/accessibility-preview/`，真实设备的通知效果和文字理解仍需另行验收。
+普通 fixture 启动后运行 `node tests/integration/accessibility-browser.cjs`。它检查 Next.js 官网、文档阅读器、登录/注册、工作台和提醒中心的应用内导航、键盘入口、触控目标、文字与输入字号、320px 回流及 200% 根字号；安装了 `axe-core` 时也运行颜色对比检查。报告写入 `build/accessibility-preview/`，真实设备的通知效果和文字理解仍需另行验收。
 
 ## 真实本地组合检查
 

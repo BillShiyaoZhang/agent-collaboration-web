@@ -50,7 +50,7 @@ export function OnboardingClaim({ code }: { code: string }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "暂时无法确认连接。"); }
     finally { setBusy(false); }
   }
-  return <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-5 py-12">
+  return <main className="mx-auto flex min-h-full max-w-2xl flex-col justify-center px-5 py-12">
     <Link href="/dashboard" className="mb-8 text-sm font-semibold text-primary">Agent Comm</Link>
     <section className="rounded-3xl border bg-card p-6 shadow-sm sm:p-9">
       <ShieldCheck className="mb-4 h-8 w-8 text-primary" />

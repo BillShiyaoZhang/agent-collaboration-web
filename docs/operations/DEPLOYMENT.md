@@ -16,12 +16,15 @@
 | AGENT_MANAGED_ISSUER_PRIVATE_KEY_FILE | 可改用 Go `managed-issuer.private` 原始二进制文件路径，与上一项二选一；Web 验证后半段公钥后使用种子 |
 | WEB_PUSH_SUBJECT | 可选，浏览器推送的发送方 HTTPS 或 mailto 地址；默认 NEXTAUTH_URL |
 | WEB_PUSH_DISABLED | 设为 1 停止后台推送；不影响站内提醒 |
+| DOCS_SOURCE_ROOT | 可选，公开文档原文的根目录；根部署项目设置为 `/app/docs-source`，下面按 `deploy`、`web`、`platform`、`sdk` 只读挂载 |
 
 浏览器只访问 Web；Web 经 Registry/MQ 与 agent 通信。agent 无需暴露公网 HTTP 端口。
 
 浏览器后台推送还需要到固定厂商推送端点的 HTTPS 出站连接，详见[后台推送部署与验收](WEB_PUSH.md)。它使用现有读取范围中的提醒，不增加 agent 权限。
 
 根部署项目使用其自身 docker-compose.yml 和 deploy/nginx/nginx.conf。当前目录的 Compose 仅用于独立开发；容器里的 platform 地址必须使用服务名而非 localhost。
+
+官网首页和文档阅读器与工作台一起由 Next.js 提供；更新页面需要重建 Web 镜像。根部署项目将四仓 `docs/` 同时只读挂给 nginx 和 Web，保留公开 `/docs/source/` 路径与旧 `/guide/`、`/docs/api/` 跳转。Next.js 的原文路由也按仓库、目录和 `.md` 文件白名单读取，拒绝历史记录、非 Markdown、目录穿越和指向目录外的符号链接。独立 Web 镜像内只含本仓的 `docs/`；若要在独立部署中阅读其他三仓指南，须显式提供只读原文目录并设置 `DOCS_SOURCE_ROOT`，否则阅读器会显示读取失败及源码仓库链接。不要从文档目录挂载密钥或运行状态。
 
 Web 镜像在所有运行时 `COPY` 完成后，把代码、静态文件、Prisma CLI 与迁移文件规范为可读取/可遍历权限；因此用 `umask 077` 检出的源码也能由容器内 UID 1001 读取。入口脚本先降权再运行迁移。`/app/data` 与 Next 缓存另行归 UID 1001 所有，持久卷仍需可写；源码或 Dockerfile 修改后须重建镜像，不能只重启旧容器。
 

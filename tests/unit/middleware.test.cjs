@@ -131,9 +131,21 @@ test("authentication middleware", { concurrency: false }, async (t) => {
       )), productionOrigin, "/dashboard");
     });
 
-    await t.test("allows public login, registration and auth routes without a session", async () => {
-      for (const pathname of ["/login", "/register", "/api/auth/session", "/api/auth/callback/credentials"]) {
+    await t.test("allows the public app pages, login, registration and auth routes without a session", async () => {
+      for (const pathname of ["/", "/docs", "/docs/", "/docs/?path=deploy%2FREADME.md", "/login", "/register", "/api/auth/session", "/api/auth/callback/credentials"]) {
         assertAllowed(await middleware(request(productionOrigin, pathname)));
+      }
+    });
+
+    await t.test("allows documentation source requests through to the route allowlist", async () => {
+      for (const pathname of ["/docs/source/deploy/README.md", "/docs/source/platform/guides/API.md"]) {
+        assertAllowed(await middleware(request(productionOrigin, pathname)));
+      }
+    });
+
+    await t.test("keeps similarly named pages private", async () => {
+      for (const pathname of ["/documentation", "/docs-extra", "/docs/private", "/docs/source-extra/deploy/README.md"]) {
+        assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
       }
     });
 
