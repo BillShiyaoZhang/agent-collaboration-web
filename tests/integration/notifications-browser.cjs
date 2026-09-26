@@ -48,7 +48,7 @@ async function main(){
  const forbidden=await context.request.post(base+'/api/notifications',{headers:{Origin:'https://other.invalid'},data:{action:'read',agentId:pending.agentId,id:pending.id,revision:pending.revision}});assert.equal(forbidden.status(),403);
  checks.push('并发标签的设备投递声明仅一方成功；跨源修改被拒绝');
  await page.getByRole('link',{name:'查看当前事项',exact:true}).first().click();await page.getByRole('tab',{name:'事项',exact:true}).waitFor();assert.equal(await page.getByRole('tab',{name:'事项',exact:true}).getAttribute('aria-selected'),'true');
- await page.getByText('项目方案讨论',{exact:true}).waitFor();await page.getByText('部分接受，等待另一方',{exact:true}).waitFor();
+ await page.getByRole('heading',{name:'项目方案讨论',exact:true}).waitFor();await page.getByText('部分接受，等待另一方',{exact:true}).waitFor();
  assert.equal(await page.getByRole('button',{name:/^同意$|^批准$/}).count(),0);await page.screenshot({path:path.join(output,'02-collaboration-desktop.png'),fullPage:true});checks.push('通知定位事项与原生问题；v2显示条款和部分接受，不提供Web审批');
  await page.goto(base+'/dashboard/notifications');await page.setViewportSize({width:390,height:844});await page.getByRole('heading',{name:'确认会议时间',exact:true}).first().waitFor();
  const dimensions=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,main:document.querySelector('main').clientWidth,content:document.querySelector('main').scrollWidth}));assert.equal(dimensions.width,dimensions.scroll);assert.ok(dimensions.content<=dimensions.main+1);await page.screenshot({path:path.join(output,'03-notifications-mobile.png'),fullPage:true});checks.push('390px手机视口无横向溢出，阅读与原生处理入口可用');
