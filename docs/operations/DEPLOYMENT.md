@@ -47,7 +47,7 @@ Web 的 JavaScript 策略解析只接受安全整数 epoch（不大于 `2^53-1`�
 
 阿里企业邮箱免费版不支持[API 开放平台](https://help.aliyun.com/zh/document_detail/2852847.html)。阿里官方将企业邮箱定位为日常交流，并要求系统通知、注册确认等自动邮件使用专门邮件推送服务；[发送频率说明](https://help.aliyun.com/zh/document_detail/189757.html)和[SMTP 使用说明](https://help.aliyun.com/zh/document_detail/36687.html)均说明了事务／批量发信的边界。本项目继续使用已有 Resend，不新增阿里邮箱 SDK、SMTP 或阿里云 DirectMail 接口。免费人工邮箱的申请、实名认证、DNS 与 7 天内完成解析等步骤按根邮件运维指南执行，不把付费试用当永久免费。
 
-缺少 `RESEND_API_KEY`、From、有效 `NEXTAUTH_URL`，或生产 Origin 不是 HTTPS 时，邮件操作返回服务未配置；旧账户原登录保留，但新账户无法完成验证。生产 Origin 必须为实际公网 HTTPS 网站；邮件链接使用配置 Origin，同源 POST 才能消费 token，GET 只展示确认页。关闭供应商链接／打开追踪，避免改写验证或密码链接。Reply-To 可空；人工邮箱未开通时邮件不承诺回复有人处理。网站客服地址使用构建时 `NEXT_PUBLIC_SUPPORT_EMAIL`，默认空即不显示。
+缺少 `RESEND_API_KEY`、From、有效 `NEXTAUTH_URL`，或生产 Origin 不是 HTTPS 时，邮件操作返回服务未配置；旧账户原登录保留，但新账户无法完成验证。生产 Origin 必须为实际公网 HTTPS 网站；邮件链接使用配置 Origin，同源 POST 才能消费 token，GET 只展示确认页。关闭供应商链接／打开追踪，避免改写验证或密码链接。Reply-To 可空；人工邮箱未开通时邮件不承诺回复有人处理。网站客服地址使用构建时 `NEXT_PUBLIC_SUPPORT_EMAIL`，默认空即不显示。`AUTH_EMAIL_REPLY_TO` 只改变事务信的回复收件人；`NEXT_PUBLIC_SUPPORT_EMAIL` 只控制网站联系链接与客服提示。两项独立，设置其中一项不会启用另一项，也不改变 Resend 发件域名。自部署继续默认留空，启用时填写自己已可收信的公开地址。
 
 Resend 免费额度当前为 UTC 每日 100、每月 3,000 个收件人；本应用默认每日 90 次尝试、全局每分钟 10 次、同收件人跨用途 60 秒冷却，明确失败至少 15 秒再试。预算在数据库中统一预留，进程重启不会重置。供应商同团队其他发信共享额度，需同时检查 Dashboard Usage。公开注册／重发／找回在配置有效时对不存在账户、供应商失败与限流仍返回中性提示；只有用户真正完成邮件确认才写入验证状态。供应商接受发信请求不表示用户已收到；初期通过 Dashboard 和 QQ/163/Gmail/Outlook 的真实邮箱验收，当前未接入送达／退信 webhook。
 

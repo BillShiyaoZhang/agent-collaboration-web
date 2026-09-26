@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { publicSupportEmail } from "@/lib/shared/support-email";
 import "./public-navigation.css";
 
 export type PublicLanguage = "zh" | "en";
@@ -76,6 +77,7 @@ export function PublicNavigation({
 
 export function PublicFooter({ language }: { language: PublicLanguage }) {
   const english = language === "en";
+  const supportEmail = publicSupportEmail();
   return (
     <footer className="public-navigation-footer">
       <div className="public-navigation-footer-inner">
@@ -88,6 +90,7 @@ export function PublicFooter({ language }: { language: PublicLanguage }) {
           <Link href="/docs/">{english ? "Documentation" : "文档"}</Link>
           <Link href="/dashboard">{english ? "Workspace" : "工作台"}</Link>
           <a href="https://github.com/BillShiyaoZhang/agent-collaboration-deploy#readme">{english ? "Source & deployment" : "源码与部署"}</a>
+          {supportEmail && <a href={"mailto:" + supportEmail}>{english ? "Contact support" : "联系人工客服"}</a>}
         </nav>
       </div>
       <div className="public-navigation-legal">

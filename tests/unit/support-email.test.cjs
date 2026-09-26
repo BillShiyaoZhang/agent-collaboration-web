@@ -25,9 +25,14 @@ test("support addresses are public, optional and cannot inject a mailto query or
   assert.equal(support.publicSupportEmail("support+accounts@example.invalid"), "support+accounts@example.invalid");
 });
 
-test("both customer-support entry points stay hidden until a valid public address is configured", () => {
+test("customer-support entry points stay hidden until a valid public address is configured", () => {
   const previous = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
   const footer = load("../../src/components/layout/footer.tsx", { "@/lib/shared/support-email": support });
+  const publicFooter = load("../../src/components/public/public-navigation.tsx", {
+    "@/lib/shared/support-email": support,
+    "./public-navigation.css": {},
+    "next/link": ({ children, ...props }) => React.createElement("a", props, children),
+  });
   const shell = load("../../src/components/auth-shell.tsx", {
     "@/lib/shared/support-email": support,
     "@/components/brand": { Brand: () => React.createElement("span", null, "Agent Comm") },
@@ -35,17 +40,19 @@ test("both customer-support entry points stay hidden until a valid public addres
   });
   const render = () => [
     renderToStaticMarkup(React.createElement(footer.Footer)),
+    renderToStaticMarkup(React.createElement(publicFooter.PublicFooter, { language: "zh" })),
+    renderToStaticMarkup(React.createElement(publicFooter.PublicFooter, { language: "en" })),
     renderToStaticMarkup(React.createElement(shell.AuthShell, { title: "验证邮箱", description: "确认账号", children: "内容" })),
   ];
   try {
     for (const value of [undefined, "", "invalid-mailbox", "support@example.invalid?bcc=evil@example.invalid"]) {
       if (value === undefined) delete process.env.NEXT_PUBLIC_SUPPORT_EMAIL; else process.env.NEXT_PUBLIC_SUPPORT_EMAIL = value;
-      for (const markup of render()) assert.doesNotMatch(markup, /mailto:|联系人工客服/);
+      for (const markup of render()) assert.doesNotMatch(markup, /mailto:|联系人工客服|Contact support/);
     }
     process.env.NEXT_PUBLIC_SUPPORT_EMAIL = "support@example.invalid";
     for (const markup of render()) {
       assert.match(markup, /href="mailto:support@example.invalid"/);
-      assert.match(markup, /联系人工客服/);
+      assert.match(markup, /联系人工客服|Contact support/);
     }
   } finally {
     if (previous === undefined) delete process.env.NEXT_PUBLIC_SUPPORT_EMAIL; else process.env.NEXT_PUBLIC_SUPPORT_EMAIL = previous;

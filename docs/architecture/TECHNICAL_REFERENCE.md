@@ -27,7 +27,7 @@
 
 四项运行时邮件 ENV 为 `RESEND_API_KEY`、`AUTH_EMAIL_FROM`、`AUTH_EMAIL_REPLY_TO`、`AUTH_EMAIL_DAILY_LIMIT`，还依赖有效 NEXTAUTH_URL（生产必须 HTTPS）。Reply-To 可空，人工邮箱未启用时不宣称回复有人处理。必需密钥、From 或 Origin 配置不完整返回 503；有效配置下公开注册／重发／找回对未知账户、提供商失败或限流仍用 202 中性提示，认证后的密码修改可返回明确 503／429。不能从 202 推断发送成功或用户已收到。
 
-网站客服入口由可选 `NEXT_PUBLIC_SUPPORT_EMAIL` 控制，默认空不显示；它在 Next.js 生产构建时写入浏览器 bundle，是公开地址而非密钥。Docker builder 使用 ARG/ENV 接收，根／Web Compose 使用 build args 传值。阿里免费企业邮箱的 `support@agent-communication.online` 双向收发验收后，再同时设置 Reply-To 与公开客服地址并重建镜像，不能仅改服务器运行时环境或 recreate 旧镜像启用入口。
+运行时 `AUTH_EMAIL_REPLY_TO` 与构建时 `NEXT_PUBLIC_SUPPORT_EMAIL` 是独立配置：前者设置事务信的回复收件人，后者控制网站联系链接与客服提示；任一项不会自动启用另一项，Resend 发件标识保持不变。网站客服入口由可选 `NEXT_PUBLIC_SUPPORT_EMAIL` 控制，默认空不显示；它在 Next.js 生产构建时写入浏览器 bundle，是公开地址而非密钥。Docker builder 使用 ARG/ENV 接收，根／Web Compose 使用 build args 传值。阿里免费企业邮箱的 `support@agent-communication.online` 双向收发验收后，再同时设置 Reply-To 与公开客服地址并重建镜像，不能仅改服务器运行时环境或 recreate 旧镜像启用入口。
 
 预算在 SQLite 事务中全局预留，按 UTC 日默认 90 次发送尝试（允许 1～100，失败也计）；每分钟最多 10 次，同收件人跨用途 60 秒冷却，明确失败至少 15 秒再试。仅记录收件地址 hash、安全状态及供应商 Message ID；应用不会把原 token、密码或完整邮件正文写入错误日志。根 nginx 覆盖账户写入与 credentials callback 的 IP 限速及 16 KiB 上限，NextAuth 的 session/csrf/signout 与账户 GET 不套用该写入限速。token 页面及账户 API 为 no-store/no-referrer；代理访问日志省略 query/Referer，错误日志须受限且分享前去除原 token URL。
 
