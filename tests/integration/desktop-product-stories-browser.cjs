@@ -15,6 +15,26 @@ async function activeConversation(context) {
 function visibleInMain(page, selector) { return page.locator('main:visible').locator(selector).filter({ visible: true }); }
 function visibleLabel(page, name) { return page.getByLabel(name, { exact: true }).filter({ visible: true }); }
 function conversationRow(page, id) { return visibleInMain(page, '[data-conversation-id=' + JSON.stringify(id) + ']'); }
+async function waitAgentComposer(page, name) {
+  const regionName = `与 ${name} 对话`;
+  await page.getByRole('region', { name: regionName, exact: true }).filter({ visible: true }).waitFor();
+  await page.waitForFunction(regionName => {
+    const region = Array.from(document.querySelectorAll('[role="region"]')).find(element => element.getAttribute('aria-label') === regionName && element.getClientRects().length > 0);
+    const guard = region?.closest('fieldset'), composer = region?.querySelector('textarea[aria-label="给 agent 的消息"]');
+    return guard && !guard.disabled && !guard.hasAttribute('inert') && composer && !composer.matches(':disabled');
+  }, regionName);
+}
+async function selectAgent(page, id = 'agent-a1', name = '同步测试 A1') {
+  await page.getByRole('button', { name: `与 ${name} 聊天`, exact: true }).click();
+  await page.waitForURL(url => url.pathname === '/dashboard/chats' && url.searchParams.get('agent') === id);
+  await waitAgentComposer(page, name);
+}
+async function newConversation(page, id = 'agent-a1', name = '同步测试 A1') {
+  const selected = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(`/api/agents/${id}/workspace`) && response.request().postDataJSON().action === 'select_conversation' && response.request().postDataJSON().conversationId === null);
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  const response = await selected; assert.equal(response.ok(), true); assert.equal((await response.json()).activeConversationId, '');
+  await waitAgentComposer(page, name);
+}
 async function waitDraft(page, value, prefix = false) {
   await page.waitForFunction(({ value, prefix }) => {
     const input = Array.from(document.querySelectorAll('textarea[aria-label="给 agent 的消息"]')).find(element => element.getClientRects().length > 0);
@@ -49,7 +69,7 @@ async function collaborations(page) {
 }
 async function originalChat(page, context, conversation) {
   await navigate(page, '我的 agents');
-  await page.getByRole('button', { name: '与 同步测试 A1 聊天', exact: true }).click();
+  await selectAgent(page);
   await selectConversation(page, conversation);
   assert.equal(await activeConversation(context), conversation);
 }
@@ -78,8 +98,8 @@ async function main() {
   await page.goto(base + '/login'); await visibleLabel(page, '邮箱').fill('owner-a@workspace.invalid');
   await visibleLabel(page, '密码').fill('Workspace-smoke-fixture-2026');
   await page.getByRole('button', { name: '进入工作空间', exact: true }).click(); await page.waitForURL('**/dashboard/chats');
-  assert.equal(writes.length, 0); await page.getByRole('button', { name: '与 同步测试 A1 聊天', exact: true }).click();
-  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  assert.equal(writes.length, 0); await selectAgent(page);
+  await newConversation(page);
   const composer = visibleLabel(page, '给 agent 的消息');
   await composer.fill('产品旅程原始消息'); await visibleLabel(page, '发送消息').click();
   await visibleLabel(page, '对话记录').getByText('这是自动同步回来的回复', { exact: true }).waitFor({ timeout: 120000 });
@@ -102,7 +122,7 @@ async function main() {
   const unarchive = await context.request.post(base + '/api/agents/agent-a1/workspace/conversations', { headers: { Origin: base }, data: { conversationId: conversation, archived: false } }); assert.equal(unarchive.ok(), true);
   await page.getByRole('button', { name: '对话', exact: true }).click();
   await visibleLabel(page, '搜索已保存对话').fill('');
-  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await newConversation(page);
   await composer.fill('竞态第二个会话'); await visibleLabel(page, '发送消息').click();
   await visibleLabel(page, '对话记录').getByText('这是自动同步回来的回复', { exact: true }).waitFor({ timeout: 120000 });
   const targetConversation = await activeConversation(context);
