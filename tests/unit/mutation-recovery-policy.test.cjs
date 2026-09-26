@@ -38,3 +38,16 @@ test("only exact stable approval/request/message objects support explicit rechec
     ["conversation.send", { text: "same message" }],
   ]) assert.equal(canRestartMutation(call(method, params)), false);
 });
+
+test("completed contact feedback stays dismissed across polls while unknown actions and account audit data remain intact",()=>{
+ const {presentedMutationActions}=loaded.exports;
+ const complete={call:{request_id:"completed",method:"contacts.add"},phase:"succeeded"};
+ const failed={call:{request_id:"failed",method:"contacts.add"},phase:"failed"};
+ const unknown={call:{request_id:"unknown",method:"contacts.add"},phase:"uncertain"};
+ const execute={call:{request_id:"execute",method:"collaboration.execute"},phase:"uncertain"};
+ const saved=[complete,failed,unknown,execute],dismissed=new Set(saved.map(item=>item.call.request_id));
+ assert.deepEqual(presentedMutationActions(saved,dismissed),[unknown,execute]);
+ assert.deepEqual(presentedMutationActions(saved,dismissed),[unknown,execute],"later server poll cannot resurrect completed contact feedback");
+ assert.equal(saved.length,4,"presentation never mutates saved account audit input");
+ assert.deepEqual(presentedMutationActions([{...complete,phase:"uncertain"}],dismissed).map(item=>item.phase),["uncertain"],"new authenticated uncertainty is never hidden");
+});

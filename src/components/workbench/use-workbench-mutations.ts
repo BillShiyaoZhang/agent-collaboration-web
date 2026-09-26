@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { canRestartMutation } from "@/lib/workspace/workspace-mutation-policy";
+import { canRestartMutation, presentedMutationActions } from "@/lib/workspace/workspace-mutation-policy";
 import type { WorkspaceOperation } from "@/lib/workspace/workspace-types";
 import { PendingCall, record, records, RemoteRecord, RpcMethod, string, WorkbenchClient, WorkbenchError } from "@/lib/control/workbench-client";
 
@@ -44,10 +44,12 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
   const [ready, setReady] = useState(false);
   const [storageError, setStorageError] = useState("");
   const key = `workbench-pending-actions:${consoleUrn}:${agentId}`;
+  const dismissedContacts = useRef(new Set<string>());
 
   const operationsUrl = `/api/agents/${encodeURIComponent(agentId)}/workspace/operations`;
   const save = useCallback((next: MutationState[]) => {
-    current.current = next; setItems(next);
+    const shown = presentedMutationActions(next, dismissedContacts.current);
+    current.current = shown; setItems(shown);
   }, []);
   const ledgerRequest = useCallback(async (body?: RemoteRecord) => {
     const response = await fetch(operationsUrl, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" } : { cache: "no-store" });
@@ -64,7 +66,7 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
 
   useEffect(() => {
     let alive = true;
-    setReady(false); save([]);
+    dismissedContacts.current.clear(); setReady(false); save([]);
     const restore = async () => {
       try {
         let legacy: MutationState[] = [];
@@ -190,7 +192,10 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
 
   function clearContact() {
     if (current.current.some(item => item.call.method === "contacts.add" && ["sending", "uncertain"].includes(item.phase))) return;
-    try { save(current.current.filter(item => item.call.method !== "contacts.add")); }
+    try {
+      for (const item of current.current) if (item.call.method === "contacts.add" && ["succeeded", "failed"].includes(item.phase)) dismissedContacts.current.add(item.call.request_id);
+      save(current.current);
+    }
     catch { /* A completed action does not require request recovery. */ }
   }
 

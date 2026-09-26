@@ -26,6 +26,7 @@ async function inspect(timezoneId) {
     await page.getByLabel('密码', { exact: true }).fill('Workspace-smoke-fixture-2026');
     await page.getByRole('button', { name: '进入工作空间', exact: true }).click();
     await page.waitForURL('**/dashboard/agents');
+    await page.getByRole('heading', { name: '我的连接', exact: true }).waitFor();
     const workspace = await (await context.request.get(`${base}/api/workspace`)).json();
     const agent = workspace.connections.find(connection => connection.name === '同步测试 A1');
     assert.ok(agent?.sync?.lastSuccessAt, 'fixture must supply an SSR-visible saved sync time');

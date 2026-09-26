@@ -95,7 +95,11 @@ async function main() {
 
   nextFailure = "accepted_then_disconnect";
   await decision("approval-web-unknown", "同意本次请求");
-  await page.getByText("Agent 已同步此请求的同意记录。", { exact: true }).waitFor();
+  await page.getByText(/Agent 已(?:同步此请求的同意记录|返回原操作的认证结果)/).waitFor();
+  const approvedLedger = await (await context.request.get(`${base}/api/agents/agent-a1/workspace/operations`)).json();
+  const approved = approvedLedger.items.find(item => item.call.params.approval_id === "approval-web-unknown");
+  assert.equal(approved.phase, "succeeded");
+  assert.ok(approved.result?.approval_id === "approval-web-unknown" && approved.result?.decision === "allow" || approved.result?.source === "authenticated_snapshot", "only authenticated receipt/snapshot evidence may settle the lost response");
   assert.equal(writes.filter(call => call.params.approval_id === "approval-web-unknown").length, 1);
   checks.push("审批写入后丢失响应时，凭 agent 同步的终态核实结果，没有重复提交");
   await page.locator("#subject-approval-web-fail").getByRole("button", { name: "同意本次请求", exact: true }).click();

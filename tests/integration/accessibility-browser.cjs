@@ -119,6 +119,10 @@ async function assertRootScale(page, label) {
 
 async function assertKeyboardSkip(page, label, href) {
   await page.goto(`${page.url().split("#")[0]}`, { waitUntil: "domcontentloaded" });
+  // Authenticated layout streams after the public footer. Test the completed
+  // page's keyboard order, once its skip link has arrived in server HTML.
+  await page.locator(`a[href="${href}"]`).first().waitFor({ state: "attached" });
+  await page.waitForLoadState("load");
   await page.keyboard.press("Tab");
   const focused = await page.evaluate(expected => ({ href: document.activeElement?.getAttribute("href"), text: document.activeElement?.textContent?.trim() }), href);
   assert.equal(focused.href, href, `${label}: first Tab did not focus skip link`);
@@ -163,6 +167,7 @@ async function login(page) {
   await page.getByLabel("密码", { exact: true }).fill("Workspace-smoke-fixture-2026");
   await page.getByRole("button", { name: "进入工作空间", exact: true }).click();
   await page.waitForURL("**/dashboard/agents");
+  await page.getByRole("heading", { name: "我的连接", exact: true }).waitFor();
 }
 
 async function main() {
@@ -271,7 +276,7 @@ async function main() {
   assert.equal(Number.parseFloat(await composer.evaluate(element => getComputedStyle(element).fontSize)) >= 16, true, "conversation composer must use at least 16px text");
   await page.getByRole("tab", { name: "联系人", exact: true }).click();
   await page.getByRole("tab", { name: "联系人", exact: true }).waitFor();
-  await page.getByText("自动同步联系人", { exact: true }).first().waitFor();
+  await page.getByRole("heading", { name: "自动同步联系人", exact: true }).waitFor();
   assert.equal(await page.getByRole("tab", { name: "联系人", exact: true }).getAttribute("aria-selected"), "true");
   await assertNoOverflow(page, "workbench contacts desktop");
   await assertReadableText(page, "workbench contacts desktop");

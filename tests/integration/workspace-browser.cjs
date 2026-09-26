@@ -26,7 +26,7 @@ async function sendAndWait(text) {
   await page.getByLabel("对话记录", { exact: true }).getByText(text, { exact: true }).waitFor();
   await page.getByText("这是自动同步回来的回复", { exact: true }).last().waitFor({ timeout: 120000 });
   assert.equal(await composer.inputValue(), "");
-  return page.getByLabel("选择历史对话", { exact: true }).inputValue();
+  return page.getByRole("combobox", { name: "选择历史对话", exact: true }).inputValue();
 }
 
 async function main() {
@@ -68,7 +68,7 @@ async function main() {
   await page.getByRole("tab", { name: "对话", exact: true }).click();
   assert.equal(await composer.inputValue(), "这是一段尚未发送的草稿");
   const agentUrl = page.url();
-  await page.goto(base + "/dashboard/agents");
+  await page.getByRole("link", { name: "我的连接", exact: true }).first().click();
   await page.getByRole("link", { name: "打开 同步测试 A1 的远程工作台", exact: true }).click();
   assert.equal(await composer.inputValue(), "这是一段尚未发送的草稿");
   checks.push("标签与连接页面切换保留未发送草稿");
@@ -82,29 +82,29 @@ async function main() {
   await shot("03-conversation-desktop");
   await page.reload();
   await page.getByText("这是自动同步回来的回复", { exact: true }).last().waitFor();
-  assert.equal(await page.getByLabel("选择历史对话", { exact: true }).inputValue(), firstId);
+  assert.equal(await page.getByRole("combobox", { name: "选择历史对话", exact: true }).inputValue(), firstId);
   checks.push("刷新后自动恢复选中会话、用户消息与agent回复");
 
   await page.getByRole("button", { name: "新对话", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("#saved-conversation").value === "");
   const secondId = await sendAndWait("本地浏览器验证：这是第二个独立对话。");
   assert.notEqual(secondId, firstId);
-  await page.getByLabel("选择历史对话", { exact: true }).selectOption(firstId);
+  await page.getByRole("combobox", { name: "选择历史对话", exact: true }).selectOption(firstId);
   await page.getByLabel("对话记录", { exact: true }).getByText("本地浏览器验证：请回复一句话。", { exact: true }).waitFor();
   await page.reload();
-  assert.equal(await page.getByLabel("选择历史对话", { exact: true }).inputValue(), firstId);
+  assert.equal(await page.getByRole("combobox", { name: "选择历史对话", exact: true }).inputValue(), firstId);
   checks.push("历史列表可切换独立会话，选择保存在服务端并跨刷新恢复");
 
   // Two authenticated browser contexts model devices sharing an account.
   const savedV1 = page.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "设备 A 已保存 V1" && response.status() === 200);
   await composer.fill("设备 A 已保存 V1"); await savedV1;
-  await page.getByLabel("选择历史对话", { exact: true }).selectOption(secondId);
+  await page.getByRole("combobox", { name: "选择历史对话", exact: true }).selectOption(secondId);
   await page.waitForFunction(id => document.querySelector("#saved-conversation").value === id, secondId);
   const deviceB = await browser.newContext({ storageState: await context.storageState() });
   const b = await deviceB.newPage(); await b.goto(`${base}/dashboard/agents/agent-a1?tab=conversation&conversation=${firstId}`);
   const savedV2 = b.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "设备 B 新草稿 V2" && response.status() === 200);
   await b.getByLabel("给 agent 的消息", { exact: true }).fill("设备 B 新草稿 V2"); await savedV2;
-  await page.getByLabel("选择历史对话", { exact: true }).selectOption(firstId);
+  await page.getByRole("combobox", { name: "选择历史对话", exact: true }).selectOption(firstId);
   await page.waitForFunction(() => document.querySelector("textarea[aria-label='给 agent 的消息']").value === "设备 B 新草稿 V2");
   await page.getByRole("link", { name: "我的连接", exact: true }).first().click();
   const savedV3 = b.waitForResponse(response => response.url().endsWith("/workspace/conversations") && response.request().postDataJSON()?.draft === "设备 B 更新 V3" && response.status() === 200);

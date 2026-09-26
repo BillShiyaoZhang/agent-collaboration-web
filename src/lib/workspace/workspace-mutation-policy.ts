@@ -16,3 +16,9 @@ export function canRestartMutation(call: PendingCall): boolean {
     typeof params.text === "string" && params.text.trim().length > 0;
   return false;
 }
+
+// Dismissing completed feedback is local presentation only. New authenticated
+// uncertainty must remain visible, and the account audit is never deleted.
+export function presentedMutationActions<T extends { call: { request_id: string; method: string }; phase: string }>(items: T[], dismissed: ReadonlySet<string>): T[] {
+  return items.filter(item => !(item.call.method === "contacts.add" && ["succeeded", "failed"].includes(item.phase) && dismissed.has(item.call.request_id)));
+}
