@@ -8,7 +8,7 @@
 
 ## 账户邮件与登录会话
 
-`src/lib/auth/account-email.ts` 处理注册验证、找回密码及登录后的密码修改确认，`account-email-http.ts` 处理 JSON 大小、同源校验、私有响应头与安全错误码。邮件只由服务器向 Resend 发出，浏览器不能取得 API 密钥。`NEXTAUTH_URL` 的 Origin 是链接来源，callback 仅允许经过规范化校验的本站相对路径，不允许外部跳转。
+`src/lib/auth/account-email.ts` 处理注册验证、找回密码及登录后的密码修改确认，`account-email-http.ts` 处理 JSON 大小、同源校验、私有响应头与安全错误码。账户事务邮件只由服务器经 HTTPS 向 Resend 发出，浏览器不能取得 API 密钥。阿里企业邮箱免费版用于运营者人工收发；Web 不需要阿里邮箱密码或 SMTP 安全密码，不使用免费版不支持的邮箱开放 API，也不通过企业邮箱发送注册确认等系统邮件。提供商限制与开通步骤见[部署说明](../operations/DEPLOYMENT.md#账户邮件配置与验收)。`NEXTAUTH_URL` 的 Origin 是链接来源，callback 仅允许经过规范化校验的本站相对路径，不允许外部跳转。
 
 | 接口 | 行为 |
 | --- | --- |
@@ -27,7 +27,7 @@
 
 四项运行时邮件 ENV 为 `RESEND_API_KEY`、`AUTH_EMAIL_FROM`、`AUTH_EMAIL_REPLY_TO`、`AUTH_EMAIL_DAILY_LIMIT`，还依赖有效 NEXTAUTH_URL（生产必须 HTTPS）。Reply-To 可空，人工邮箱未启用时不宣称回复有人处理。必需密钥、From 或 Origin 配置不完整返回 503；有效配置下公开注册／重发／找回对未知账户、提供商失败或限流仍用 202 中性提示，认证后的密码修改可返回明确 503／429。不能从 202 推断发送成功或用户已收到。
 
-网站客服入口由可选 `NEXT_PUBLIC_SUPPORT_EMAIL` 控制，默认空不显示；它在 Next.js 生产构建时写入浏览器 bundle，是公开地址而非密钥。Docker builder 使用 ARG/ENV 接收，根／Web Compose 使用 build args 传值。腾讯人工邮箱验收后再同时设置 Reply-To 与公开客服地址并重建镜像，不能仅改服务器运行时环境或 recreate 旧镜像启用入口。
+网站客服入口由可选 `NEXT_PUBLIC_SUPPORT_EMAIL` 控制，默认空不显示；它在 Next.js 生产构建时写入浏览器 bundle，是公开地址而非密钥。Docker builder 使用 ARG/ENV 接收，根／Web Compose 使用 build args 传值。阿里免费企业邮箱的 `support@agent-communication.online` 双向收发验收后，再同时设置 Reply-To 与公开客服地址并重建镜像，不能仅改服务器运行时环境或 recreate 旧镜像启用入口。
 
 预算在 SQLite 事务中全局预留，按 UTC 日默认 90 次发送尝试（允许 1～100，失败也计）；每分钟最多 10 次，同收件人跨用途 60 秒冷却，明确失败至少 15 秒再试。仅记录收件地址 hash、安全状态及供应商 Message ID；应用不会把原 token、密码或完整邮件正文写入错误日志。根 nginx 覆盖账户写入与 credentials callback 的 IP 限速及 16 KiB 上限，NextAuth 的 session/csrf/signout 与账户 GET 不套用该写入限速。token 页面及账户 API 为 no-store/no-referrer；代理访问日志省略 query/Referer，错误日志须受限且分享前去除原 token URL。
 
@@ -41,7 +41,7 @@
 node tests/integration/email-flows-browser.cjs
 ```
 
-该脚本需要本地可解析的 `playwright` 和 Chromium；可通过 `PLAYWRIGHT_MODULE` 指定已安装 Playwright 模块，用 `CHROME_EXECUTABLE` 指定本机 Chrome。脚本创建 `build/account-email-preview/` 下全新 SQLite 与显式测试环境，使用 loopback HTTP 站点、`.invalid` 地址、合成密钥和 `email-provider-hook.cjs` 重定向到本地 fake Resend；hook 禁止读取真实 `.env`、拒绝真实地址，仅允许开发测试。它验证真实网页表单、邮件链接确认与会话行为，结束后关闭进程。报告和截图留在 ignored build 目录，不提交。该流程不访问真实腾讯／Resend、Platform、agent 或生产账户，不能当作真实邮件送达、DNS、生产镜像或现网验收证据。上线步骤与真实邮箱矩阵见[邮件运维指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/operations/EMAIL.md)。
+该脚本需要本地可解析的 `playwright` 和 Chromium；可通过 `PLAYWRIGHT_MODULE` 指定已安装 Playwright 模块，用 `CHROME_EXECUTABLE` 指定本机 Chrome。脚本创建 `build/account-email-preview/` 下全新 SQLite 与显式测试环境，使用 loopback HTTP 站点、`.invalid` 地址、合成密钥和 `email-provider-hook.cjs` 重定向到本地 fake Resend；hook 禁止读取真实 `.env`、拒绝真实地址，仅允许开发测试。它验证真实网页表单、邮件链接确认与会话行为，结束后关闭进程。报告和截图留在 ignored build 目录，不提交。该流程不访问真实阿里／Resend、Platform、agent 或生产账户，不能当作真实邮件送达、DNS、生产镜像或现网验收证据。上线步骤与真实邮箱矩阵见[邮件运维指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/operations/EMAIL.md)。
 
 ## 数据和组件边界
 

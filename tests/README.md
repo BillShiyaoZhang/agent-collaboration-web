@@ -179,7 +179,7 @@ node tests/integration/email-flows-browser.cjs
 以及已有未验证账户继续登录并准确展示状态。脚本等待真实的收件人发送冷却，通常需要
 两次各约 60 秒；同时检查 1440px 和 390px 布局，并保存截图及报告到
 `build/account-email-preview/<随机运行目录>/`。这些结果只覆盖本地合成数据，
-不证明腾讯邮箱收发、Resend 实际投递或海内外邮箱的送达率。
+不证明阿里邮箱收发、Resend 实际投递或海内外邮箱的送达率。
 
 现有 Python Web/Platform 非邮件检查通过 `seed-account.cjs` 创建合成已验证用户，
 不再绕过线上注册验证。此 helper 只接受 `.invalid` 邮箱及明确指定、已存在于

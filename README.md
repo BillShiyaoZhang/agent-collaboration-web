@@ -12,7 +12,7 @@
 
 登录后在“我”进入[邮箱与密码设置](https://agent-communication.online/dashboard/settings)，可以补验邮箱或修改密码。修改先检查旧密码，再发确认邮件；30 分钟内在网页确认后新密码才生效，修改／重置后所有旧登录会话失效。原账户、agent 身份、连接、配对和历史保留。升级前账户可继续用原密码登录，但邮箱仍显示未验证，不会自动标记为已验证。
 
-账户事务信从 `accounts@notify.agent-communication.online` 发出，只用于网站账户操作。人工邮箱未开通时，网站隐藏邮件客服入口，邮件不承诺回复有人处理；腾讯 support 开通验收并启用网站入口后，再按页面显示的地址联系。不要把密码、私钥或验证／重置链接发给别人。详细步骤见[用户账户指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/users/ACCOUNT_EMAIL.md)，开通、DNS 与真实收发验收见[邮件运维指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/operations/EMAIL.md)。功能需要实际部署并配置发信服务；本文不证明现网已经开通。
+账户事务信从 `accounts@notify.agent-communication.online` 发出，只用于网站账户操作。人工邮箱未开通时，网站隐藏邮件客服入口，邮件不承诺回复有人处理；阿里企业邮箱免费版的 `support@agent-communication.online` 开通验收并启用网站入口后，再按页面显示的地址联系。不要把密码、私钥或验证／重置链接发给别人。详细步骤见[用户账户指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/users/ACCOUNT_EMAIL.md)，开通、DNS 与真实收发验收见[邮件运维指南](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/operations/EMAIL.md)。功能需要实际部署并配置发信服务；本文不证明现网已经开通。
 
 ## 第一次使用
 
