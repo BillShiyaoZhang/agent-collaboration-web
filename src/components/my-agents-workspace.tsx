@@ -21,6 +21,9 @@ type MyAgentsProps = { initial: { agents: AgentActivity[] }; selectedAgentId?: s
 export function MyAgentsWorkspace({ initial, selectedAgentId }: MyAgentsProps) {
   const router = useRouter(), search = useSearchParams();
   const [agents, setAgents] = useState(initial.agents);
+  // The server-rendered controls must wait for this entire static client tree.
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(true); }, []);
   const [query, setQuery] = useState(""), [listOpen, setListOpen] = useState(false), [error, setError] = useState("");
   // Server navigation payloads can be older than a confirmed local mutation.
   // Keep the initial payload as a seed and revalidate through account-scoped reads.
@@ -53,12 +56,12 @@ export function MyAgentsWorkspace({ initial, selectedAgentId }: MyAgentsProps) {
     })}{!visibleAgents.length && <p className="px-2 py-3 text-xs text-muted-foreground">{query ? "没有匹配的 agent。" : "还没有连接自己的 agent。"}</p>}</div>
     {library && <div className="flex min-h-0 flex-1 flex-col border-t">{library}</div>}
   </>;
-  return <div data-my-agents-workspace className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
+  return <fieldset disabled={!ready} inert={!ready} className="contents"><div data-my-agents-workspace className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
     {selected ? <AgentChatWorkspace key={selected.workspace.agent.id} agent={selected.workspace.agent} initial={{ ...(latestViews.current.get(selected.workspace.agent.id) || selected.workspace), agent: selected.workspace.agent }} rememberView={rememberView} sidebar={sidebar} listOpen={listOpen} onListOpen={() => setListOpen(true)} onListClose={() => setListOpen(false)} activityError={error} /> : <>
       <aside aria-label="agent 和聊天列表" className="hidden w-[264px] shrink-0 flex-col border-r bg-muted/15 md:flex">{sidebar()}</aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col"><div className="flex flex-1 flex-col items-center justify-center px-6 text-center"><Bot className="h-8 w-8 text-primary" /><h2 className="mt-3 text-base font-medium">连接自己的 agent，开始聊天</h2><p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">完成接入授权后，agent 和聊天记录会直接出现在这里。</p><Button asChild size="sm" className="mt-4"><Link href="/dashboard/agents">添加连接</Link></Button></div><div className="shrink-0 border-t p-3"><Textarea aria-label="给 agent 的消息" disabled placeholder="连接自己的 agent 后即可发送消息" className="min-h-20 resize-none" /></div></section>
     </>}
-  </div>;
+  </div></fieldset>;
 }
 
 export function AgentChatWorkspace({ agent, initial, sidebar, listOpen, onListOpen, onListClose, activityError, rememberView }: {

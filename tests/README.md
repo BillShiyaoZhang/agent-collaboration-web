@@ -134,3 +134,10 @@ draft-cache.test.cjs 验证另一设备的服务端草稿优先于已保存旧�
 `productCloseTask` 只在 loopback 的 `PRODUCT_FIXTURE` 中将一个确切合成任务设为
 revoked、其合作设为 closed/cancelled，便于验证终态管理；它不代表真实双方已经取消任何业务约定。
 报告、截图和确切方法/参数证据写入 `build/workspace-sync-preview/desktop-product/`。
+
+## 首次加载的交互就绪保护
+
+生产构建后，以全新 `PRODUCT_FIXTURE=1` 启动 `workspace-fixture.cjs`，运行
+`node tests/integration/workspace-hydration-browser.cjs`。三个独立文档分别延迟首次 Next.js 脚本，验证合作筛选、已保存聊天搜索和消息输入在 SSR 阶段受 disabled/inert 保护；一次正常 click/fill 在加载期间等待，释放脚本后同一次操作生效。脚本不等待 React 内部属性，不重点击或重填；所有业务 POST 被拦截。账号、数据库和业务事实仅为 loopback 合成数据。
+
+`workspace-hydration.test.cjs` 使用 React 服务端渲染验证两工作区的保护范围。浏览器回归负责验证原生控件继承的禁用状态、首操作和就绪后的实际布局，不能仅用截图或 HTML 属性代替。

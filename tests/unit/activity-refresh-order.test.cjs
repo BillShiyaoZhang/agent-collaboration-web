@@ -22,7 +22,8 @@ function eventFixture() {
  const {WorkspaceHub}=load("../../src/components/workspace-hub.tsx",{"react":react,"next/link":{},"next/navigation":{useRouter:()=>({push:()=>{}}),useSearchParams:()=>new URLSearchParams()},"@/components/ui/input":{},"@/components/ui/button":{},"@/components/local-time":{useLocalTime:()=>()=>"time"},"@/components/workspace-provider":{workspaceRequest:()=>new Promise(resolve=>pending.push(resolve))},"@/components/remote-workbench":{},"@/lib/control/workbench-client":client,"@/components/workbench/record-actions":{isRecordDeleted:()=>false,recordDeletionReason:()=>undefined}});
  const initialAgents=[{workspace:{agent:{id:"own-agent",name:"Own"},snapshots:{},recordStates:[{kind:"collaboration",id:"task",deleted:false,updatedAt:1,title:"Saved title",relatedIds:["task","collab"]}]},items:[]}];
  WorkspaceHub({initial:{agents:initialAgents},mode:"collaborations"});
- const cleanup=effects[1]();
+ // effects[0] enables this component after commit; effects[1] is the poll.
+ const cleanup=effects[2]();
  return {pending,refresh:callbacks[0],agents:()=>slots.find(slot=>slot.initial===initialAgents).value,emit:detail=>listeners.get("workspace-records-changed")({detail}),stop:()=>{cleanup();if(previousWindow===undefined)delete global.window;else global.window=previousWindow;}};
 }
 test("confirmed deletion and restoration update the parent immediately while activity GET remains pending",async()=>{

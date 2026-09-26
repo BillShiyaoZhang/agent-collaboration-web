@@ -25,6 +25,9 @@ export function WorkspaceHub({ initial, mode }: { initial: { agents: AgentActivi
   const search = useSearchParams(), router = useRouter(), displayTime = useLocalTime();
   const [agents, setAgents] = useState(initial.agents), [query, setQuery] = useState(""), [filter, setFilter] = useState(search.get("filter") === "decision" ? "decision" : "all"), [error, setError] = useState("");
   const [chooseAgent, setChooseAgent] = useState(false);
+  // The server-rendered controls must wait for this entire static client tree.
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(true); }, []);
   const readVersion = useRef(0);
   const currentAgents = useRef(agents); currentAgents.current = agents;
   const requestedAgent = search.get("agent");
@@ -67,7 +70,7 @@ export function WorkspaceHub({ initial, mode }: { initial: { agents: AgentActivi
   const allItems = agents.flatMap(({workspace,items}) => items.filter(item => { const id = businessRecordId(item, workspace); return !id || !isRecordDeleted(workspace.recordStates, "collaboration", id); }));
   const visible = allItems.filter(item => (!needle || `${item.title} ${item.summary} ${item.agentName}`.toLocaleLowerCase().includes(needle)) && (filter === "all" || (filter === "decision" ? item.needsAction : filter === "working" ? ["working", "waiting"].includes(item.category) : item.category === "result")));
   function choose(id: string, creating = false) { const params = new URLSearchParams({ agent: id }); if (creating) params.set("new", "1"); router.push(`/dashboard/${mode}?${params}`); setChooseAgent(false); }
-  return <div className="min-w-0 space-y-3">
+  return <fieldset disabled={!ready} inert={!ready} className="contents"><div className="min-w-0 space-y-3">
     <header className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-3"><h1 className="text-lg font-semibold">{title}</h1>{!!agents.length && <label className="flex items-center gap-2 text-xs text-muted-foreground"><span>自己的 agent</span><select aria-label={`${title}所属 agent`} className="h-8 max-w-52 rounded-md border bg-card px-2 text-sm text-foreground" value={selected?.workspace.agent.id || ""} onChange={event => event.target.value ? choose(event.target.value) : router.push(`/dashboard/${mode}`)}>{mode === "collaborations" && <option value="">全部 agents</option>}{agents.map(({ workspace }) => <option key={workspace.agent.id} value={workspace.agent.id}>{workspace.agent.name}</option>)}</select></label>}</div>
       {mode === "collaborations" && !selected && <Button size="sm" onClick={() => agents.length === 1 ? choose(agents[0].workspace.agent.id, true) : setChooseAgent(value => !value)} disabled={!agents.length}>发起合作</Button>}
@@ -87,5 +90,5 @@ export function WorkspaceHub({ initial, mode }: { initial: { agents: AgentActivi
         {agents.filter(({workspace}) => workspace.recordStates?.some(value => value.kind === "collaboration" && value.deleted)).map(({workspace}) => <section key={workspace.agent.id} className="rounded-md border bg-card"><h2 className="px-3 pt-2 text-xs font-medium">{workspace.agent.name}</h2><DeletedRecordsPanel agentId={workspace.agent.id} kind="collaboration" recordStates={workspace.recordStates} snapshots={workspace.snapshots} /></section>)}
       </>}
     </>}
-  </div>;
+  </div></fieldset>;
 }
