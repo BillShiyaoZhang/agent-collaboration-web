@@ -161,6 +161,8 @@ node tests/integration/workspace-resilience.cjs
 - 会话 metadata 的 `deleted` 保存删除状态；列表默认排除已删主题，可通过 deleted 筛选恢复。后台同步和迟到草稿保存不能清除删除标记；删除当前主题会清理当前网页选择与本地草稿缓存。
 - `GET/POST /api/agents/:id/workspace/records` 保存联系人/合作的账户显示状态。合作的 task/collaboration 稳定 ID 归并，原 agent 快照仍作为业务事实，删除状态不冒充本机删除或业务取消。
 - 删除、恢复均验证账户、同源与确切对象。sending/uncertain 写操作或未确认发送会阻止删除；运行中的主题、待处理好友申请、非终态合作和相关待审批不能被隐藏。恢复不会发起远程业务动作。
+- 详情删除/恢复成功后，`workspace-records-changed` 携带服务端确认的 `{agentId,state}`。Hub 立即合并当前账户已有 agent 的记录状态，保留标题与关联 ID，并作废旧读取，再后台核验；不能等轮询才能从总览隐藏或恢复。
+- `MyAgentsWorkspace` 与 `WorkspaceHub` 各自在客户端首次提交后解除 `fieldset disabled/inert`，以 `display:contents` 保留原布局；SSR 阶段的搜索、筛选、原生消息输入和管理入口暂不可用，就绪后自动启用。当前子树为同步静态导入；若将来拆出独立 Suspense/lazy 边界，应在该边界验证自己的就绪状态，不能提前由父组件开放。真实 SSR 单元和延迟脚本的单次操作浏览器回归见 [测试说明](../../tests/README.md)。
 
 ## 工作空间体验
 
