@@ -12,7 +12,7 @@ import { RemoteWorkbench } from "@/components/remote-workbench";
 import type { AgentActivity, ActivityItem } from "@/lib/product/activity-model";
 import { record, records, string } from "@/lib/control/workbench-client";
 import { DeletedRecordsPanel, RecordActions, isRecordDeleted, recordDeletionReason } from "@/components/workbench/record-actions";
-import type { WorkspaceAgent } from "@/lib/workspace/workspace-types";
+import type { WorkspaceAgent, WorkspaceRecordState } from "@/lib/workspace/workspace-types";
 
 function businessRecordId(item: ActivityItem, workspace: WorkspaceAgent) {
   const data = record(workspace.snapshots["collaboration.state"]?.data), view = Array.isArray(data.collaborations) ? data : record(data.collaboration ?? data.collaboration_v2);
@@ -26,6 +26,7 @@ export function WorkspaceHub({ initial, mode }: { initial: { agents: AgentActivi
   const [agents, setAgents] = useState(initial.agents), [query, setQuery] = useState(""), [filter, setFilter] = useState(search.get("filter") === "decision" ? "decision" : "all"), [error, setError] = useState("");
   const [chooseAgent, setChooseAgent] = useState(false);
   const readVersion = useRef(0);
+  const currentAgents = useRef(agents); currentAgents.current = agents;
   const requestedAgent = search.get("agent");
   const selected = agents.find(value => value.workspace.agent.id === requestedAgent) || (mode === "contacts" ? agents[0] : undefined);
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -37,6 +38,29 @@ export function WorkspaceHub({ initial, mode }: { initial: { agents: AgentActivi
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>;
     const poll = async () => { await refresh(controller.signal); if (!controller.signal.aborted) timer = setTimeout(poll, document.hidden ? 30000 : 10000); };
     timer = setTimeout(poll, 10000); return () => { controller.abort(); clearTimeout(timer); };
+  }, [refresh]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const changed = (event: Event) => {
+      const detail = (event as CustomEvent<{ agentId?: string; state?: WorkspaceRecordState }>).detail;
+      const state = detail?.state;
+      if (!detail?.agentId || !state || !["contact", "collaboration"].includes(state.kind) || typeof state.id !== "string" || typeof state.deleted !== "boolean" || !Number.isFinite(state.updatedAt) || !currentAgents.current.some(value => value.workspace.agent.id === detail.agentId)) return;
+      // This state comes from the completed account API write. Apply it before
+      // any navigation can reveal the parent's older aggregate snapshot.
+      readVersion.current++;
+      setAgents(previous => previous.map(value => {
+        if (value.workspace.agent.id !== detail.agentId) return value;
+        const states = value.workspace.recordStates || [];
+        const prior = states.find(item => item.kind === state.kind && item.id === state.id);
+        if (prior && prior.updatedAt > state.updatedAt) return value;
+        const merged = { ...prior, ...state, title: state.title ?? prior?.title,
+          relatedIds: [...new Set([...(prior?.relatedIds || []), ...(state.relatedIds || [])])] };
+        return { ...value, workspace: { ...value.workspace, recordStates: [...states.filter(item => item.kind !== state.kind || item.id !== state.id), merged] } };
+      }));
+      void refresh(controller.signal);
+    };
+    window.addEventListener("workspace-records-changed", changed);
+    return () => { controller.abort(); window.removeEventListener("workspace-records-changed", changed); };
   }, [refresh]);
   useEffect(() => { if (search.get("filter") === "decision") setFilter("decision"); }, [search]);
   const title = mode === "contacts" ? "联系人" : "合作", needle = query.trim().toLocaleLowerCase();
@@ -58,9 +82,9 @@ export function WorkspaceHub({ initial, mode }: { initial: { agents: AgentActivi
           if (source.searchParams.get("subject")) params.set("subject", source.searchParams.get("subject")!);
           const workspace = agents.find(value => value.workspace.agent.id === item.agentId)?.workspace;
           const businessId = workspace ? businessRecordId(item, workspace) : "";
-          return <article key={`${item.agentId}:${item.id}`} className="flex min-w-0 items-start gap-2 p-3"><Link href={`/dashboard/collaborations?${params}`} className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-medium">{item.title}</h2><span className="text-xs text-muted-foreground">{item.agentName}</span>{item.needsAction && <span className="rounded bg-amber-100 px-1.5 text-xs text-amber-900">需我处理</span>}</div><p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.summary}</p><time className="mt-1 block text-xs text-muted-foreground">最近核验 {displayTime(item.sourceAt / 1000)}</time></Link>{workspace && businessId && <RecordActions agentId={item.agentId} kind="collaboration" id={businessId} title={item.title} blockedReason={recordDeletionReason(workspace, "collaboration", businessId)} onChanged={() => refresh()} />}<ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" /></article>;
+          return <article key={`${item.agentId}:${item.id}`} className="flex min-w-0 items-start gap-2 p-3"><Link href={`/dashboard/collaborations?${params}`} className="min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2"><div className="flex flex-wrap items-center gap-2"><h2 className="text-sm font-medium">{item.title}</h2><span className="text-xs text-muted-foreground">{item.agentName}</span>{item.needsAction && <span className="rounded bg-amber-100 px-1.5 text-xs text-amber-900">需我处理</span>}</div><p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.summary}</p><time className="mt-1 block text-xs text-muted-foreground">最近核验 {displayTime(item.sourceAt / 1000)}</time></Link>{workspace && businessId && <RecordActions agentId={item.agentId} kind="collaboration" id={businessId} title={item.title} blockedReason={recordDeletionReason(workspace, "collaboration", businessId)} />}<ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" /></article>;
         })}{!visible.length && <p className="p-5 text-sm text-muted-foreground">{allItems.length ? "没有匹配的合作。" : "尚未同步合作事项，可从“发起合作”开始。"}</p>}</div>
-        {agents.filter(({workspace}) => workspace.recordStates?.some(value => value.kind === "collaboration" && value.deleted)).map(({workspace}) => <section key={workspace.agent.id} className="rounded-md border bg-card"><h2 className="px-3 pt-2 text-xs font-medium">{workspace.agent.name}</h2><DeletedRecordsPanel agentId={workspace.agent.id} kind="collaboration" recordStates={workspace.recordStates} snapshots={workspace.snapshots} onChanged={() => refresh()} /></section>)}
+        {agents.filter(({workspace}) => workspace.recordStates?.some(value => value.kind === "collaboration" && value.deleted)).map(({workspace}) => <section key={workspace.agent.id} className="rounded-md border bg-card"><h2 className="px-3 pt-2 text-xs font-medium">{workspace.agent.name}</h2><DeletedRecordsPanel agentId={workspace.agent.id} kind="collaboration" recordStates={workspace.recordStates} snapshots={workspace.snapshots} /></section>)}
       </>}
     </>}
   </div>;

@@ -49,9 +49,9 @@ export function RecordActions({ agentId, kind, id, title, blockedReason, onChang
     if (busy) return;
     setBusy(true); setError("");
     try {
-      await workspaceRequest(`/api/agents/${encodeURIComponent(agentId)}/workspace/records`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, id, deleted: true }) });
+      const data = await workspaceRequest<{ state: WorkspaceRecordState }>(`/api/agents/${encodeURIComponent(agentId)}/workspace/records`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, id, deleted: true }) });
       setOpen(false);
-      window.dispatchEvent(new CustomEvent("workspace-records-changed", { detail: { agentId } }));
+      window.dispatchEvent(new CustomEvent("workspace-records-changed", { detail: { agentId, state: data.state } }));
       await onChanged?.();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "暂时无法删除网页记录。"); }
     finally { setBusy(false); }
@@ -88,8 +88,8 @@ export function DeletedRecordsPanel({ agentId, kind, recordStates, snapshots, on
     if (busy) return;
     setBusy(value.id); setError("");
     try {
-      await workspaceRequest(`/api/agents/${encodeURIComponent(agentId)}/workspace/records`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, id: value.id, deleted: false }) });
-      window.dispatchEvent(new CustomEvent("workspace-records-changed", { detail: { agentId } }));
+      const data = await workspaceRequest<{ state: WorkspaceRecordState }>(`/api/agents/${encodeURIComponent(agentId)}/workspace/records`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, id: value.id, deleted: false }) });
+      window.dispatchEvent(new CustomEvent("workspace-records-changed", { detail: { agentId, state: data.state } }));
       await onChanged?.();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "暂时无法恢复记录。"); }
     finally { setBusy(""); }
