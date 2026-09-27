@@ -108,7 +108,7 @@ export function HomeExperience() {
   return (
     <div className={`public-site public-home${hydrated ? "" : " no-js"}`} onClick={navigateWithinApp}>
       <PublicNavigation current="home" language={language} onLanguageChange={setLanguage} homeSections />
-      <main id="main" ref={main} dangerouslySetInnerHTML={initialHomeMarkup} />
+      <main id="main" tabIndex={-1} ref={main} dangerouslySetInnerHTML={initialHomeMarkup} />
       <PublicFooter language={language} />
     </div>
   );

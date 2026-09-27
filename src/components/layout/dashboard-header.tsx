@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { Bell, ChevronDown, LogOut, Menu } from "lucide-react";
 import { useNotifications } from "@/components/notification-provider";
+import { useHydrated } from "@/components/local-time";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -14,6 +15,10 @@ import { DashboardNavigation } from "./dashboard-sidebar";
 export function DashboardHeader({ user }: { user: { name?: string | null; email?: string | null } }) {
   const pathname = usePathname();
   const { page: notifications, disableSystem } = useNotifications();
+  // A streamed header may hydrate after the parent has already refreshed.
+  const hydrated = useHydrated();
+  const unread = hydrated ? notifications.unread : 0;
+  const pending = hydrated ? notifications.pending : 0;
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
@@ -31,7 +36,7 @@ export function DashboardHeader({ user }: { user: { name?: string | null; email?
     </Dialog>
     <span className="truncate text-sm font-medium">{pathname === "/dashboard/notifications" ? "提醒中心" : pathname === "/dashboard/collaborations" ? "合作" : pathname === "/dashboard/contacts" ? "联系人" : pathname === "/dashboard/settings" ? "邮箱与密码" : pathname === "/dashboard/me" ? "我" : pathname === "/dashboard/agents" ? "我的连接" : pathname === "/dashboard/connections" ? "连接设置" : "我的 agents"}</span>
     <span className="flex-1" />
-    <Link href="/dashboard/notifications" aria-label={`提醒中心，${notifications.unread} 条未读，${notifications.pending} 项待处理`} className="relative flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Bell className="h-4 w-4" /><span className="hidden sm:inline">提醒</span>{notifications.unread > 0 && <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs leading-5 text-primary-foreground">{notifications.unread > 99 ? "99+" : notifications.unread}</span>}{notifications.pending > 0 && <span className="hidden text-xs text-amber-800 md:inline">{notifications.pending} 待处理</span>}</Link>
+    <Link href="/dashboard/notifications" aria-label={`提醒中心，${unread} 条未读，${pending} 项待处理`} className="relative flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Bell className="h-4 w-4" /><span className="hidden sm:inline">提醒</span>{unread > 0 && <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs leading-5 text-primary-foreground">{unread > 99 ? "99+" : unread}</span>}{pending > 0 && <span className="hidden text-xs text-amber-800 md:inline">{pending} 待处理</span>}</Link>
     {error && <span role="alert" className="text-xs text-destructive">{error}</span>}
     <DropdownMenu>
       <DropdownMenuTrigger asChild><Button variant="ghost" className="min-h-10 gap-2 rounded-lg pl-1 pr-2" aria-label="账户菜单" disabled={signingOut}><span className="dashboard-account flex h-8 w-8 items-center justify-center rounded-full border bg-secondary text-xs font-semibold text-primary">{(user.name || user.email || "A").slice(0, 1).toUpperCase()}</span><span className="hidden max-w-32 truncate text-xs sm:block">{signingOut ? "正在退出…" : user.name || "我的账户"}</span><ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /></Button></DropdownMenuTrigger>
