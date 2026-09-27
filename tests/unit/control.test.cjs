@@ -7,6 +7,8 @@ const test = require("node:test");
 const ts = require("typescript");
 
 function load(relative, dependencies = {}) {
+  // Moderation is verified in its own SQLite gate tests; these fixtures isolate RPC authority.
+  dependencies = { "@/lib/moderation/inbound": { filterWorkspaceInbound: async (_db, _user, _agent, _urn, _method, body) => body }, ...dependencies };
   const filename = path.resolve(__dirname, relative), loaded = new Module(filename, module);
   loaded.filename = filename; loaded.paths = Module._nodeModulePaths(path.dirname(filename));
   loaded.require = name => Object.hasOwn(dependencies, name) ? dependencies[name] : name === "@/lib/shared/http-input" ? load("../../src/lib/shared/http-input.ts") : Module.prototype.require.call(loaded, name);
@@ -21,8 +23,10 @@ const ecies = load("../../src/lib/protocol/ecies.ts");
 const managedGateCalls=[];
 class PolicyConsentRequiredError extends Error {}
 let managedGateFailure=null;
+let managedGateEffect=null, activeAccount=true, accountLookupFailure=null;
 const transport = load("../../src/lib/control/control-transport.ts",{"@/lib/protocol/proto":proto,"@/lib/protocol/protocol-auth":auth,"@/lib/protocol/crypto":keys,"@/lib/protocol/ecies":ecies,
-  "@/lib/control/v2-policy":{PolicyConsentRequiredError,requireManagedV1:async(_user,_keys,force=false)=>{managedGateCalls.push(force);if(managedGateFailure)throw managedGateFailure;}}});
+  "@/lib/shared/db":{prisma:{user:{findUnique:async({where})=>{if(accountLookupFailure)throw accountLookupFailure;return activeAccount?{id:where.id}:null;}}}},
+  "@/lib/control/v2-policy":{PolicyConsentRequiredError,requireManagedV1:async(_user,_keys,force=false)=>{managedGateCalls.push(force);if(managedGateFailure)throw managedGateFailure;await managedGateEffect?.(force);}}});
 const pollMetrics = load("../../src/lib/control/control-poll-metrics.ts");
 const request = () => ({protocol:protocol.CONTROL_PROTOCOL,type:"request",request_id:crypto.randomUUID(),method:"capabilities",params:{},agent_urn:"urn:agent:one",console_urn:"urn:console:one",deadline:new Date(Date.now()+120000).toISOString()});
 const response = r => {const {params,...rest}=r;return {...rest,type:"response",result:{methods:[]}};};
@@ -180,6 +184,85 @@ test("managed transport marks consent and certificate faults without contacting 
     managedGateFailure=null;global.fetch=originalFetch;
     if(originalSecret===undefined)delete process.env.NEXTAUTH_SECRET;else process.env.NEXTAUTH_SECRET=originalSecret;
   }
+});
+
+async function accountTransportCase(run) {
+  const originalSecret=process.env.NEXTAUTH_SECRET, originalFetch=global.fetch;
+  process.env.NEXTAUTH_SECRET="isolated-account-deletion-transport-test";
+  activeAccount=true;accountLookupFailure=null;managedGateEffect=null;managedGateCalls.length=0;
+  try {
+    const owner=identity(), user=userFor(owner), recipient="urn:agent-comm:agent:recipient";
+    const signed=auth.signEnvelope({senderUrn:owner.urn,recipientUrn:recipient,
+      senderStaticPubkey:owner.xRaw,ephemeralPubkey:Buffer.alloc(32,1),nonce:Buffer.alloc(12,2),
+      ciphertext:Buffer.from("account deletion race"),tag:Buffer.alloc(16,3),messageId:"deletion-race"},owner.ed.privateKey);
+    const envelope=proto.encodeEncryptedEnvelope(signed).toString("base64");
+    await run({user,recipient,envelope,deadline:new Date(Date.now()+60000)});
+  } finally {
+    activeAccount=true;accountLookupFailure=null;managedGateEffect=null;global.fetch=originalFetch;
+    if(originalSecret===undefined)delete process.env.NEXTAUTH_SECRET;else process.env.NEXTAUTH_SECRET=originalSecret;
+  }
+}
+
+test("deleted accounts cannot register, encode, submit, retrieve or acknowledge using stale keys", async () => {
+  await accountTransportCase(async({user,recipient,envelope,deadline})=>{
+    let requests=0;
+    global.fetch=async()=>{requests++;throw new Error("deleted account must not contact the platform");};
+    activeAccount=false;
+    for(const attempt of [
+      ()=>transport.registerConsole(user),
+      ()=>transport.encodeControl(user,request()),
+      ()=>transport.submitEnvelope(user,envelope,recipient,deadline),
+      ()=>transport.retrieveEnvelopes(user),
+      ()=>transport.acknowledgeEnvelopes(user,["authenticated-response"]),
+    ]) await assert.rejects(attempt(),error=>error instanceof transport.ControlError&&error.status===401);
+    assert.equal(requests,0);assert.deepEqual(managedGateCalls,[]);
+  });
+});
+
+test("deletion while checking managed access prevents the pending send or retrieve", async () => {
+  await accountTransportCase(async({user,recipient,envelope,deadline})=>{
+    let requests=0;
+    global.fetch=async()=>{requests++;throw new Error("deleted during policy check");};
+    managedGateEffect=async()=>{activeAccount=false;};
+    for(const attempt of [
+      ()=>transport.submitEnvelope(user,envelope,recipient,deadline),
+      ()=>transport.retrieveEnvelopes(user),
+    ]) {
+      activeAccount=true;
+      await assert.rejects(attempt(),error=>error instanceof transport.ControlError&&error.status===401);
+    }
+    assert.equal(requests,0);
+  });
+});
+
+test("deletion after a rejected first send prevents both enrollment and retry", async () => {
+  await accountTransportCase(async({user,recipient,envelope,deadline})=>{
+    let requests=0;
+    global.fetch=async()=>{requests++;activeAccount=false;return Response.json({error:"grant unavailable"},{status:403});};
+    await assert.rejects(transport.submitEnvelope(user,envelope,recipient,deadline),error=>error instanceof transport.ControlError&&error.status===401);
+    assert.equal(requests,1);assert.deepEqual(managedGateCalls,[false]);
+  });
+});
+
+test("deletion during forced enrollment prevents the identical retry from leaving Web", async () => {
+  await accountTransportCase(async({user,recipient,envelope,deadline})=>{
+    let requests=0;
+    global.fetch=async()=>{requests++;return Response.json({error:"grant unavailable"},{status:400});};
+    managedGateEffect=async force=>{if(force)activeAccount=false;};
+    await assert.rejects(transport.submitEnvelope(user,envelope,recipient,deadline),error=>error instanceof transport.ControlError&&error.status===401);
+    assert.equal(requests,1);assert.deepEqual(managedGateCalls,[false,true]);
+  });
+});
+
+test("database failures deny account-authenticated network attempts", async () => {
+  await accountTransportCase(async({user})=>{
+    let requests=0;
+    global.fetch=async()=>{requests++;throw new Error("account status unavailable");};
+    accountLookupFailure=new Error("database unavailable");
+    for(const attempt of [()=>transport.registerConsole(user),()=>transport.retrieveEnvelopes(user),()=>transport.acknowledgeEnvelopes(user,["response"])])
+      await assert.rejects(attempt(),error=>error instanceof transport.ControlError&&error.status===503);
+    assert.equal(requests,0);
+  });
 });
 
 function serviceFixture() {

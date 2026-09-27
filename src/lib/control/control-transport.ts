@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import type { User } from "@prisma/client";
+import { prisma } from "@/lib/shared/db";
 import { decryptPrivateKey } from "@/lib/protocol/crypto";
 import { decodeEncryptedEnvelope, encodeEncryptedEnvelope, encodeChatMessage, decodeChatMessage } from "@/lib/protocol/proto";
 import { signEnvelope, verifyEnvelope, verifyRegistration, peerIdFromEd25519PublicKey, buildRegistrationSigningBytes } from "@/lib/protocol/protocol-auth";
@@ -22,6 +23,20 @@ export async function platformFetch(path: string, init?: RequestInit) {
   } catch { throw new ControlError("无法连接通信平台，请稍后重试同一请求。"); }
   if (!response.ok) throw new ControlError(`通信平台返回 HTTP ${response.status}。`, 502, response.status);
   return response;
+}
+
+async function requireActiveAccount(user: User) {
+  let current: { id: string } | null;
+  try { current = await prisma.user.findUnique({ where: { id: user.id }, select: { id: true } }); }
+  catch { throw new ControlError("无法确认账户状态，远程通信已暂停。", 503); }
+  if (!current) throw new ControlError("账户已不可用，请重新登录确认状态。", 401);
+}
+
+/** Recheck before each registry/mailbox fetch, including identical retries.
+ * A database check cannot recall a request already handed to the network. */
+async function accountPlatformFetch(user: User, path: string, init?: RequestInit) {
+  await requireActiveAccount(user);
+  return platformFetch(path, init);
 }
 
 export function consoleKeys(user: User) {
@@ -67,11 +82,12 @@ export async function registerConsole(user: User) {
     ed25519_pubkey: record.ed25519Pubkey.toString("base64"), signature: record.signature.toString("base64"),
     stores_user_data: true, timestamp: record.timestamp, addrs: [],
   });
-  const response = await platformFetch("/api/v1/registry/register", { method: "POST", headers: signedHeaders(body, keys), body });
+  const response = await accountPlatformFetch(user, "/api/v1/registry/register", { method: "POST", headers: signedHeaders(body, keys), body });
   await response.json();
 }
 
 export async function encodeControl(user: User, request: ControlRequestBody): Promise<string> {
+  await requireActiveAccount(user);
   const keys = consoleKeys(user);
   const record = await resolveIdentity(request.agent_urn);
   const plaintext = encodeChatMessage(JSON.stringify(request), Date.now(), {
@@ -85,6 +101,7 @@ export async function encodeControl(user: User, request: ControlRequestBody): Pr
 }
 
 async function ensureManagedV1(user: User, keys: ReturnType<typeof consoleKeys>, forceEnrollment = false) {
+  await requireActiveAccount(user);
   try { await requireManagedV1(user, keys, forceEnrollment); }
   catch (error) {
     const consent = error instanceof PolicyConsentRequiredError;
@@ -114,7 +131,7 @@ export async function submitEnvelope(user: User, envelope: string, recipientUrn:
   const keys = consoleKeys(user);
   await ensureManagedV1(user, keys);
   const body = JSON.stringify({ recipient_urn: recipientUrn, expiry_unix: Math.ceil(deadline.getTime() / 1000), payload_proto: envelope });
-  const send = () => platformFetch("/api/v1/mq/store", { method: "POST", headers: signedHeaders(body, keys), body });
+  const send = () => accountPlatformFetch(user, "/api/v1/mq/store", { method: "POST", headers: signedHeaders(body, keys), body });
   let response: Response;
   try { response = await send(); }
   catch (error) {
@@ -134,7 +151,7 @@ export async function retrieveEnvelopes(user: User, timings?: ControlPollTimings
   const started = performance.now();
   let data: { messages?: unknown };
   try {
-    data = await (await platformFetch("/api/v1/mq/retrieve", { headers: {
+    data = await (await accountPlatformFetch(user, "/api/v1/mq/retrieve", { headers: {
       "X-URN": keys.urn, "X-Timestamp": String(timestamp), "X-Pubkey": keys.publicKey, "X-Signature": signature.toString("hex"),
     } })).json();
   } finally {
@@ -148,6 +165,6 @@ export async function acknowledgeEnvelopes(user: User, messageIds: string[]) {
   if (!messageIds.length) return;
   const keys = consoleKeys(user);
   const body = JSON.stringify({ recipient_urn: keys.urn, timestamp: Math.floor(Date.now() / 1000), message_ids: Array.from(new Set(messageIds)) });
-  const data = await (await platformFetch("/api/v1/mq/ack", { method: "POST", headers: signedHeaders(body, keys), body })).json();
+  const data = await (await accountPlatformFetch(user, "/api/v1/mq/ack", { method: "POST", headers: signedHeaders(body, keys), body })).json();
   if (data.ok !== true) throw new ControlError("响应已保存，平台确认失败；可安全重试。");
 }

@@ -25,13 +25,15 @@ export function accountEmailFailure(error: unknown) {
   console.error("[account-email] INTERNAL_ERROR");
   return NextResponse.json({ error: "操作暂时无法完成，请稍后重试。", code: "INTERNAL_ERROR" }, { status: 500, headers: accountEmailHeaders });
 }
-export async function accountEmailPost<T>(request: Request, schema: z.ZodType<T>, execute: (body: T, userId?: string) => Promise<unknown>, options: { authenticated?: boolean; status?: number } = {}) {
+export async function accountEmailPost<T>(request: Request, schema: z.ZodType<T>, execute: (body: T, userId?: string, sessionVersion?: number) => Promise<unknown>, options: { authenticated?: boolean; status?: number } = {}) {
   try {
     sameOrigin(request);
     let userId: string | undefined;
+    let sessionVersion: number | undefined;
     if (options.authenticated) {
       const session = await getServerSession(authOptions);
       userId = session?.user?.id;
+      sessionVersion = session?.user?.sessionVersion;
       if (!userId) throw new AccountEmailError("请先登录。", 401, "UNAUTHORIZED");
     }
     const body = await readJsonBody(request, 16384);
@@ -41,6 +43,6 @@ export async function accountEmailPost<T>(request: Request, schema: z.ZodType<T>
       const message = /[\u3400-\u9fff]/.test(issue.message) ? issue.message : "请求格式无效，请检查输入。";
       throw new AccountEmailError(message, 400, "INVALID_INPUT");
     }
-    return NextResponse.json(await execute(parsed.data, userId), { status: options.status || 200, headers: accountEmailHeaders });
+    return NextResponse.json(await execute(parsed.data, userId, sessionVersion), { status: options.status || 200, headers: accountEmailHeaders });
   } catch (error) { return accountEmailFailure(error); }
 }

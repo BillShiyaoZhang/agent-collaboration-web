@@ -1,7 +1,7 @@
 const assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),Module=require("node:module"),test=require("node:test"),ts=require("typescript");
 function load(relative,deps={}) {const filename=path.resolve(__dirname,relative),m=new Module(filename,module);m.filename=filename;m.paths=Module._nodeModulePaths(path.dirname(filename));m.require=name=>Object.hasOwn(deps,name)?deps[name]:Module.prototype.require.call(m,name);m._compile(ts.transpileModule(fs.readFileSync(filename,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,filename);return m.exports;}
 const client=load("../../src/lib/control/workbench-client.ts");
-const {recordDeletionReason,isRecordDeleted}=load("../../src/components/workbench/record-actions.tsx",{"@/lib/control/workbench-client":client,"@/components/ui/button":{},"@/components/ui/dialog":{},"@/components/workspace-provider":{},"@/components/local-time":{}});
+const {recordDeletionReason,isRecordDeleted}=load("../../src/components/workbench/record-actions.tsx",{"@/lib/control/workbench-client":client,"@/components/ui/button":{},"@/components/ui/dialog":{},"@/components/workspace-provider":{},"@/components/local-time":{},"./report-button":{ReportButton:()=>null}});
 const source=(data,changes={})=>({snapshots:{"collaboration.state":{data}},operations:[],submission:null,...changes});
 const ended={task_id:"task",collaboration_id:"first-collab",phase:"closed",closure_reason:"agreement_only_complete",agreement_synced:true};
 test("delete controls consider every collaboration on a shared task and require real synchronization",()=>{

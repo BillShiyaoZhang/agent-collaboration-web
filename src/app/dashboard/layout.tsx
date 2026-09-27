@@ -23,7 +23,7 @@ export default async function DashboardLayout({
   const workspace = await getWorkspaceOverview(session.user.id);
   return (
     <AppFrame footer={false}>
-    <WorkspaceProvider key={session.user.id} initial={workspace}>
+    <WorkspaceProvider key={`${session.user.id}:${session.user.sessionVersion ?? 0}`} initial={workspace} accountId={session.user.id} sessionVersion={session.user.sessionVersion}>
     <NotificationProvider accountId={session.user.id}>
     <div className="flex h-full min-h-0">
       <a href="#main-content" className="sr-only z-50 rounded-lg bg-primary px-4 py-2 text-primary-foreground focus:not-sr-only focus:absolute focus:left-4 focus:top-4">跳转到主要内容</a>

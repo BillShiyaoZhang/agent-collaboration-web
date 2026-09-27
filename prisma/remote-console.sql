@@ -171,3 +171,35 @@ CREATE TABLE IF NOT EXISTS "WorkspaceRecordState" (
  PRIMARY KEY("agentId", "kind", "recordId"),
  FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+-- Durable, consented reports and pre-display review of peer social content.
+CREATE TABLE IF NOT EXISTS "ModerationReport" (
+ "userId" TEXT NOT NULL, "id" TEXT NOT NULL, "agentId" TEXT NOT NULL,
+ "targetKind" TEXT NOT NULL, "targetId" TEXT NOT NULL, "reason" TEXT NOT NULL,
+ "fingerprint" TEXT NOT NULL, "payload" TEXT NOT NULL,
+ "status" TEXT NOT NULL DEFAULT 'pending', "decision" TEXT NOT NULL DEFAULT 'none',
+ "createdAt" REAL NOT NULL, "updatedAt" REAL NOT NULL, "reviewedBy" TEXT,
+ PRIMARY KEY("userId", "id"),
+ FOREIGN KEY("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "ModerationReport_queue_idx" ON "ModerationReport"("status", "createdAt");
+CREATE TABLE IF NOT EXISTS "ModerationContent" (
+ "id" TEXT PRIMARY KEY, "userId" TEXT NOT NULL, "agentId" TEXT NOT NULL,
+ "kind" TEXT NOT NULL, "recordId" TEXT NOT NULL, "digest" TEXT NOT NULL,
+ "payload" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'pending',
+ "createdAt" REAL NOT NULL, "updatedAt" REAL NOT NULL, "reviewedBy" TEXT,
+ UNIQUE("userId", "agentId", "kind", "recordId", "digest"),
+ FOREIGN KEY("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "ModerationContent_queue_idx" ON "ModerationContent"("status", "createdAt");
+CREATE TABLE IF NOT EXISTS "WorkspacePeerSafety" (
+ "agentId" TEXT NOT NULL, "urn" TEXT NOT NULL, "blocked" INTEGER NOT NULL,
+ "confirmedAt" REAL NOT NULL, "revision" INTEGER NOT NULL DEFAULT 0, PRIMARY KEY("agentId","urn"),
+ FOREIGN KEY("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ModerationRate" (
+ "userId" TEXT NOT NULL, "bucket" TEXT NOT NULL, "windowStart" REAL NOT NULL, "count" INTEGER NOT NULL,
+ PRIMARY KEY("userId","bucket"), FOREIGN KEY("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);

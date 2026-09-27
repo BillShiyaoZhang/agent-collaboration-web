@@ -1,4 +1,4 @@
-export { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@agent-comm/client-contract";
+export { mergeSnapshots, mergeTurns, pairingAllowsSend, peerContentSafetyAllowsConversation } from "@agent-comm/client-contract";
 import type { WorkspaceSync } from "@agent-comm/client-contract";
 
 export function syncLabel(sync: WorkspaceSync, hasSaved = false): string {

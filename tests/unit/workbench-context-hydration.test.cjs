@@ -8,10 +8,11 @@ function load(relative, deps = {}, exposePolicyContext = false) {
  m._compile(compiled + (exposePolicyContext ? "\nexports.testPolicyContext = PolicyAccessContext;" : ""), filename); return m.exports;
 }
 const client = load("../../src/lib/control/workbench-client.ts"), drafts = load("../../src/lib/product/draft-cache.ts"), queue = load("../../src/lib/product/metadata-queue.ts");
+const sharing = load("../../src/lib/product/agent-sharing.ts");
 const workspaceClient = load("../../src/lib/workspace/workspace-client.ts", { "@/lib/control/workbench-client": client });
 const localTime = load("../../src/components/local-time.ts");
 const agent = { id: "agent", name: "Owned", urn: "urn:agent:owned" };
-const initial = { agent, identity: { virtualUrn: "urn:console:owned" }, sync: { status: "ready" }, snapshots: { capabilities: { data: { methods: [{ name: "conversation.send", available: true }] } } }, conversations: [], activeConversationId: "", activeConversationState: { archived: false, readAt: 0, draft: "", scrollTop: null }, conversation: null, hasEarlierTurns: false, submission: null, operations: [], recordStates: [] };
+const initial = { agent, identity: { virtualUrn: "urn:console:owned" }, sync: { status: "ready" }, snapshots: { capabilities: { data: { peer_content_safety: { version: 1, mode: 'owner_review', automatic_peer_model_execution: false }, methods: [{ name: "conversation.send", available: true }] } } }, conversations: [], activeConversationId: "", activeConversationState: { archived: false, readAt: 0, draft: "", scrollTop: null }, conversation: null, hasEarlierTurns: false, submission: null, operations: [], recordStates: [] };
 function fixture(time = localTime) {
  const policy = load("../../src/components/workbench/policy-disclosure.tsx", { "@/components/ui/button": {}, "@/components/local-time": time }, true);
  const externalWorkspace = React.createContext({ cacheAgent() {}, requestSync: async () => {}, getDraft: () => undefined, saveDraft() {}, error: "" });
@@ -20,6 +21,7 @@ function fixture(time = localTime) {
   "@/components/workspace-provider": { useWorkspace: () => React.useContext(externalWorkspace), workspaceRequest: async () => initial },
   "./use-workbench-mutations": { useWorkbenchMutations: () => ({ actions: [], ready: false }) },
   "@/lib/product/metadata-queue": queue, "@/lib/product/draft-cache": drafts, "./policy-disclosure": policy, "@/components/local-time": time,
+  "@/lib/product/agent-sharing": sharing, "./agent-sharing-permission": { useAgentSharingPermission: () => ({ allowed: false, request: async () => null, validate: async () => false, manage: async () => {} }) },
  });
  function PolicyProbe() { return React.createElement("output", null, String(policy.usePolicyAccess())); }
  function WorkbenchProbe() {

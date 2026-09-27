@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { conversationPending, PendingCall, records, RemoteRecord, RpcMethod, string, WorkbenchClient, WorkbenchError } from "@/lib/control/workbench-client";
-import { mergeSnapshots, mergeTurns, pairingAllowsSend } from "@/lib/workspace/workspace-client";
+import { mergeSnapshots, mergeTurns, pairingAllowsSend, peerContentSafetyAllowsConversation } from "@/lib/workspace/workspace-client";
 import type { WorkspaceAgent, WorkspaceSubmission, WorkspaceConversationState } from "@/lib/workspace/workspace-types";
 import { useWorkspace, workspaceRequest } from "@/components/workspace-provider";
 import { useWorkbenchMutations } from "./use-workbench-mutations";
@@ -10,9 +10,12 @@ import { createMetadataQueue } from "@/lib/product/metadata-queue";
 import { acknowledgeDraft, chooseDraft, draftReadCanRestore, editDraft, type LocalDraft } from "@/lib/product/draft-cache";
 import { usePolicyAccess } from "./policy-disclosure";
 import { useHydrated } from "@/components/local-time";
+import { useAgentSharingPermission } from "./agent-sharing-permission";
+import { contentRequiresSharing, sharingStoppedMessage, type SharingGrant } from "@/lib/product/agent-sharing";
 
 export type Connection = { id: string; name: string; urn: string };
-type Outcome = { result?: RemoteRecord; error?: WorkbenchError };
+type Outcome = { result?: RemoteRecord; error?: WorkbenchError; blocked?: boolean; blockedReason?: string };
+const conversationSafetyUpgrade = "此 Agent 尚未提供先审核对端内容、关闭对端消息自动模型执行的安全能力。请先升级 Agent runtime/helper 并重新检查连接；已有对话仍可阅读。";
 
 async function expectedTurnId(consoleUrn: string, requestId: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${consoleUrn}\0${requestId}`));
@@ -20,6 +23,8 @@ async function expectedTurnId(consoleUrn: string, requestId: string) {
 }
 
 export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
+  const sharing = useAgentSharingPermission(agent);
+  const { request: requestSharing, validate: validateSharing } = sharing;
   const hydrated = useHydrated();
   const policyAllowed = usePolicyAccess();
   const { cacheAgent, requestSync, getDraft, saveDraft, error: workspaceError } = useWorkspace();
@@ -188,8 +193,16 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     return () => { generation++; controller.abort(); clearTimeout(timer); document.removeEventListener("visibilitychange", resume); window.removeEventListener("online", resume); window.removeEventListener("offline", offline); };
   }, [refreshSaved, seed]);
 
-  const invoke = useCallback(async (method: RpcMethod, params: RemoteRecord = {}, original?: PendingCall): Promise<Outcome> => {
+  const invoke = useCallback(async (method: RpcMethod, params: RemoteRecord = {}, original?: PendingCall, requiredGrant?: SharingGrant): Promise<Outcome> => {
     if (!policyAllowed) return {};
+    if (method === "conversation.send" && !peerContentSafetyAllowsConversation(snapshots.capabilities?.data)) {
+      setConversationError(conversationSafetyUpgrade);
+      return { blocked: true, blockedReason: conversationSafetyUpgrade };
+    }
+    if (contentRequiresSharing(method, params)) {
+      const grant = requiredGrant || await requestSharing();
+      if (!grant || !await validateSharing(grant)) return { blocked: true };
+    }
     if (activeCalls.current.has(method)) return {};
     activeCalls.current.add(method);
     const signal = lifecycle.current.signal, call = original || client.prepare(method, params);
@@ -221,12 +234,13 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
       setErrors(previous => ({ ...previous, [method]: failure }));
       return { error: failure };
     } finally { activeCalls.current.delete(method); if (!signal.aborted) setBusy(previous => ({ ...previous, [method]: undefined })); }
-  }, [agent.id, client, refreshSaved, requestSync, policyAllowed]);
+  }, [agent.id, client, refreshSaved, requestSync, policyAllowed, requestSharing, validateSharing, snapshots.capabilities?.data]);
 
   const capabilitySnapshot = snapshots.capabilities;
   const methods = records(capabilitySnapshot?.data.methods);
   const available = (name: string) => policyAllowed && methods.some(method => method.name === name && method.available === true);
-  const canSend = available("conversation.send") && pairingAllowsSend(capabilitySnapshot?.data, sync);
+  const conversationSafetyError = available("conversation.send") && !peerContentSafetyAllowsConversation(capabilitySnapshot?.data) ? conversationSafetyUpgrade : "";
+  const canSend = available("conversation.send") && !conversationSafetyError && pairingAllowsSend(capabilitySnapshot?.data, sync);
   const canAddContact = available("contacts.add") && pairingAllowsSend(capabilitySnapshot?.data, sync);
   const canRespondApproval = available("approval.respond") && pairingAllowsSend(capabilitySnapshot?.data, sync);
   const canReadCollaboration = available("collaboration.state"), canReadContacts = available("contacts.list");
@@ -237,6 +251,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     else await refreshSaved();
   }, [agent.id, requestSync, canReadCollaboration, canReadContacts, invoke, refreshSaved]);
   const mutations = useWorkbenchMutations({ agentId: agent.id, consoleUrn: identity.virtualUrn || "", client, invoke,
+    sharing,
     canAddContact, canRespondApproval, canMutate: name => available(name) && pairingAllowsSend(capabilitySnapshot?.data, sync), refresh: refreshMutations, contacts: records(snapshots["contacts.list"]?.data.contacts),
     approvalDecisions: records(snapshots["collaboration.state"]?.data.approval_decisions), requests: records(snapshots["contacts.requests"]?.data.contact_requests ?? snapshots["contacts.requests"]?.data.requests),
     messages: records(snapshots["inbox.list"]?.data.messages), sentMessages: records(snapshots["collaboration.state"]?.data.sent_messages), savedOperations:operations });
@@ -309,6 +324,8 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
 
   async function sendMessage(original?: WorkspaceSubmission) {
     if (!canSend || sending.current || selecting.current || activeCalls.current.has("conversation.send") || (!original && submission)) return;
+    const grant = await sharing.request();
+    if (!grant || !await sharing.validate(grant) || sending.current || selecting.current || lifecycle.current.signal.aborted) return;
     const message = original?.text || text.trim();
     if (!message || !identity.virtualUrn) return;
     sending.current = true;
@@ -317,8 +334,9 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     setSubmission(item); setConversationError("");
     try {
       item.turnId = await expectedTurnId(identity.virtualUrn, call.request_id);
-      const { result, error } = await invoke("conversation.send", call.params, call);
+      const { result, error, blocked, blockedReason } = await invoke("conversation.send", call.params, call, grant);
       if (lifecycle.current.signal.aborted) return;
+      if (blocked) { setSubmission(original || null); setConversationError(blockedReason || sharingStoppedMessage); return; }
       if (result && result.status === "submitted" && result.conversation_id === item.conversationId && result.turn_id === item.turnId) {
         resolvedCalls.current.add(call.request_id);
         selected.current = result.conversation_id; selectionVersion.current++;
@@ -395,8 +413,8 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   }
 
   function newConversation() { void selectConversation("").then(saved => { if (saved) composer.current?.focus(); }); }
-  return { agentId:agent.id, conversationState, saveConversationState, afterConversationDeleted, recordStates, operations, policyAllowed, identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
-    capabilitySnapshot, methods, available, canSend, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
+  return { agentId:agent.id, sharing, conversationState, saveConversationState, afterConversationDeleted, recordStates, operations, policyAllowed, identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
+    capabilitySnapshot, methods, available, canSend, conversationSafetyError, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
     setConversationInput, conversationError, submission, turns, currentSnapshot, watching,
     sendMessage, inspectSubmission, readConversation, newConversation, conversations, selectConversation, selectingConversation,
     hasEarlierTurns, loadingEarlier, loadEarlier, dismissSubmission, dismissingSubmission, sync,
@@ -406,4 +424,3 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
 }
 
 export type Workbench = ReturnType<typeof useWorkbench>;
-

@@ -8,6 +8,7 @@ import { workspaceRequest } from "@/components/workspace-provider";
 import { record, records, string, strings } from "@/lib/control/workbench-client";
 import type { WorkspaceAgent, WorkspaceOperation, WorkspaceRecordState } from "@/lib/workspace/workspace-types";
 import { useLocalTime } from "@/components/local-time";
+import {ReportButton} from "./report-button";
 
 type Kind = "contact" | "collaboration";
 type Source = { snapshots: WorkspaceAgent["snapshots"]; operations?: WorkspaceOperation[]; submission?: unknown };
@@ -56,14 +57,14 @@ export function RecordActions({ agentId, kind, id, title, blockedReason, onChang
     } catch (failure) { setError(failure instanceof Error ? failure.message : "暂时无法删除网页记录。"); }
     finally { setBusy(false); }
   }
-  return <Dialog open={open} onOpenChange={value => { if (!busy) { setOpen(value); setError(""); } }}>
+  return <><span className="shrink-0">{kind==="collaboration" && <ReportButton agentId={agentId} target={{kind:"collaboration",id}}/>}</span><Dialog open={open} onOpenChange={value => { if (!busy) { setOpen(value); setError(""); } }}>
     <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" aria-label={`删除 ${title} 的网页记录`} title={blockedReason || "删除网页记录"} disabled={busy || !!blockedReason || !id} onClick={() => setOpen(true)}><Trash2 className="h-4 w-4" /></Button>
     <DialogContent hideCloseButton={busy}>
       <DialogHeader><DialogTitle>删除网页记录</DialogTitle><DialogDescription>将「{title}」从当前账户的{kind === "contact" ? "联系人" : "合作"}列表删除。Agent 本机的记录和已发生的操作会保留；你可以从“已删除记录”恢复显示。</DialogDescription></DialogHeader>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => setOpen(false)}>取消</Button><Button variant="destructive" disabled={busy} onClick={() => void remove()}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}删除网页记录</Button></div>
     </DialogContent>
-  </Dialog>;
+  </Dialog></>;
 }
 
 function deletedTitle(value: WorkspaceRecordState, snapshots: WorkspaceAgent["snapshots"]) {

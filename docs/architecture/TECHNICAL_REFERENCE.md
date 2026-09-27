@@ -20,6 +20,7 @@
 | `POST /api/auth/change-password` | 登录会话与旧密码验证通过后保存待确认的新密码 hash，并发确认信 |
 | `POST /api/auth/confirm-password-change` | 邮件 token 确认后才使待修改密码生效并使旧会话失效 |
 | `GET /api/auth/account` | 读取当前账户邮箱及真实验证状态，限定登录账户 |
+| `POST /api/auth/delete-account` | 当前会话、密码和 `DELETE` 确认通过后，事务删除账户及其 Web 保存的数据 |
 
 `/verify-email`、`/reset-password`、`/confirm-password-change` 的 GET 只展示页面；token 由本人明确确认的 POST 消费，避免邮箱链接预览替用户操作。验证 token 有效 24 小时，密码重置／修改 token 有效 30 分钟。数据库仅保存 token 的 SHA-256 hash、用途、期限、已使用状态及创建时的 sessionVersion；修改密码只保存 hash，确认前旧密码有效。token 与用途、当前会话版本绑定，消费与修改处于同一事务；重发成功后同用途旧链接失效，链接不能重复生效。
 
@@ -223,9 +224,21 @@ python tests/integration/full_stack_smoke.py --helper PATH_TO_HELPER --platform 
 
 先执行 `npm run build`。脚本使用全新的本地端口、SQLite、Web 测试账户及密钥，完成真实登录、控制台身份注册、本机配对、capabilities / contacts 往返与撤销验证，最终关闭测试进程。报告保存在 `build/full-stack-smoke`。它不调用模型或向公网用户发信。
 
+## 账户删除
+
+入口位于 `/dashboard/settings` 的“删除账户”。提交前展示不可恢复的数据范围，并要求当前密码、输入 `DELETE` 和最终确认；打开链接或 GET 不执行删除。接口只接受严格 JSON `{currentPassword: string, confirmation: "DELETE", expectedAccountId: string}`，沿用账户写操作的可信 `NEXTAUTH_URL` 同源检查、16 KiB 请求上限和私有无缓存响应。删除目标 ID 和 `sessionVersion` 均来自服务端核验的 NextAuth 会话。`expectedAccountId` 仅用于核对确认时显示的账户，不能指定删除目标；与会话 ID 不匹配时返回 `409 ACCOUNT_CHANGED`，防止确认期间另一标签页切换到同密码账户后误删。Web 的账户读取返回 `id`，确认期间固定其 ID 与邮箱。
+
+密码验证在事务外计算，事务先用用户 ID、原密码 hash 和会话版本作条件写入并核对，防止验证期间的改密、会话撤销或并发删除作用到新版账户；任何失败都会回滚。随后显式删除账户专属控制台密钥、托管控制台证书、政策确认/暂停、连接、RPC 缓存、工作区快照/条目/会话/草稿/操作账本/记录状态、提醒/投递、Push 订阅/投递、已绑定安装认领和邮件 token，最后删除用户行。显式清理也兼容缺少外键的升级数据库；新库的真实外键仍保留 Cascade。旧 `Contact`、`Message`、`HITLRequest`、`Transaction` 表存在时按本账户 `userId` 或所属连接清理，包括已无连接的旧消息。发现未识别的账户归属存档表时，返回 `503 DELETE_SCHEMA_UNSUPPORTED` 并完整回滚，由运营者先适配迁移；不会删整表或静默遗漏。
+
+`AuthEmailSend` 没有账户外键：删除规范化邮箱的收件人 hash 行；若遗留的另一个大小写不同账户共享相同规范化邮箱，则保留共享日志，避免影响他人。全站邮件额度计数、通知序号、平台政策状态和服务 Push 密钥不属于该账户而保留。延迟邮件提供商回执使用 update 而非重新创建；账户删除后的 token 和收件人日志不会被复活。同步响应在投影事务内再次核验归属，旧无外键表也不能在删除后恢复迟到快照。
+
+只有 `200` 且 JSON `deleted === true` 是成功回执；可选 `consoleUrn` 用于当前浏览器的精确缓存清理。Web 收到成功后清除本账户的浏览器通知偏好、旧待提交记录和匹配的 Push binding，再退出登录并完整导航至 `/login?accountDeleted=true`，释放 provider 内存中的草稿与快照。浏览器存储或退出清理未确认时附 `localCleanup=pending`，登录页提示用户清除此站点数据；这些 query 只控制提示，不是服务器账户状态证明，也不执行删除。其他设备的旧会话会在下次服务端 JWT 检查时失效。超时、连接中断、5xx 或不完整回执显示“未确认”，停止再次提交，并提供只读账户核实；401 仅证明登录无效，不能单独证明账户已删除。应用不会自动重发删除请求。
+
+删除只作用于此 Web 数据库和当前操作设备可访问的客户端恢复缓存，不删除 Agent 本机或 Platform 的记录、授权、已签发证书及已交付消息，也无法原子撤回已经交给网络的操作。服务端在控制外发边界再次核对 User，阻止已删账户的新外发；已经派发的操作仍可能完成。服务日志、备份、邮件提供商保存的数据按运营者的政策另行处理。源码变更不代表生产接口已部署。
+
 ## 已退役内容
 
-旧的独立联系人 CRUD、云端聊天业务模型、HITL 业务表与审批页面、服务调用和交易占位页、浏览器演示均已从运行代码移除。账户副本由认证读取结果建立，不重新启用旧业务模型。旧数据库的相关表保留供管理员离线归档，应用不再读取它们。退役源码可从 Git 历史检索；当前源码不依赖开发者本机备份目录。
+旧的独立联系人 CRUD、云端聊天业务模型、HITL 业务表与审批页面、服务调用和交易占位页、浏览器演示均已从运行代码移除。账户副本由认证读取结果建立，不重新启用旧业务模型。旧数据库的相关表保留供管理员离线归档，应用不再读取它们；本人删除账户时，删除服务会按准确账户范围清理这四类已识别旧表。退役源码可从 Git 历史检索；当前源码不依赖开发者本机备份目录。
 
 [开发接入契约](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/docs/architecture/OVERVIEW.md) 包含宿主、记忆和交互扩展接口。
 
@@ -271,3 +284,26 @@ python tests/integration/full_stack_smoke.py --helper PATH_TO_HELPER --platform 
 目标包含 kind=conversation、id=conversation_id、turn_id。原生 attention.list 返回同一目标时与 Web 兼容投影归并，并保留阅读版本；提醒深链可回到正确会话与回合。结果提醒不计为待操作，回合完成也不证明其业务目标完成。读取动作、普通等待和 ACK 不产生新的结果提醒。
 
 明确 `collaboration.execute` 的 `action=describe` 只读取功能说明，不计入业务操作账本。旧版本已保存的说明记录仍保留在加密审计中，恢复列表不将它当成未知业务写入；所有真实未知协作写入继续保留。草稿的本地缓存只有未获服务端确认的编辑可以覆盖新服务端值，保存确认按本地版本匹配；异步读取跨过编辑或保存时不更新编辑框。
+
+## 浏览器会话的内容共享许可
+
+`AgentSharingPermissionProvider` 与 `lib/product/agent-sharing.ts` 保存仅内存的许可，绑定 `window.location.origin`、账户 ID、`sessionVersion`、每次登录的 `loginSessionId`，以及当前 Agent 的 ID、名称与 URN。账户 ID/版本还须与服务端布局的原账户匹配；旧页面不能改用另一个登录账户的身份授权。许可不进入 Cookie、localStorage、sessionStorage 或数据库，刷新或新开页面、重新登录及切换 Agent 都需要再次明确同意。
+
+用户能看到真实工作区地址、名称和 URN，明确内容可能交给用户自行配置的模型与工具。拒绝/撤回与配对、平台政策、业务接收方核对互相独立；说明页只返回原页面，没有待发送回调，不自动继续之前的点击或草稿。当前协议没有模型提供商或配置版本字段，Web 无法核验具体供应商或检测配置变化，须如实说明并由用户核对 Agent 配置；此客户端许可不代表其他设备或 Agent 本机授权已撤回。
+
+中央 `useWorkbench.invoke` 对 `conversation.send`、`contacts.add/respond`、`messages.send`、`approval.respond` 与非 `describe` 的 `collaboration.execute` 检查共享许可。`sendMessage` 在创建请求前检查；`useWorkbenchMutations.run` 在创建和保存原操作前检查，并在持久保存 await 后及中央外发前检查**同一个 grant 对象**。重试/明确重启也经过相同入口。撤回后重新允许不会让旧异步流程继续派发，原已保存请求保留供核实和明确重试；已经外发的认证回执按事实处理。
+
+读取、`collaboration.execute(action=describe)`、`inbox.mark_read`、`contacts.block/unblock` 与 `inbox.review` 是读取/安全决定，保持可用且仍受能力与配对权限约束。未审查的新方法默认需要共享许可；只有确认属于只读/安全决定的方法才能加入 `contentRequiresSharing` 的例外，并同步补竞态测试，不能仅新增 UI 确认框。客户端核验与网络派发之间无法跨设备原子撤回；本功能不提供具体供应商审计，也不取消已派发请求。
+
+验证见 `tests/unit/agent-sharing.test.cjs`（真实生产 hook 的拒绝、切换、登录、保存后撤回、重试及已派发回执）与 `tests/integration/agent-sharing-browser.cjs`（仅 loopback 合成账户与签名 MQ）。
+
+### 旧 Agent 的会话安全门禁
+
+共享的 `peerContentSafetyAllowsConversation` 必须确认 capabilities 中 `peer_content_safety` 的 `version:1`、`mode:owner_review` 与 `automatic_peer_model_execution:false` 三个确切值，才允许新会话发送。Web 的 `canSend` 和中央 `invoke` 在创建请求前检查，后端保存提交事务还独立核验已认证能力。缺失或错误声明显示升级 runtime/helper 提示，读取和联系人阻止、已读、安全审核不受此会话门禁阻碍；普通配对能力校验仍保留。
+
+Loopback workspace fixture 没有模型/工具执行，并实际按原对端记录指纹暂存正文：读取只返回待审占位，显式网站预览与审核后才允许确切版本。因此模拟能力有对应行为；这个合成 runtime 不能证明真实用户 Agent 已升级或生产审核流程已可用。
+
+
+## 对端内容隔离与持久举报
+
+Web 在认证响应保存、直接控制响应和旧快照读取时统一隔离未经审核的对端自由文本。跨端 `contentSafety` 与 `content_review` 标记、SDK 主人审核/安全 revision、精确报告 ID、最小证据、数据库队列和实际管理员 CLI 见 [内容安全契约](CONTENT_SAFETY.md) 与 [举报处理运行手册](../operations/MODERATION.md)。普通私人助手历史不自动送运营者审核；只针对已举报记录的明确移除决定执行投影隐藏。实际负责人和及时响应安排仍须运营者完成。

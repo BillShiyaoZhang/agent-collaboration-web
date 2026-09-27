@@ -14,6 +14,7 @@ exports.conversationSettled = conversationSettled;
 exports.mergeSnapshots = mergeSnapshots;
 exports.mergeTurns = mergeTurns;
 exports.pairingAllowsSend = pairingAllowsSend;
+exports.peerContentSafetyAllowsConversation = peerContentSafetyAllowsConversation;
 exports.syncReadPlan = syncReadPlan;
 exports.syncBackoff = syncBackoff;
 exports.nextCycleDelay = nextCycleDelay;
@@ -37,11 +38,11 @@ function isPairingError(code) {
 function availableMethods(capabilities) {
     return records(record(capabilities).methods).filter(item => item.available === true && exports.RPC_METHODS.includes(string(item.name))).map(item => item.name);
 }
-exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"];
-const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"]);
+exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "inbox.review_preview", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"];
+const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"]);
 // These authenticated agent errors establish rejection before execution. Other
 // errors may follow a committed side effect or response serialization failure.
-const NOT_EXECUTED_ERRORS = new Set(["not_paired", "owner_mismatch", "method_not_allowed", "unsupported_method", "invalid_params", "queue_full", "pairing_expired", "pairing_revoked"]);
+const NOT_EXECUTED_ERRORS = new Set(["not_paired", "owner_mismatch", "method_not_allowed", "unsupported_method", "invalid_params", "queue_full", "pairing_expired", "pairing_revoked", "peer_content_safety_required"]);
 function record(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -76,6 +77,8 @@ const remoteErrors = {
     result_too_large: "返回内容过多，请指定一个事项或对话后重新读取。",
     invalid_params: "请求内容未通过 Agent 校验，请核对填写内容并刷新最新状态。",
     request_conflict: "这次请求已绑定其他内容，请先刷新并核实原操作结果。",
+    peer_content_safety_required: "请先升级 Agent 到支持主人内容审核的运行时。此次新消息未被受理。",
+    peer_content_safety_changed: "Agent 的安全运行方式已改变，原回合可能已被受理。请升级后核对既有会话，不要重新发送。",
 };
 function pause(ms, signal) {
     return new Promise((resolve, reject) => {
@@ -189,15 +192,26 @@ function conversationSettled(result, trackedTurnIds) {
 function mergeSnapshots(previous, incoming) {
     const merged = { ...previous };
     for (const [method, snapshot] of Object.entries(incoming)) {
+        if (snapshot && ["contacts.list", "collaboration.state"].includes(method)) {
+            const savedRevision = record(merged[method]?.data).safety_revision, nextRevision = record(snapshot.data).safety_revision;
+            const savedValid = Number.isSafeInteger(savedRevision) && savedRevision >= 0, nextValid = Number.isSafeInteger(nextRevision) && nextRevision >= 0;
+            if (savedValid && (!nextValid || nextRevision < savedRevision)) continue;
+            if (nextValid && (!savedValid || nextRevision > savedRevision)) { merged[method] = snapshot; continue; }
+        }
         if (snapshot && (!merged[method] || snapshot.time >= merged[method].time))
             merged[method] = snapshot;
     }
     return merged;
 }
 function mergeTurns(earlier, latest) {
-    const byId = new Map(earlier.map(turn => [string(turn.turn_id), turn]));
-    for (const turn of latest) {
+    const byId = new Map();
+    for (const turn of [...earlier, ...latest]) {
         const id = string(turn.turn_id), saved = byId.get(id);
+        const rejected = value => record(value?.content_review).status === "rejected" || record(value?.moderation).status === "rejected";
+        // A safety withdrawal replaces even terminal cached text. Older pages
+        // and delayed pre-filter snapshots cannot restore it in this view.
+        if (saved && rejected(saved) && !rejected(turn)) continue;
+        if (rejected(turn)) { byId.set(id, turn); continue; }
         // A delayed cache read cannot make a completed turn look pending again.
         const terminal = saved && (["completed", "failed"].includes(string(saved.status)) || saved.status === "interrupted" && saved.locally_unconfirmed !== true);
         if (terminal && ["submitted", "running"].includes(string(turn.status)))
@@ -215,6 +229,11 @@ function pairingAllowsSend(capabilities, sync, now = Date.now()) {
     const expiresAt = remoteTimestamp(expiry);
     return Number.isFinite(expiresAt) && expiresAt > now;
 }
+/** Conversation input must never activate a legacy runtime that automatically feeds peer content to a model. */
+function peerContentSafetyAllowsConversation(capabilities) {
+    const safety = record(capabilities?.peer_content_safety);
+    return safety.version === 1 && safety.mode === "owner_review" && safety.automatic_peer_model_execution === false;
+}
 exports.SYNC_INTERVAL_MS = 30_000;
 exports.CAPABILITY_INTERVAL_MS = 120_000;
 exports.SYNC_LEASE_MS = 60_000;
@@ -229,7 +248,7 @@ function syncReadPlan(workspace, conversationIds, now) {
     }
     const allowed = new Set(records(capability.data.methods).filter(item => item.available === true).map(item => string(item.name)));
     const plan = [];
-    const mutationAt = Math.max(...["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].map(method => workspace.snapshots[method]?.time || 0));
+    const mutationAt = Math.max(...["contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"].map(method => workspace.snapshots[method]?.time || 0));
     // A read already in flight when a write completes cannot acknowledge that write.
     const stale = (method) => now - (workspace.snapshots[method]?.time || 0) >= exports.SYNC_INTERVAL_MS ||
         mutationAt > (workspace.snapshots[method]?.sourceAt ?? workspace.snapshots[method]?.time ?? 0);
@@ -261,7 +280,7 @@ function syncBackoff(failures) {
     return Math.min(300_000, 30_000 * 2 ** Math.min(Math.max(failures - 1, 0), 4));
 }
 function nextCycleDelay(workspace) {
-    const mutationAt = Math.max(...["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].map(method => workspace.snapshots[method]?.time || 0));
+    const mutationAt = Math.max(...["contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"].map(method => workspace.snapshots[method]?.time || 0));
     const allowed = new Set(availableMethods(workspace.snapshots.capabilities?.data));
     const refresh = ["attention.list", ...(allowed.has("collaboration.state") ? ["collaboration.state"] : ["contacts.list", "contacts.requests", "inbox.list"])];
     if (mutationAt && refresh.some(method => allowed.has(method) && mutationAt > (workspace.snapshots[method]?.sourceAt ?? workspace.snapshots[method]?.time ?? 0))) return 0;

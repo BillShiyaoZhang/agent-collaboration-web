@@ -39,7 +39,7 @@ export function PublicNavigation({
   onLanguageChange,
   homeSections = false,
 }: {
-  current: "home" | "docs";
+  current: "home" | "docs" | "privacy" | "community";
   language: PublicLanguage;
   onLanguageChange: (language: PublicLanguage) => void;
   homeSections?: boolean;
@@ -60,8 +60,10 @@ export function PublicNavigation({
                 <a className="public-navigation-secondary" href="#uses">{english ? "What you can do" : "可以做什么"}</a>
                 <a className="public-navigation-secondary" href="#projects">{english ? "The projects" : "项目关系"}</a>
               </>}
-              {current === "docs" && <Link href="/">{english ? "Home" : "首页"}</Link>}
+              {current !== "home" && <Link href="/">{english ? "Home" : "首页"}</Link>}
               <Link href="/docs/" aria-current={current === "docs" ? "page" : undefined}>{english ? "Documentation" : "文档"}</Link>
+              <Link href="/privacy" aria-current={current === "privacy" ? "page" : undefined}>{english ? "Privacy" : "隐私政策"}</Link>
+              <Link href="/community" aria-current={current === "community" ? "page" : undefined}>{english ? "Content standards" : "内容规范"}</Link>
               <Link href="/dashboard">{english ? "Workspace ↗" : "工作台 ↗"}</Link>
             </nav>
             <div className="public-navigation-languages" role="group" aria-label={english ? "Choose language" : "切换语言"}>
@@ -88,6 +90,8 @@ export function PublicFooter({ language }: { language: PublicLanguage }) {
         <nav aria-label={english ? "Footer navigation" : "页脚导航"}>
           <Link href="/">{english ? "Home" : "首页"}</Link>
           <Link href="/docs/">{english ? "Documentation" : "文档"}</Link>
+          <Link href="/privacy">{english ? "Privacy policy" : "隐私政策"}</Link>
+          <Link href="/community">{english ? "Content standards" : "内容规范"}</Link>
           <Link href="/dashboard">{english ? "Workspace" : "工作台"}</Link>
           <a href="https://github.com/BillShiyaoZhang/agent-collaboration-deploy#readme">{english ? "Source & deployment" : "源码与部署"}</a>
           {supportEmail && <a href={"mailto:" + supportEmail}>{english ? "Contact support" : "联系人工客服"}</a>}

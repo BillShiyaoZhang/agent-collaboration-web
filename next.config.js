@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Do not infer a parent home directory from an unrelated package-lock.json.
+  // Docker expects the generated server.js at the standalone output root.
+  outputFileTracingRoot: __dirname,
   async headers() {
     const privateHeaders = [
       { key: "Cache-Control", value: "private, no-store, max-age=0" },

@@ -15,6 +15,7 @@ import { Connection, useWorkbench } from "@/components/workbench/use-workbench";
 import type { WorkspaceAgent } from "@/lib/workspace/workspace-types";
 import { syncLabel } from "@/lib/workspace/workspace-client";
 import { DeletedRecordsPanel } from "@/components/workbench/record-actions";
+import { AgentSharingPermissionButton } from "@/components/workbench/agent-sharing-permission";
 
 export type WorkbenchScope = "contacts" | "collaborations" | "connection";
 export function RemoteWorkbench({ agent, initial, scope }: { agent: Connection; initial: WorkspaceAgent; scope: WorkbenchScope }) {
@@ -70,6 +71,7 @@ function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial
     <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
       <p className="text-xs text-muted-foreground">{syncLabel(w.sync, !!w.capabilitySnapshot)}{snapshot ? ` · 最近同步 ${displayTime(snapshot.time / 1000)}` : ""}</p>
       <div className="flex flex-wrap gap-2">
+        <AgentSharingPermissionButton access={w.sharing} />
         {scope === "collaborations" && <Button size="sm" variant="outline" onClick={() => setCreating(previous => !previous)} aria-expanded={creating}>{creating ? "收起草案" : "发起合作"}</Button>}
         {scope !== "connection" && <Button variant="ghost" size="sm" className="gap-1" disabled={!!w.busy[snapshotMethod] || !w.available(snapshotMethod)} onClick={() => void w.invoke(snapshotMethod)}><RefreshCw className={cn("h-3.5 w-3.5", w.busy[snapshotMethod] && "animate-spin")} />刷新</Button>}
         {scope !== "connection" && <Button id="connection-settings-toggle" variant="ghost" size="sm" className="gap-1" onClick={() => w.setPairingOpen(previous => !previous)} aria-expanded={showConnection} aria-controls="pairing-panel"><Settings2 className="h-3.5 w-3.5" />连接设置</Button>}

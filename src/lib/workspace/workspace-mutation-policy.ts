@@ -8,6 +8,8 @@ const stableId = (value: unknown) => typeof value === "string" && new RegExp(STA
  */
 export function canRestartMutation(call: PendingCall): boolean {
   const params = call.params;
+  if (call.method === "contacts.block" || call.method === "contacts.unblock") return typeof params.urn === "string" && /^urn:[A-Za-z0-9][A-Za-z0-9._:-]*:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(params.urn);
+  if (call.method === "inbox.review") return stableId(params.message_id) && ["approve","reject"].includes(String(params.decision));
   if (call.method === "approval.respond") return stableId(params.approval_id) && ["approve", "deny"].includes(String(params.decision));
   if (call.method === "contacts.respond") return stableId(params.request_id) && ["accept", "reject"].includes(String(params.decision));
   if (call.method === "inbox.mark_read") return stableId(params.message_id);

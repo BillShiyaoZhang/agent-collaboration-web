@@ -2,9 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceAgent, WorkspaceConnection, WorkspaceOverview } from "@/lib/workspace/workspace-types";
+import { AgentSharingPermissionProvider } from "@/components/workbench/agent-sharing-permission";
 
 type Draft = { text: string; tab: string; dirty: boolean; revision: number };
 type WorkspaceContextValue = {
+  accountId: string;
+  sessionVersion: number;
   connections: WorkspaceConnection[]; loading: boolean; error: string;
   refresh: () => Promise<void>; requestSync: (agentId?: string) => Promise<void>;
   getCachedAgent: (id: string) => WorkspaceAgent | undefined;
@@ -32,7 +35,7 @@ export async function workspaceRequest<T>(url: string, init: RequestInit = {}): 
   } finally { clearTimeout(timer); init.signal?.removeEventListener("abort", cancel); }
 }
 
-export function WorkspaceProvider({ initial, children }: { initial: WorkspaceOverview; children: React.ReactNode }) {
+export function WorkspaceProvider({ initial, children, accountId, sessionVersion = 0 }: { initial: WorkspaceOverview; children: React.ReactNode; accountId: string; sessionVersion?: number }) {
   const [connections, setConnections] = useState(initial.connections);
   // The authenticated layout supplies the first result; revalidation never replaces it with a skeleton.
   const loading = false;
@@ -86,8 +89,8 @@ export function WorkspaceProvider({ initial, children }: { initial: WorkspaceOve
   const cacheAgent = useCallback((data: WorkspaceAgent) => { cache.current.set(data.agent.id, data); }, []);
   const getDraft = useCallback((id: string) => drafts.current.get(id), []);
   const saveDraft = useCallback((id: string, value: Partial<Draft>) => { drafts.current.set(id, { text: "", tab: "conversation", dirty: false, revision: 0, ...drafts.current.get(id), ...value }); }, []);
-  const value = useMemo(() => ({ connections, loading, error, refresh, requestSync, getCachedAgent, cacheAgent, getDraft, saveDraft }), [connections, loading, error, refresh, requestSync, getCachedAgent, cacheAgent, getDraft, saveDraft]);
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+  const value = useMemo(() => ({ accountId, sessionVersion, connections, loading, error, refresh, requestSync, getCachedAgent, cacheAgent, getDraft, saveDraft }), [accountId, sessionVersion, connections, loading, error, refresh, requestSync, getCachedAgent, cacheAgent, getDraft, saveDraft]);
+  return <WorkspaceContext.Provider value={value}><AgentSharingPermissionProvider accountId={accountId} sessionVersion={sessionVersion}>{children}</AgentSharingPermissionProvider></WorkspaceContext.Provider>;
 }
 
 export function useWorkspace() {

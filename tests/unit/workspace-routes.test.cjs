@@ -17,7 +17,7 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
   const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
   let session=null,started=0,policyAllowed=false;const events=[];
   class PolicyConsentRequiredError extends Error {}
-  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{},'@/lib/control/v2-policy':{}});
+  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/shared/db':{prisma:{}},'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{},'@/lib/control/v2-policy':{}});
   const protocol=load('../../src/lib/control/control-protocol.ts');
   const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
   const state={agent:{id:'own-agent'},activeConversationId:'saved-chat',conversations:[],conversation:null,submission:null};
@@ -74,7 +74,7 @@ test('workspace APIs isolate account data, reject foreign origins, and only sche
 test('notification endpoints require account and origin, bind exact read versions, and cannot approve',async()=>{
   const previous=process.env.NEXTAUTH_URL;process.env.NEXTAUTH_URL='https://console.example';
   let session=null;const events=[];
-  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{},'@/lib/control/v2-policy':{}});
+  const {ControlError}=load('../../src/lib/control/control-transport.ts',{'@/lib/shared/db':{prisma:{}},'@/lib/protocol/crypto':{},'@/lib/protocol/proto':{},'@/lib/protocol/protocol-auth':{},'@/lib/protocol/ecies':{},'@/lib/control/v2-policy':{}});
   const protocol=load('../../src/lib/control/control-protocol.ts');
   const http=load('../../src/lib/workspace/workspace-http.ts',{'next-auth':{getServerSession:async()=>session},'@/lib/auth/auth':{authOptions:{}},'@/lib/control/control-transport':{ControlError},'@/lib/control/control-protocol':protocol});
   const store={getWorkspaceNotifications:async(...args)=>{events.push(['list',...args]);return {items:[],unread:0,pending:0,before:null,hasMore:false};},readWorkspaceNotification:async(...args)=>events.push(['read',...args]),claimWorkspaceNotification:async(...args)=>{events.push(['claim',...args]);return false;}};
@@ -149,8 +149,9 @@ test('saved conversation and operation routes authenticate scope, validate origi
     assert.equal((await operations.POST(req({action:'reserve',call:{...call,method:'contacts.list',params:{}}}),params)).status,400);
     assert.equal((await operations.POST(req({action:'update',requestId:call.request_id,phase:'succeeded',result:{status:'success'}}),params)).status,400,'browsers cannot persist invented results');
     const reserved=await operations.POST(req({action:'reserve',call}),params);assert.equal(reserved.status,200);assert.match(reserved.headers.get('cache-control'),/private.*no-store/);
-    assert.deepEqual(events.at(-1).slice(0,4),['reserveWorkspaceOperation','owner','own-agent',call]);
-    assert.equal((await operations.POST(req({action:'import_legacy',call}),params)).status,200);assert.equal(events.at(-1)[4].legacy,true);
+    assert.deepEqual(events.findLast(event=>event[0]==='reserveWorkspaceOperation').slice(0,4),['reserveWorkspaceOperation','owner','own-agent',call]);
+    assert.deepEqual(events.at(-1),['getWorkspaceOperations','owner','own-agent'],'POST results must come from the same safe display projection as GET');
+    assert.equal((await operations.POST(req({action:'import_legacy',call}),params)).status,200);assert.equal(events.findLast(event=>event[0]==='reserveWorkspaceOperation')[4].legacy,true);
     assert.equal((await operations.GET(get(),{params:Promise.resolve({id:'foreign-agent'})})).status,404);
     assert.equal((await conversations.GET(get('?q=old&archived=all&limit=2'),params)).status,200);assert.deepEqual(events.at(-1),['listWorkspaceConversations','owner','own-agent',{q:'old',archived:'all',limit:2}]);
     assert.equal((await conversations.GET(get('?before=invalid%20cursor'),params)).status,400);

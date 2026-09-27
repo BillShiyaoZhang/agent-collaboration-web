@@ -51,6 +51,17 @@ test('persisted generations revoke JWTs and client session updates cannot undo r
   fail(); assert.deepEqual(await jwt({ token: current }), { sessionRevoked: true });
   assert.equal(await options.callbacks.session({ session: { user: { email: 'owner@example.com' } }, token: { sessionRevoked: true } }), null);
 });
+test('login session IDs are public stable identifiers that change on sign-in and ignore client update input', async () => {
+  const user = { id: 'owner', sessionVersion: 0, requiresEmailVerification: false, emailVerifiedAt: null };
+  const { options } = fixture(user), jwt = options.callbacks.jwt;
+  const first = await jwt({ token: {}, user });
+  assert.match(first.loginSessionId, /^[0-9a-f-]{36}$/);
+  const refreshed = await jwt({ token: first, trigger: 'update', session: { loginSessionId: 'client-cannot-set-this' } });
+  assert.equal(refreshed.loginSessionId, first.loginSessionId);
+  const firstId = refreshed.loginSessionId; const next = await jwt({ token: { ...first }, user }); assert.notEqual(next.loginSessionId, firstId);
+  const legacy = await jwt({ token: { id: user.id } }); assert.match(legacy.loginSessionId, /^[0-9a-f-]{36}$/);
+  const session = await options.callbacks.session({ session: { user: {} }, token: legacy }); assert.equal(session.user.loginSessionId, legacy.loginSessionId);
+});
 test('NextAuth runtime returns null for an encrypted stale session cookie', async () => {
   const previous = process.env.NEXTAUTH_URL;
   process.env.NEXTAUTH_URL = 'http://localhost:3000';

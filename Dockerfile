@@ -47,6 +47,8 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts/migrate-account-email.cjs ./scripts/migrate-account-email.cjs
+COPY --from=builder /app/scripts/moderation-admin.cjs ./scripts/moderation-admin.cjs
+COPY --from=builder /app/scripts/moderation-storage.cjs ./scripts/moderation-storage.cjs
 COPY --from=builder /app/docker-entrypoint.sh ./
 
 # A source checkout may have been created with umask 077. Docker COPY retains

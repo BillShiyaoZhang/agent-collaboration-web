@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { canRestartMutation, presentedMutationActions } from "@/lib/workspace/workspace-mutation-policy";
 import type { WorkspaceOperation } from "@/lib/workspace/workspace-types";
 import { PendingCall, record, records, RemoteRecord, RpcMethod, string, WorkbenchClient, WorkbenchError } from "@/lib/control/workbench-client";
+import { contentRequiresSharing, sharingStoppedMessage, type AgentSharingAccess, type SharingGrant } from "@/lib/product/agent-sharing";
 
-export type MutationMethod = "contacts.add" | "approval.respond" | "contacts.respond" | "messages.send" | "inbox.mark_read" | "collaboration.execute";
-const mutationMethods = ["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"];
-const subject = (call: PendingCall) => call.method === "contacts.add" ? "contact" : String(call.params.approval_id || call.params.request_id || call.params.message_id || call.params.recipient_urn || call.params.action || "");
+export type MutationMethod = "contacts.add" | "approval.respond" | "contacts.respond" | "messages.send" | "inbox.mark_read" | "collaboration.execute" | "contacts.block" | "contacts.unblock" | "inbox.review";
+const mutationMethods = ["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute", "contacts.block", "contacts.unblock", "inbox.review"];
+const subject = (call: PendingCall) => call.method === "contacts.add" ? "contact" : String(call.params.approval_id || call.params.request_id || call.params.message_id || call.params.recipient_urn || call.params.urn || call.params.action || "");
 export type MutationState = {
   call: PendingCall;
   phase: "sending" | "uncertain" | "failed" | "succeeded";
@@ -19,7 +20,7 @@ export type MutationState = {
   createdAt?: number;
   updatedAt?: number;
 };
-type Invoke = (method: RpcMethod, params?: RemoteRecord, original?: PendingCall) => Promise<{ result?: RemoteRecord; error?: WorkbenchError }>;
+type Invoke = (method: RpcMethod, params?: RemoteRecord, original?: PendingCall, grant?: SharingGrant) => Promise<{ result?: RemoteRecord; error?: WorkbenchError; blocked?: boolean }>;
 
 function restored(value: unknown): MutationState[] {
   return records(value).flatMap(item => {
@@ -33,7 +34,8 @@ function restored(value: unknown): MutationState[] {
   }).slice(-32);
 }
 
-export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, canAddContact, canRespondApproval, canMutate, refresh, contacts, approvalDecisions, requests, messages, sentMessages, savedOperations }: {
+export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, sharing, canAddContact, canRespondApproval, canMutate, refresh, contacts, approvalDecisions, requests, messages, sentMessages, savedOperations }: {
+  sharing: AgentSharingAccess;
   savedOperations?: WorkspaceOperation[];
   agentId: string; consoleUrn: string; client: WorkbenchClient; invoke: Invoke;
   canAddContact: boolean; canRespondApproval: boolean; canMutate: (method: MutationMethod) => boolean; requests: RemoteRecord[]; messages: RemoteRecord[]; sentMessages: RemoteRecord[]; refresh: () => Promise<void>; contacts: RemoteRecord[]; approvalDecisions: RemoteRecord[];
@@ -144,6 +146,10 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
 
   async function run(method: MutationMethod, params: RemoteRecord, original?: MutationState) {
     if (!ready || storageError || active.current.has(method) || !canMutate(method)) return;
+    const needsSharing = contentRequiresSharing(method, params);
+    const grant = needsSharing ? await sharing.request() : null;
+    if (needsSharing && (!grant || !await sharing.validate(grant))) return;
+    if (active.current.has(method)) return;
     if (!original && current.current.some(item => item.call.method === method && ["sending", "uncertain"].includes(item.phase) &&
       subject(item.call) === subject({ method, params } as PendingCall))) return;
     const call = original?.call || client.prepare(method, params);
@@ -157,15 +163,23 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
       if (!saved.item) throw new Error("无法保存原操作记录，本次尚未提交。");
       reserved = true;
       save([pending, ...current.current.filter(item => item.call.request_id !== call.request_id && !(item.call.method === method && subject(item.call) === subject(call)))]);
-      const { result, error } = await invoke(method, call.params, call);
-      const rejected = result && (result.error || ["not_executed", "unsupported", "unavailable", "denied", "rejected"].includes(string(result.status)) && method !== "contacts.respond" && method !== "approval.respond" || result.decision === "deny" && method !== "approval.respond");
+      if (needsSharing && (!grant || !await sharing.validate(grant))) throw new Error(sharingStoppedMessage);
+      const { result, error, blocked } = await invoke(method, call.params, call, grant || undefined);
+      if (blocked) throw new Error(sharingStoppedMessage);
+      const rejected = result && (result.error || ["not_executed", "unsupported", "unavailable", "denied", "rejected"].includes(string(result.status)) && method !== "contacts.respond" && method !== "approval.respond" && method !== "inbox.review" || result.decision === "deny" && method !== "approval.respond");
       const uncertain = result?.status === "uncertain";
       const accepted = result && !rejected && !uncertain && (method === "collaboration.execute" ? Object.keys(result).length > 0 : method === "contacts.add"
         ? result.decision === "allow" && ["requested", "request_sent", "pending", "already_requested", "already_connected", "confirmed", "already_confirmed"].includes(string(result.status))
         : method === "approval.respond" ? result.approval_id === call.params.approval_id && (call.params.decision === "approve"
           ? result.decision === "allow" && result.status === "approved_once" : result.decision === "deny" && result.status === "denied")
         : method === "contacts.respond" ? result.request_id === call.params.request_id && result.status === (call.params.decision === "accept" ? "accepted" : "rejected")
+        : method === "inbox.review" ? result.message_id === call.params.message_id && result.status === (call.params.decision === "approve" ? "approved" : "rejected")
+          && typeof result.fingerprint === "string" && /^[a-f0-9]{64}$/.test(result.fingerprint) && typeof result.sender_urn === "string" && result.sender_urn.startsWith("urn:")
         : method === "inbox.mark_read" ? result.message_id === call.params.message_id && (result.status === "read" || result.read === true)
+        : method === "contacts.block" || method === "contacts.unblock" ? result.urn === call.params.urn
+          && result.blocked === (method === "contacts.block") && result.status === (method === "contacts.block" ? "blocked" : "unblocked")
+          && Number.isSafeInteger(result.safety_revision) && Number(result.safety_revision) >= 0
+          && (method === "contacts.block" ? result.connection_status === "blocked" : ["connected", "pending", "rejected", "unverified"].includes(string(result.connection_status)))
         : result.message_id === call.params.message_id && ["sent", "queued", "accepted"].includes(string(result.status)));
       if (accepted) replace({ ...pending, result, phase: "succeeded", retryable: false, message: method === "contacts.add"
         ? ["already_connected", "confirmed", "already_confirmed"].includes(string(result?.status)) ? "Agent 已确认连接，通讯录正在同步。"
@@ -173,7 +187,9 @@ export function useWorkbenchMutations({ agentId, consoleUrn, client, invoke, can
             : "Agent 已在本机排队新的好友请求，正在尝试投递；对方收到并接受后才会建立连接。"
         : method === "collaboration.execute" ? result?.status === "approval_required" ? "请在下方待确认请求中核对并授权。" : "Agent 已返回执行结果，数据正在同步。"
         : method === "contacts.respond" ? call.params.decision === "accept" ? "Agent 已记录接受好友请求，通讯录正在同步；协作权限需另行授权。" : "已拒绝好友请求。"
+        : method === "inbox.review" ? call.params.decision === "approve" ? "Agent 已记录批准此待审消息。" : "Agent 已记录拒绝此待审消息。"
         : method === "inbox.mark_read" ? "Agent 已记录已读，其他端的提醒将同步关闭。"
+        : method === "contacts.block" ? "Agent 已确认阻止此联系人。" : method === "contacts.unblock" ? "Agent 已确认解除阻止；其他配对与共享许可不会自动恢复。"
         : method === "messages.send" ? "Agent 已受理消息，发送记录正在同步。"
         : call.params.decision === "approve" ? "Agent 已记录你的同意，事项进展正在同步。" : "Agent 已记录你的拒绝，事项进展正在同步。" });
       else if (uncertain) replace({ ...pending, result, phase: "uncertain", retryable: false, message: string(result?.instruction, "Agent 尚不能确认此动作是否已执行。请先查询事项和消息记录核实。") });

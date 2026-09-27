@@ -31,6 +31,7 @@ export type WorkspaceConversationPage = {
 export type WorkspaceRecordKind = "contact" | "collaboration";
 export type WorkspaceRecordState = { kind: WorkspaceRecordKind; id: string; deleted: boolean; updatedAt: number; title?: string; relatedIds?: string[] };
 export type WorkspaceAgent = Omit<BaseWorkspaceAgent, "conversations"> & {
+  contentSafety?: { version: 1 };
   conversations: WorkspaceConversation[];
   operations?: WorkspaceOperation[];
   recordStates?: WorkspaceRecordState[];

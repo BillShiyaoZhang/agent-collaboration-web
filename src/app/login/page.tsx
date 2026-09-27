@@ -41,6 +41,8 @@ function LoginForm() {
     <form method="post" onSubmit={handleSubmit} className="space-y-5" aria-busy={isLoading}>
       {searchParams.get("verified") === "true" && !error && <AuthNotice success>邮箱已验证，使用你的邮箱和密码登录。</AuthNotice>}
       {(searchParams.get("passwordReset") === "true" || searchParams.get("passwordChanged") === "true") && !error && <AuthNotice success>密码已更新，请使用新密码重新登录。</AuthNotice>}
+      {searchParams.get("accountDeleted") === "true" && !error && <AuthNotice success>账户已删除，原账户的登录会话已失效。</AuthNotice>}
+      {searchParams.get("accountDeleted") === "true" && searchParams.get("localCleanup") === "pending" && <AuthNotice>账户删除已完成，但当前浏览器的部分缓存或退出操作尚未确认。请在浏览器设置中清除此站点的数据；这不会再次删除账户。</AuthNotice>}
       {error && <AuthNotice>{error}</AuthNotice>}
       <div className="space-y-2"><Label htmlFor="email">邮箱</Label><Input id="email" name="email" type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required disabled={isLoading} className="h-12 rounded-xl text-base" /></div>
       <div className="space-y-2"><Label htmlFor="password">密码</Label><PasswordInput id="password" name="password" autoComplete="current-password" placeholder="输入你的密码" value={password} onChange={e => setPassword(e.target.value)} required disabled={isLoading} /></div>

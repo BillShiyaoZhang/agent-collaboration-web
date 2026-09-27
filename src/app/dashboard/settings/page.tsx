@@ -6,8 +6,9 @@ import { AuthNotice, PasswordInput } from "@/components/auth-shell";
 import { emailActionError, passwordValidation, postEmailAction } from "@/components/email-auth-flow";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { AccountDeletionSection } from "@/components/account-deletion-section";
 
-type Account = { email: string; emailVerified: boolean; verificationRequired: boolean };
+type Account = { id: string; email: string; emailVerified: boolean; verificationRequired: boolean };
 
 export default function AccountSettingsPage() {
   const [account, setAccount] = useState<Account | null>(null);
@@ -23,6 +24,7 @@ export default function AccountSettingsPage() {
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [passwordNotice, setPasswordNotice] = useState("");
+  const [accountDeleted, setAccountDeleted] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,7 +34,7 @@ export default function AccountSettingsPage() {
         const response = await fetch("/api/auth/account", { cache: "no-store", signal: controller.signal });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) { setLoadError(emailActionError(response.status, data)); return; }
-        if (typeof data.email !== "string" || typeof data.emailVerified !== "boolean" || typeof data.verificationRequired !== "boolean") { setLoadError("账户信息暂时不可用，请重试。"); return; }
+        if (typeof data.id !== "string" || typeof data.email !== "string" || typeof data.emailVerified !== "boolean" || typeof data.verificationRequired !== "boolean") { setLoadError("账户信息暂时不可用，请重试。"); return; }
         setAccount(data);
       } catch { if (!controller.signal.aborted) setLoadError("无法读取账户信息，请检查网络后重试。"); }
       finally { if (!controller.signal.aborted) setLoading(false); }
@@ -69,10 +71,10 @@ export default function AccountSettingsPage() {
   }
 
   return <div className="mx-auto w-full max-w-xl space-y-6 pb-6">
-    <div><Link href="/dashboard/me" className="inline-flex min-h-11 items-center rounded-sm text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">返回“我”</Link><h1 className="text-xl font-semibold">邮箱与密码</h1></div>
+    <div>{!accountDeleted && <Link href="/dashboard/me" className="inline-flex min-h-11 items-center rounded-sm text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">返回“我”</Link>}<h1 className="text-xl font-semibold">账户与安全</h1></div>
     {loading && <p role="status" className="text-sm text-muted-foreground">正在读取账户信息…</p>}
     {loadError && <div className="space-y-3"><AuthNotice>{loadError}</AuthNotice><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>重新读取</Button><Link href="/login" className="ml-3 text-sm text-primary">重新登录</Link></div>}
-    {account && !loading && !loadError && <>
+    {account && !loading && !loadError && !accountDeleted && <>
       <section aria-labelledby="email-title" className="space-y-4 rounded-xl border bg-card p-4 sm:p-6">
         <h2 id="email-title" className="text-base font-semibold">账户邮箱</h2>
         <p className="break-all text-sm">{account.email}</p>
@@ -95,5 +97,6 @@ export default function AccountSettingsPage() {
         <p className="text-sm"><Link href="/forgot-password" className="inline-flex min-h-11 items-center rounded-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">忘记当前密码？通过邮件重置</Link></p>
       </section>
     </>}
+    {account && !loading && !loadError && <AccountDeletionSection accountId={account.id} email={account.email} onDeleted={() => { setAccountDeleted(true); setCurrentPassword(""); setPassword(""); setConfirmation(""); }} />}
   </div>;
 }

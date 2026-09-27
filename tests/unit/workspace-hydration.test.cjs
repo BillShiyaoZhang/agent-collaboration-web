@@ -23,8 +23,10 @@ const menu = Object.fromEntries(["DropdownMenu", "DropdownMenuContent", "Dropdow
 const library = load("../../src/components/workbench/conversation-library.tsx", { ...common, "@/components/ui/dialog": dialog, "@/components/ui/dropdown-menu": menu });
 const panel = load("../../src/components/workbench/conversation-panel.tsx", {
  ...common, "@/components/ui/dialog": dialog, "./conversation-library": library,
+ "./agent-sharing-permission": { AgentSharingPermissionButton: () => React.createElement("button", null, "管理共享许可") },
+ "./report-button": { ReportButton: () => null },
  "./snapshot-views": { CopyValue: () => null, RawSnapshot: () => null, StatusBadge: () => null },
- "./pairing-panel": { RequestFeedback: () => null }, "./message-content": { MessageContent: () => null },
+ "./pairing-panel": { RequestFeedback: () => null }, "./message-content": { MessageContent: ({ text }) => React.createElement("p", null, text) },
  "./collaboration-snapshot": { CollaborationOverview: () => null }, "./mutation-panels": { ApprovalRequests: () => null },
  "./collaboration-workflow-model": { collaborationOperations: () => [] }, "@/lib/product/activity-model": { relatedTaskIds: () => [] },
 });
@@ -32,7 +34,7 @@ const agent = { id: "own-agent", name: "Own", urn: "urn:agent:own" };
 const workspace = { agent, snapshots: {}, sync: { status: "ready" }, activeConversationId: "", conversations: [], recordStates: [] };
 const initial = { agents: [{ workspace, items: [] }] };
 const workbench = {
- agentId: agent.id, snapshots: {}, sync: workspace.sync, turns: [], conversations: [], operations: [], recordStates: [], conversationId: "", conversationInput: "", conversationState: { scrollTop: null },
+ sharing: { allowed: false, manage: async () => {} }, agentId: agent.id, snapshots: {}, sync: workspace.sync, turns: [], conversations: [], operations: [], recordStates: [], conversationId: "", conversationInput: "", conversationState: { scrollTop: null },
  text: "", composer: { current: null }, busy: {}, errors: {}, canSend: true, canReadConversation: true, currentSnapshot: null, selectingConversation: false,
  setText() {}, saveConversationState() {}, newConversation() {}, readConversation() {}, sendMessage() {},
 };
@@ -42,6 +44,13 @@ function hub(react = React) {
  "@/components/workbench/record-actions": { isRecordDeleted: () => false, recordDeletionReason: () => undefined, RecordActions: () => null, DeletedRecordsPanel: () => null },
  }).WorkspaceHub;
 }
+test("removed turns take precedence over completed and running UI without rendering cached text or errors", () => {
+ for(const status of ["completed", "running", "failed"]) {
+  const html=renderToStaticMarkup(React.createElement(panel.ConversationPanel,{workbench:{...workbench,turns:[{turn_id:"removed",status,text:"secret-original",response:"secret-response",error:"secret-error",content_review:{status:"rejected"}}]}}));
+  assert.match(html,/此回合内容已由工作区处理移除/);
+  assert.doesNotMatch(html,/secret-|Agent 正在处理这一回合|引用回复|复制回复/);
+ }
+});
 function guardedMarkup(Component, props) {
  const html = renderToStaticMarkup(React.createElement(Component, props));
  assert.match(html, /^<fieldset[^>]*disabled=""[^>]*inert=""[^>]*class="contents">/, "SSR must disable native controls and make all descendants inert before their handlers exist");

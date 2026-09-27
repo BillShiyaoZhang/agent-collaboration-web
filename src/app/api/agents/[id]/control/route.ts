@@ -8,6 +8,7 @@ import { createControlCall, pollControlResponses, controlCallResult } from "@/li
 import { slowControlPollMetric, type ControlGetTimings } from "@/lib/control/control-poll-metrics";
 import { recordWorkspaceResponse } from "@/lib/workspace/workspace-store";
 import { readJsonBody, RequestBodyError } from "@/lib/shared/http-input";
+import {filterWorkspaceInbound} from "@/lib/moderation/inbound";
 
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -45,6 +46,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const call = controlCallSchema.safeParse(data);
     if (!call.success) return json({ error: "Invalid control request" }, 400);
     const result = await createControlCall(user, agent, call.data);
+    if("response" in result && result.response && Object.hasOwn(result.response,"result") && call.data.method!=="inbox.review_preview") result.response={...result.response,result:await filterWorkspaceInbound(prisma,user.id,agent.id,agent.urn,call.data.method,result.response.result as Record<string,unknown> || {})};
     return json(result, result.status === "complete" ? 200 : 202);
   } catch (error) { return failure(error); }
 }
@@ -66,6 +68,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     try { result = controlCallResult(user, agent, latest); }
     finally { timings.resultDecodeMs = performance.now() - decodeStarted; }
     if ("response" in result && result.response) await measured(timings, "routeProjectionMs", () => recordWorkspaceResponse(user, agent, latest, result.response));
+    if("response" in result && result.response && Object.hasOwn(result.response,"result") && latest.method!=="inbox.review_preview") result.response={...result.response,result:await filterWorkspaceInbound(prisma,user.id,agent.id,agent.urn,latest.method,result.response.result as Record<string,unknown> || {})};
     return json(result);
   } catch (error) {
     timings.failed = true;

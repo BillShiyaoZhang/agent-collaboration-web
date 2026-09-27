@@ -143,6 +143,7 @@ test("managed console certificate binds platform, self-certifying URN, issuer an
 test("managed v1 control requires explicit signed-policy consent and detects rollback", async () => {
   const f = fixture(), state = new Map(), grants = new Map(), consents = new Map(), pauses = new Map();
   const db = {
+    user: { findUnique: async ({ where }) => ({ id: where.id }) },
     platformPolicyState: {
       findUnique: async ({ where }) => state.get(where.platformId) || null,
       findFirst: async () => [...state.values()][0] || null,
@@ -252,6 +253,55 @@ test("managed v1 control requires explicit signed-policy consent and detects rol
     for (const [name, value] of Object.entries({ AGENT_V2_POLICY_ROOT_PUBLIC_KEY: prior.root,
       AGENT_V2_PLATFORM_ID: prior.id, AGENT_MANAGED_ISSUER_PRIVATE_KEY: prior.issuer,
       AGENT_MANAGED_ISSUER_PRIVATE_KEY_FILE: prior.issuerFile })) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});
+
+test("managed enrollment stops if an account disappears during policy or certificate reads", async () => {
+  const f = fixture("private");
+  let active = true, lookupFailure = false, registrations = 0, saved = 0, checks = 0;
+  const db = {
+    user: { findUnique: async ({ where }) => {
+      checks++;
+      if (lookupFailure) throw new Error("fixture database unavailable");
+      return active ? { id: where.id } : null;
+    } },
+    platformPolicyState: { findUnique: async () => null, upsert: async () => {} },
+    userControlPause: { findUnique: async () => null },
+    managedConsoleCertificate: {
+      findUnique: async () => { active = false; return null; },
+      upsert: async () => { saved++; },
+    },
+  };
+  const prisma = { ...db, $transaction: async callback => callback(db) };
+  const gate = load("../../src/lib/control/v2-policy.ts", { "@/lib/shared/db": { prisma }, "@/lib/protocol/v2": v2 });
+  const keys = { urn: f.urn, publicKey: edRaw(f.sender.privateKey).toString("hex"), signingKey: f.sender.privateKey };
+  const names = ["AGENT_V2_POLICY_ROOT_PUBLIC_KEY", "AGENT_V2_PLATFORM_ID",
+    "AGENT_MANAGED_ISSUER_PRIVATE_KEY", "AGENT_MANAGED_ISSUER_PRIVATE_KEY_FILE"];
+  const prior = Object.fromEntries(names.map(name => [name, process.env[name]])), oldFetch = global.fetch;
+  process.env.AGENT_V2_POLICY_ROOT_PUBLIC_KEY = edRaw(f.root.privateKey).toString("hex");
+  process.env.AGENT_V2_PLATFORM_ID = f.policy.platform_id;
+  process.env.AGENT_MANAGED_ISSUER_PRIVATE_KEY = f.issuer.privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("hex");
+  delete process.env.AGENT_MANAGED_ISSUER_PRIVATE_KEY_FILE;
+  global.fetch = async url => {
+    if (url.endsWith("/api/v2/policy")) return Response.json({ policy: base64(f.rawPolicy) });
+    registrations++;
+    throw new Error("deleted account must not enroll");
+  };
+  try {
+    for (const force of [false, true]) {
+      active = true;
+      await assert.rejects(gate.requireManagedV1({ id: "deleted-account" }, keys, force), /账户已不可用/);
+    }
+    lookupFailure = true;
+    await assert.rejects(gate.requireManagedV1({ id: "deleted-account" }, keys), /无法确认账户状态/);
+    assert.equal(checks, 3);
+    assert.equal(registrations, 0, "neither new nor forced enrollment sends a certificate");
+    assert.equal(saved, 0);
+  } finally {
+    global.fetch = oldFetch;
+    for (const [name, value] of Object.entries(prior)) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
     }
   }

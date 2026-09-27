@@ -1,4 +1,5 @@
 import type { NextAuthOptions, Session, User } from "next-auth";
+import { randomUUID } from "node:crypto";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/shared/db";
 import { hashPassword, passwordNeedsUpgrade, validPasswordSize, verifyPassword } from "./password";
@@ -38,7 +39,7 @@ export const authOptions: NextAuthOptions = {
   pages: { signIn: "/login", error: "/login" },
   callbacks: {
     async jwt({ token, user }) {
-      if (user) { token.id = user.id; token.sessionVersion = user.sessionVersion; }
+      if (user) { token.id = user.id; token.sessionVersion = user.sessionVersion; token.loginSessionId = randomUUID(); }
       // Each server-side session checks the persisted generation. Old cookies
       // without a generation survive only until the account's first reset.
       if (typeof token.id !== "string" || token.sessionRevoked === true) return { sessionRevoked: true };
@@ -51,6 +52,9 @@ export const authOptions: NextAuthOptions = {
         if (!current || !Number.isInteger(version) || version !== current.sessionVersion
           || (current.requiresEmailVerification && !current.emailVerifiedAt)) return { sessionRevoked: true };
         token.sessionVersion = version;
+        // This public identifier changes on a new sign-in. It is not a cookie,
+        // credential or permission; legacy sessions acquire it on their next refresh.
+        if (typeof token.loginSessionId !== "string") token.loginSessionId = randomUUID();
       } catch {
         // A database outage must not restore a revoked account's access.
         return { sessionRevoked: true };
@@ -62,7 +66,11 @@ export const authOptions: NextAuthOptions = {
         // NextAuth v4 handles null at runtime; its callback type excludes null.
         return null as unknown as Session;
       }
-      if (session.user) session.user.id = token.id;
+      if (session.user) {
+        session.user.id = token.id;
+        session.user.sessionVersion = typeof token.sessionVersion === "number" ? token.sessionVersion : 0;
+        session.user.loginSessionId = typeof token.loginSessionId === "string" ? token.loginSessionId : undefined;
+      }
       return session;
     },
   },

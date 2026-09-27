@@ -29,6 +29,9 @@ model User {
   policyConsent UserPolicyConsent?
   controlPause UserControlPause?
   emailTokens EmailActionToken[]
+  moderationReports ModerationReport[]
+  moderationContent ModerationContent[]
+  moderationRates ModerationRate[]
 }
 // Signed platform-policy rollback guard and short-lived managed console grant.
 model PlatformPolicyState {
@@ -85,7 +88,10 @@ model Agent {
   notifications WorkspaceNotification[]
   notificationBaselines WorkspaceNotificationBaseline[]
   onboardingTickets OnboardingTicket[]
+  moderationReports ModerationReport[]
+  moderationContent ModerationContent[]
   @@index([userId])
+  peerSafety WorkspacePeerSafety[]
   @@unique([userId, urn])
 }
 
@@ -339,4 +345,58 @@ model AuthEmailSend {
 model AuthEmailBudget {
   day String @id
   used Int @default(0)
+}
+
+model ModerationReport {
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  targetKind String
+  targetId String
+  reason String
+  fingerprint String
+  payload String
+  status String @default("pending")
+  decision String @default("none")
+  createdAt Float
+  updatedAt Float
+  reviewedBy String?
+  @@id([userId, id])
+  @@index([status, createdAt], map: "ModerationReport_queue_idx")
+}
+model ModerationContent {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  kind String
+  recordId String
+  digest String
+  payload String
+  status String @default("pending")
+  createdAt Float
+  updatedAt Float
+  reviewedBy String?
+  @@unique([userId, agentId, kind, recordId, digest])
+  @@index([status, createdAt], map: "ModerationContent_queue_idx")
+}
+model WorkspacePeerSafety {
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  urn String
+  blocked Int
+  confirmedAt Float
+  revision Int @default(0)
+  @@id([agentId,urn])
+}
+model ModerationRate {
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bucket String
+  windowStart Float
+  count Int
+  @@id([userId,bucket])
 }

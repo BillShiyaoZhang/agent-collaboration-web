@@ -4,6 +4,7 @@ function load(relative, deps={}) {
  m.require=name=>Object.hasOwn(deps,name)?deps[name]:Module.prototype.require.call(m,name);
  m._compile(ts.transpileModule(fs.readFileSync(filename,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;
 }
+const sharing=load("../../src/lib/product/agent-sharing.ts");
 const client=load("../../src/lib/control/workbench-client.ts"),drafts=load("../../src/lib/product/draft-cache.ts"),queue=load("../../src/lib/product/metadata-queue.ts"),workspaceClient=load("../../src/lib/workspace/workspace-client.ts",{"@/lib/control/workbench-client":client});
 function fixture(targetId,deleted=true,request) {
  const slots=[],savedDrafts=[],requests=[],cached=[];
@@ -12,7 +13,7 @@ function fixture(targetId,deleted=true,request) {
  const initial={agent:{id:"agent",name:"My agent",urn:"urn:agent:own"},identity:{virtualUrn:"urn:console:own",virtualEd25519PublicKey:null},sync:{status:"ready"},snapshots:{},conversations:[{id:"current-chat",title:"Current"},{id:targetId,title:"Target"}],activeConversationId:"current-chat",activeConversationState:{archived:false,draft:"current draft",readAt:0,scrollTop:null},conversation:previous,hasEarlierTurns:false,submission:null,operations:[],recordStates:[]};
  const response={...initial,activeConversationId:targetId,activeConversationState:{archived:false,deleted,draft:"deleted secret draft",readAt:0,scrollTop:null},conversation:deleted?null:{conversation_id:targetId,turns:[]}};
  const provider={useWorkspace:()=>({cacheAgent:data=>cached.push(data),requestSync:async()=>{},getDraft:()=>undefined,saveDraft:(key,value)=>savedDrafts.push({key,value}),error:""}),workspaceRequest:async(url,init)=>{requests.push({url,body:init?.body?JSON.parse(init.body):null});return request?request(url,init,initial):response;}};
- const {useWorkbench}=load("../../src/components/workbench/use-workbench.ts",{"react":react,"@/lib/control/workbench-client":client,"@/lib/workspace/workspace-client":workspaceClient,"@/components/workspace-provider":provider,"./use-workbench-mutations":{useWorkbenchMutations:()=>({actions:[],ready:true})},"@/lib/product/metadata-queue":queue,"@/lib/product/draft-cache":drafts,"./policy-disclosure":{usePolicyAccess:()=>true},"@/components/local-time":{useHydrated:()=>true}});
+ const {useWorkbench}=load("../../src/components/workbench/use-workbench.ts",{"react":react,"@/lib/control/workbench-client":client,"@/lib/workspace/workspace-client":workspaceClient,"@/components/workspace-provider":provider,"./use-workbench-mutations":{useWorkbenchMutations:()=>({actions:[],ready:true})},"@/lib/product/metadata-queue":queue,"@/lib/product/draft-cache":drafts,"./policy-disclosure":{usePolicyAccess:()=>true},"@/lib/product/agent-sharing":sharing,"./agent-sharing-permission":{useAgentSharingPermission:()=>({allowed:false,request:async()=>null,validate:async()=>false,manage:async()=>{}})},"@/components/local-time":{useHydrated:()=>true}});
  return {workbench:useWorkbench(initial.agent,initial),slots,savedDrafts,requests,previous,cached,initial};
 }
 test("a target deleted between selection and response cannot replace the current chat with its old draft or transcript",async()=>{

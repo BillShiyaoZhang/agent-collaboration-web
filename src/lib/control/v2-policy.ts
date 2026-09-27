@@ -165,6 +165,12 @@ async function enrollManagedConsole(user: User, keys: ConsoleKeys, rawPolicy: Bu
     not_before: now - 30, expires_at: now + 3600, serial: crypto.randomUUID() }, issuer);
   const body = JSON.stringify({ certificate: certificate.toString("base64") });
   const authorization = `Ed25519 ${crypto.sign(null, Buffer.from(body), keys.signingKey).toString("hex")}:${keys.publicKey}`;
+  // Policy/certificate reads may outlive account deletion. Recheck immediately
+  // before enrollment; a request already handed to the network cannot be recalled.
+  let activeAccount: { id: string } | null;
+  try { activeAccount = await prisma.user.findUnique({ where: { id: user.id }, select: { id: true } }); }
+  catch { throw new Error("无法确认账户状态，托管身份注册已暂停。"); }
+  if (!activeAccount) throw new Error("账户已不可用，无法注册托管身份。");
   const response = await platformRequest("/api/v2/managed/identity", { method: "POST", headers: {
     "Content-Type": "application/json", Authorization: authorization,
   }, body });

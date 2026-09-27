@@ -6,7 +6,7 @@ import { STABLE_ID_PATTERN } from "@agent-comm/client-contract";
 
 export const dynamic = "force-dynamic";
 const stableId = z.string().regex(new RegExp(STABLE_ID_PATTERN));
-const mutationMethods = new Set(["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"]);
+const mutationMethods = new Set(["contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"]);
 const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("import_legacy"), call: controlCallSchema, reusedContact: z.boolean().optional() }).strict(),
   z.object({ action: z.literal("reserve"), call: controlCallSchema, reusedContact: z.boolean().optional(), conversationId: stableId.optional() }).strict(),
@@ -26,6 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const value = parsed.data;
     const item = value.action !== "update" ? await reserveWorkspaceOperation(userId, id, value.call, { reusedContact: value.reusedContact, conversationId: value.action === "reserve" ? value.conversationId : undefined, legacy: value.action === "import_legacy" })
       : await updateWorkspaceOperation(userId, id, value.requestId, { phase: value.phase, message: value.message, retryable: value.retryable });
-    return workspaceJson({ item });
+    const safeItem=item?(await getWorkspaceOperations(userId,id)).find(value=>value.call.request_id===item.call.request_id) || null:null;
+    return workspaceJson({ item:safeItem });
   } catch (error) { return workspaceFailure(error); }
 }

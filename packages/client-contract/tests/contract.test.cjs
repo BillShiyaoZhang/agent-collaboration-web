@@ -187,3 +187,30 @@ test('authenticated pre-execution rejection and read errors allow a fresh reques
     }
   }
 });
+test('conversation safety requires an exact owner-review declaration without automatic peer model execution', () => {
+ const declaration = { version: 1, mode: 'owner_review', automatic_peer_model_execution: false };
+ assert.equal(api.peerContentSafetyAllowsConversation({ peer_content_safety: declaration }), true);
+ for (const safety of [undefined, {}, { ...declaration, version: '1' }, { ...declaration, version: 2 }, { ...declaration, mode: 'automatic' }, { ...declaration, automatic_peer_model_execution: true }, { version: 1, mode: 'owner_review' }]) assert.equal(api.peerContentSafetyAllowsConversation({ peer_content_safety: safety }), false);
+ assert.equal(api.pairingAllowsSend({}, { status: 'ready' }), true, 'safety acknowledgements keep the independent pairing permission');
+});
+test('only a new unsafe-runtime rejection proves a conversation was not executed; an accepted-runtime change retains the original request',async()=>{
+ for(const [code,uncertain] of [['peer_content_safety_required',false],['peer_content_safety_changed',true]]){
+  let count=0;const client=new api.WorkbenchClient('agent',async(_url,init)=>{const call=JSON.parse(init.body);return Response.json({status:'complete',request_id:call.request_id,response:{request_id:call.request_id,method:call.method,error:{code,message:'unsafe runtime'}}});},async()=>{},()=>`request-${++count}`),original=client.prepare('conversation.send',{text:'private prompt'});
+  await assert.rejects(client.execute(original,new AbortController().signal),error=>error.uncertain===uncertain && !error.retryable && /升级/.test(error.message));
+  const next=client.prepare('conversation.send',{text:'private prompt'});assert.equal(next===original,uncertain);assert.equal(count,uncertain?1:2);
+ }
+});
+test('same-ID rejected placeholders replace completed text and remain hidden across reversed pagination and stale refresh',()=>{
+ const unsafe={turn_id:'reported',status:'completed',text:'own question',response:'removed output',source_context:{text:'removed quote'}},hidden={turn_id:'reported',status:'running',text:'own question',response:'Response removed.',content_review:{status:'rejected'}};
+ for(const [before,after] of [[[unsafe],[hidden]],[[hidden],[unsafe]],[[hidden,unsafe],[]]]){const merged=api.mergeTurns(before,after);assert.equal(merged.length,1);assert.deepEqual(merged[0],hidden);assert.doesNotMatch(JSON.stringify(merged),/removed output|removed quote/)}
+ assert.equal(api.mergeTurns([unsafe],[{...hidden,content_review:undefined,moderation:{status:'rejected'}}])[0].moderation.status,'rejected');
+});
+test('social snapshots merge by authenticated safety revision before wall clock time, and reject missing or older revisions',()=>{
+ for(const method of ['contacts.list','collaboration.state']){
+  const previous={[method]:{time:1000,data:{safety_revision:4,blocked_peers:[{urn:'peer',blocked:true}]}}};
+  for(const revision of [undefined,3,-1,'5'])assert.deepEqual(api.mergeSnapshots(previous,{[method]:{time:2000,data:{safety_revision:revision,blocked_peers:[]}}}),previous);
+  const newer={time:900,data:{safety_revision:5,blocked_peers:[]}};assert.strictEqual(api.mergeSnapshots(previous,{[method]:newer})[method],newer);
+  assert.deepEqual(api.mergeSnapshots(previous,{[method]:{time:900,data:{safety_revision:4}}}),previous);
+  const equal={time:1100,data:{safety_revision:4,blocked_peers:[]}};assert.strictEqual(api.mergeSnapshots(previous,{[method]:equal})[method],equal);
+ }
+});

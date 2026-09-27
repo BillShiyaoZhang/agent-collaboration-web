@@ -37,6 +37,7 @@ async function main() {
   await desktopGeometry(1440, 900); await desktopGeometry(1366, 768); checks.push('默认直接显示聊天框，1440×900/1366×768三栏布局，全局不滚动，输入固定底部');
   // The default chooses the most recently saved agent. Explicitly select A1 for deterministic fixtures.
   await page.getByRole('button', { name: '与 同步测试 A1 聊天', exact: true }).click(); await page.getByRole('region', { name: '与 同步测试 A1 对话', exact: true }).waitFor();
+  await page.getByRole('button', { name: '管理共享许可，尚未允许', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: '同意共享并返回', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' }); assert.equal(controls.filter(call => call.method === 'conversation.send').length, 0);
   await page.getByRole('button', { name: '新对话', exact: true }).click(); await composer().fill('桌面三栏真实聊天'); await page.getByLabel('发送消息', { exact: true }).click();
   await page.getByLabel('对话记录', { exact: true }).getByText('这是自动同步回来的回复', { exact: true }).waitFor({ timeout: 120000 });
   await page.locator('[data-conversation-id]:has(button[aria-current="true"])').first().waitFor(); const id = await currentId(); assert.ok(id);

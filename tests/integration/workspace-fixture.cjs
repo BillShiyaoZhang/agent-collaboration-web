@@ -1,12 +1,14 @@
 // Manual loopback-only signed Registry/MQ fixture with a fresh SQLite database and random keys.
 // Build Next first, then keep this process running for workspace-browser.cjs and workspace-resilience.cjs.
-const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto'),Module=require('node:module');
-const {spawn}=require('node:child_process');
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),https=require('node:https'),crypto=require('node:crypto'),Module=require('node:module');
+const {spawn,spawnSync}=require('node:child_process');
 const assert=require('node:assert/strict');
 const ts=require('typescript');
 const {PrismaClient}=require('@prisma/client');
 const bcrypt=require('bcryptjs');
-const root=path.resolve(__dirname,'../..'),base='http://127.0.0.1:3062',platform='http://127.0.0.1:3061';
+const {canonicalJSON}=require('@agent-comm/client-contract');
+const tlsMode=process.env.WORKSPACE_FIXTURE_HTTPS==='1';
+const root=path.resolve(__dirname,'../..'),base=tlsMode?'https://127.0.0.1:3063':'http://127.0.0.1:3062',platform='http://127.0.0.1:3061';
 const output=path.join(root,'build/workspace-sync-preview');fs.mkdirSync(output,{recursive:true});
 function load(file,deps={}){
  const name=path.join(root,'src/lib',file+'.ts'),m=new Module(name,module);m.filename=name;m.paths=Module._nodeModulePaths(path.dirname(name));
@@ -17,11 +19,12 @@ const proto=load('protocol/proto'),keys=load('protocol/crypto'),ecies=load('prot
 const secret='workspace-smoke-only-'+crypto.randomBytes(32).toString('hex');
 const dbFile=path.join(output,'fixture-'+Date.now()+'.db'),db=new PrismaClient({datasources:{db:{url:'file:'+dbFile.replaceAll('\\','/')}}});
 const identities=new Map(),mailboxes=new Map(),turns=new Map(),calls=[];
-let child,server,offline=false,extraMessage=false,stopping=false,log='';
+let child,server,tlsServer,offline=false,extraMessage=false,stopping=false,log='';
 const attentionMode=process.env.ATTENTION_FIXTURE==='1',fixtureAt=Math.floor(Date.now()/1000);
 const mutationMode=process.env.MUTATION_FIXTURE==='1',mutationContacts=new Map(),mutationDecisions=new Map(),mutationResults=new Map();
 const socialMode=process.env.SOCIAL_FIXTURE==='1', socialStates=new Map();
 const productMode=process.env.PRODUCT_FIXTURE==='1',productStates=new Map();
+const peerReviews=new Map();
 function socialState(request) {
  const key=request.agent_urn+'|'+request.console_urn;
  if(!socialStates.has(key))socialStates.set(key,{revision:1,contacts:[{contact_id:'friend-online',urn:'urn:fixture:online',aliases:['在线好友'],connection_status:'connected',presence:{status:'online',expires_at:fixtureAt+3600}},{contact_id:'friend-rejected',urn:'urn:fixture:rejected',aliases:['被拒绝的好友'],connection_status:'rejected'},{contact_id:'friend-pending',urn:'urn:fixture:pending',aliases:['等待中的好友'],connection_status:'pending'}],contact_requests:[{request_id:'incoming-accept',direction:'incoming',peer_urn:'urn:fixture:alice',status:'pending',created_at:fixtureAt},{request_id:'incoming-reject',direction:'incoming',peer_urn:'urn:fixture:bob',status:'pending',created_at:fixtureAt},{request_id:'rejected-first',direction:'outgoing',peer_urn:'urn:fixture:rejected',status:'rejected',attempt:1,created_at:fixtureAt},{request_id:'pending-first',direction:'outgoing',peer_urn:'urn:fixture:pending',status:'pending',attempt:1,created_at:fixtureAt}],messages:[{message_id:'social-message',sender_urn:'urn:fixture:online',text:'这条消息需要两端同步已读',read:false,received_at:fixtureAt},{message_id:'social-message-web',sender_urn:'urn:fixture:online',text:'这条消息通过网页标为已读',read:false,received_at:fixtureAt}],sent_messages:[]});
@@ -48,8 +51,36 @@ function verifyBody(req,body){
  const identity=[...identities.values()].find(i=>i.edRaw.toString('hex')===publicKey);
  assert.ok(identity);assert.equal(crypto.verify(null,Buffer.from(JSON.stringify(body)),identity.ed.publicKey,Buffer.from(signature,'hex')),true);return identity;
 }
-function resultFor(request){
- if(request.method==='capabilities')return {methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send',...(attentionMode||socialMode?['attention.list']:[]),...(socialMode?['contacts.add','contacts.requests','contacts.respond','messages.send','inbox.mark_read','collaboration.execute']:[]),...(mutationMode?['contacts.add','approval.respond']:[]),...(productMode?['collaboration.execute','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
+// Synthetic runtime has no model/tool execution. It also holds peer message text
+// until an explicit owner review of the exact original record fingerprint.
+function resultFor(request) {
+ const key=id=>request.agent_urn+'|'+request.console_urn+'|'+id;
+ if(['inbox.review_preview','inbox.review'].includes(request.method)) {
+  const saved=peerReviews.get(key(request.params.message_id));
+  if(!saved)return {__error:{code:'invalid_params',message:'Unknown fixture peer message'}};
+  if(request.method==='inbox.review_preview')return {...saved.body,fingerprint:saved.fingerprint,status:saved.status};
+  saved.status=request.params.decision==='approve'?'approved':'rejected';
+  return {message_id:saved.body.message_id,sender_urn:saved.body.sender_urn,fingerprint:saved.fingerprint,status:saved.status};
+ }
+ const original=businessResultFor(request);
+ function protect(body) {
+  if(!body?.message_id || !body.sender_urn || typeof body.text!=='string')return body;
+  const fingerprint=crypto.createHash('sha256').update(canonicalJSON(body)).digest('hex'),identity=key(body.message_id);
+  let saved=peerReviews.get(identity);
+  if(!saved || saved.fingerprint!==fingerprint){saved={body:{...body},fingerprint,status:'pending'};peerReviews.set(identity,saved);}
+  if(saved.status==='approved')return {...body,moderation:{status:'approved',fingerprint}};
+  const {text,...metadata}=body;
+  return {...metadata,text:'对端内容尚未审核，请在网站核对后再允许展示。',moderation:{status:saved.status,fingerprint}};
+ }
+ const result={...original};
+ if(Array.isArray(result.messages))result.messages=result.messages.map(protect);
+ if(Array.isArray(result.inbox))result.inbox=result.inbox.map(protect);
+ else if(Array.isArray(result.inbox?.messages))result.inbox={...result.inbox,messages:result.inbox.messages.map(protect)};
+ return result;
+}
+function businessResultFor(request){
+ // This synthetic runtime dispatches only explicit signed control requests and never auto-feeds peer content to a model.
+ if(request.method==='capabilities')return {peer_content_safety:{version:1,mode:'owner_review',automatic_peer_model_execution:false},methods:['capabilities','contacts.list','collaboration.state','inbox.list','conversation.get','conversation.send','inbox.review_preview','inbox.review',...(attentionMode||socialMode?['attention.list']:[]),...(socialMode?['contacts.add','contacts.requests','contacts.respond','messages.send','inbox.mark_read','collaboration.execute']:[]),...(mutationMode?['contacts.add','approval.respond']:[]),...(productMode?['collaboration.execute','approval.respond']:[])].map(name=>({name,available:!['contacts.add','approval.respond'].includes(name)||mutationWritesEnabled})),pairing:{expires_at:Date.now()/1000+3600}};
  if(productMode) {
   const key=request.agent_urn+"|"+request.console_urn;
   if(!productStates.has(key)) productStates.set(key,{tasks:[],operations:[],pending_confirmations:[],resources:[],inbox:[],contacts:[{contact_id:"product-peer",urn:"urn:fixture:product-peer",aliases:["小林"],connection_status:"connected"}],collaboration_v2:{collaborations:[],invitations:[]}});
@@ -243,6 +274,19 @@ function startWeb(){
  child=spawn(process.execPath,[path.join(root,'node_modules/next/dist/bin/next'),'start','--hostname','127.0.0.1','--port','3062'],{cwd:root,windowsHide:true,env:{...process.env,NEXTAUTH_SECRET:secret,NEXTAUTH_URL:base,DATABASE_URL:'file:'+dbFile.replaceAll('\\','/'),AGENT_PLATFORM_URL:platform,WORKSPACE_SYNC_DISABLED:'0',NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});
  child.stdout.on('data',b=>{log+=b.toString();});child.stderr.on('data',b=>{log+=b.toString();});
 }
+async function startLoopbackTls(){
+ if(!tlsMode)return;
+ // A self-signed certificate exists only for this fresh loopback fixture. The
+ // production same-origin/HTTPS gate is exercised unchanged.
+ const tag=Date.now(),keyFile=path.join(output,'tls-'+tag+'.key'),certFile=path.join(output,'tls-'+tag+'.crt');
+ const generated=spawnSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',keyFile,'-out',certFile,'-days','1','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1,DNS:localhost'],{stdio:'ignore'});
+ assert.equal(generated.status,0,'openssl generates the isolated loopback certificate');
+ tlsServer=https.createServer({key:fs.readFileSync(keyFile),cert:fs.readFileSync(certFile)},(request,response)=>{
+  const upstream=http.request({hostname:'127.0.0.1',port:3062,path:request.url,method:request.method,headers:{...request.headers,'x-forwarded-proto':'https','x-forwarded-host':'127.0.0.1:3063'}},reply=>{response.writeHead(reply.statusCode,reply.headers);reply.pipe(response);});
+  upstream.on('error',()=>{if(!response.headersSent)response.writeHead(502);response.end('Loopback fixture is starting');});request.pipe(upstream);
+ });
+ await new Promise(resolve=>tlsServer.listen(3063,'127.0.0.1',resolve));
+}
 async function stopWeb(){if(child&&child.exitCode===null){const current=child;await new Promise(resolve=>{current.once('exit',resolve);current.kill();});}fs.writeFileSync(path.join(output,'server.log'),log);}
 async function main(){
  const sql=fs.readFileSync(path.join(root,'prisma/remote-console.sql'),'utf8');
@@ -257,7 +301,7 @@ async function main(){
   }
  }
  server=http.createServer((req,res)=>handle(req,res).catch(error=>{console.error('FIXTURE_REQUEST_FAILED',error.message);json(res,{error:'fixture request failed'},500);}));
- await new Promise(resolve=>server.listen(3061,'127.0.0.1',resolve));startWeb();
+ await new Promise(resolve=>server.listen(3061,'127.0.0.1',resolve));startWeb();await startLoopbackTls();
  const until=Date.now()+70_000;let count=0;
  while(Date.now()<until){count=Number((await db.$queryRawUnsafe('SELECT COUNT(DISTINCT "agentId") as n FROM "WorkspaceSnapshot" WHERE "method"=\'inbox.list\''))[0].n);if(count===3)break;await new Promise(r=>setTimeout(r,500));}
  assert.equal(count,3,'background worker syncs all three saved connections before any browser/API request');
@@ -266,7 +310,6 @@ async function main(){
  fs.writeFileSync(path.join(output,'backend-smoke.json'),JSON.stringify(report,null,2));fs.writeFileSync(path.join(output,'server.log'),log);
  console.log('FIXTURE_READY '+JSON.stringify(report));
 }
-async function stop(){if(stopping)return;stopping=true;await stopWeb();server?.close();await db.$disconnect();process.exit();}
+async function stop(){if(stopping)return;stopping=true;await stopWeb();server?.close();tlsServer?.close();await db.$disconnect();process.exit();}
 process.on('SIGINT',stop);process.on('SIGTERM',stop);
 main().catch(async error=>{process.exitCode=1;console.error(error);fs.writeFileSync(path.join(output,'server.log'),log);await stop();});
-

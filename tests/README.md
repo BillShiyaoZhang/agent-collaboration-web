@@ -11,6 +11,10 @@
 
 单元目录中包含使用临时真实数据库的测试。集成检查不由 `npm test` 自动启动。
 
+内容共享许可和网站内容审核加入后，当前新界面的独立入口是下文“内容共享许可”的 `agent-sharing-browser.cjs`。部分既有业务故事脚本仍依赖旧标签界面或对端正文直接显示，需要按实际网站审核流程更新；保留它们不表示本轮已在当前界面重新通过。服务端/协议测试与历史截图也不能替代新的浏览器验收结果。
+
+`unit/account-deletion.test.cjs` 使用全新临时 SQLite 和合成 `.invalid` 账户，验证所有当前账户表的真实 Cascade、显式事务清理和另一个账户/服务全局状态保留；旧无外键表与孤立 Message 清理；错误密码、旧会话和验证期间改密；确认后切换到同密码的另一账户时两者均保留；未知存档回滚；共享收件人 hash 的遗留大小写账户；延迟邮件提供商回执及迟到同步不复活；JWT 撤销、CSRF/确认词/请求大小约束和结果未知不重复提交。`npm run test:auth` 包含这些测试，也可单独运行 `node --test tests/unit/account-deletion.test.cjs`。测试不会访问真实账户、Platform 或邮件提供商；实际部署数据库的存档结构、浏览器操作和备份清理须单独验收。
+
 `unit/onboarding.test.cjs` 使用真实临时 SQLite 和 Ed25519 密钥，检查安装交接的 agent 身份证明、原始请求签名、独立 claim code / polling secret、登录与同源确认、固定方法与期限、跨账号隔离、一次性认领、可重试完成回执、过期与 30 分钟已批准回执宽限。`middleware.test.cjs` 同时检查只有 agent 创建/轮询 API 和公开安装指南允许匿名访问，Web claim 仍需登录。生产验收还需真实 Hermes 安装、浏览器确认和模型回复，单元测试不代替这些步骤。
 
 `protocol-v2-go.json` 由 SDK 的 `v2/testdata/generate.go` 生成。`unit/v2.test.cjs` 用它核对 Go/TypeScript 的规范字节、HPKE、签名策略、持钥回执与托管控制台证书；修改任一侧 v2 wire 后须重新生成并复制此向量。
@@ -184,3 +188,18 @@ node tests/integration/email-flows-browser.cjs
 现有 Python Web/Platform 非邮件检查通过 `seed-account.cjs` 创建合成已验证用户，
 不再绕过线上注册验证。此 helper 只接受 `.invalid` 邮箱及明确指定、已存在于
 Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实际密码哈希及增量迁移。
+
+## 内容共享许可
+
+`node --test tests/unit/agent-sharing.test.cjs` 使用合成身份、假网络和真实生产 hook，检查按工作区/账户/登录/Agent 绑定的内存许可、旧异步会话核验、拒绝、重试、切换、digest await 和保存 await 后撤回/再同意、已派发认证结果保持事实，以及阻止/解除阻止/已读/安全审核不要求 AI 许可。测试不会访问真实账户或 Agent。
+
+构建 Web 后，以 `WORKSPACE_FIXTURE_HTTPS=1 node tests/integration/workspace-fixture.cjs` 启动上述 loopback fixture，再运行 `WORKSPACE_BROWSER_URL=https://127.0.0.1:3063 node tests/integration/agent-sharing-browser.cjs`。HTTPS 模式使用本机 OpenSSL 生成一次性的自签名测试证书，只绑定 loopback 代理，保留生产接口的 HTTPS 与 Origin 校验；浏览器只在已核对的 loopback 地址忽略此测试证书错误。可用 `PLAYWRIGHT_MODULE` 指向已有 Playwright 模块。
+
+脚本验证真实说明 URL/URN、拒绝保留草稿、同意后不自动发送、修改后的明确提交、撤回仍可读取、Agent 切换、刷新、同账户重新登录以及 320×640 可滚动说明；也检查匿名内容规范的中英文、手机/平板/桌面布局和键盘跳转。举报场景明确同意但不附正文，在真实隔离后台保存后模拟丢失 HTTP 回执，检查刷新恢复原编号、Web Locks 与 GET 核实，不自动重发。输出仅写 `build/agent-sharing-preview/`。其他业务浏览器回归在正文外发前须通过独立“管理共享许可”入口明确同意；配对和业务核对不能替代此步骤。
+
+2026-09-27 本轮工作树已通过完整生产构建和上述 HTTPS Chromium 浏览器脚本的 9 组检查：唯一一次内容发送使用用户明确再次提交的当前草稿，举报 POST 仅一次且正文证据为空，原编号在刷新后由 GET 核实，页面运行错误为零。已视检 320×640 共享说明和举报核实截图。此证据仅覆盖新共享许可、公开规范和私人 Agent 回复举报流程；合成 runtime 没有执行模型或工具，不证明真实供应商配置、运营人员响应、生产部署或其他旧业务故事已验收。
+
+
+## 内容安全与举报
+
+`npm run test:moderation` 使用真实临时 SQLite 校验未标记对端正文隔离、确切版本主人批准、旧快照/详情和嵌套协作过滤、ACL revision 竞态、协议元数据、私人单回合举报移除/搜索、最小证据/过期凭证幂等、HTTP Origin/会话/大小限制、持久速率、真实 CLI 权限及令牌文件、公开回复与账户删除隔离。也以实际 React SSR 挂载删除组件确认不依赖不存在的 SessionProvider。该隔离验证不访问生产，不证明实际部署已经有人响应举报。

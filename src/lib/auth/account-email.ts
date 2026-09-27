@@ -201,9 +201,9 @@ export function createAccountEmailService(dependencies: Dependencies = {}) {
       return { message: "修改密码的确认邮件已提交发送。请在邮箱中确认后使用新密码登录。" };
     },
     account: async (userId: string) => {
-      const account = await db.user.findUnique({ where: { id: userId }, select: { email: true, emailVerifiedAt: true, requiresEmailVerification: true } });
+      const account = await db.user.findUnique({ where: { id: userId }, select: { id: true, email: true, emailVerifiedAt: true, requiresEmailVerification: true } });
       if (!account) throw new AccountEmailError("请先登录。", 401, "UNAUTHORIZED");
-      return { email: account.email, emailVerified: Boolean(account.emailVerifiedAt), verificationRequired: account.requiresEmailVerification };
+      return { id: account.id, email: account.email, emailVerified: Boolean(account.emailVerifiedAt), verificationRequired: account.requiresEmailVerification };
     },
     confirmPasswordChange: (token: string) => consume(token, "change-password"),
   };

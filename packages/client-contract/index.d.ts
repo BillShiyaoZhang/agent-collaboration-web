@@ -14,7 +14,7 @@ export type SyncPlanItem = {
 export declare function remoteTimestamp(value: unknown): number;
 export declare function isPairingError(code: unknown): boolean;
 export declare function availableMethods(capabilities: unknown): RpcMethod[];
-export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"];
+export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "inbox.review_preview", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"];
 export type RpcMethod = typeof RPC_METHODS[number];
 export type RemoteRecord = Record<string, unknown>;
 export type PendingCall = {
@@ -118,6 +118,7 @@ export type WorkspaceOverview = {
 export declare function mergeSnapshots<T extends Partial<Record<string, WorkspaceSnapshot>>>(previous: T, incoming: T): T;
 export declare function mergeTurns(earlier: RemoteRecord[], latest: RemoteRecord[]): RemoteRecord[];
 export declare function pairingAllowsSend(capabilities: RemoteRecord | undefined, sync: WorkspaceSync, now?: number): boolean;
+export declare function peerContentSafetyAllowsConversation(capabilities: RemoteRecord | undefined): boolean;
 export declare const SYNC_INTERVAL_MS = 30000;
 export declare const CAPABILITY_INTERVAL_MS = 120000;
 export declare const SYNC_LEASE_MS = 60000;

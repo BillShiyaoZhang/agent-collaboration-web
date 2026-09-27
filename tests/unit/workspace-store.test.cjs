@@ -9,6 +9,8 @@ const ts = require("typescript");
 const { PrismaClient } = require("@prisma/client");
 
 function load(relative, dependencies = {}) {
+  // Business projection fixtures isolate moderation; moderation.test.cjs covers its real gate.
+  dependencies = { "@/lib/moderation/inbound": { filterWorkspaceInbound: async (_db, _user, _agent, _urn, _method, body) => body }, ...dependencies };
   const filename = path.resolve(__dirname, relative), loaded = new Module(filename, module);
   loaded.filename = filename; loaded.paths = Module._nodeModulePaths(path.dirname(filename));
   loaded.require = name => Object.hasOwn(dependencies, name) ? dependencies[name] : Module.prototype.require.call(loaded, name);
@@ -178,6 +180,9 @@ async function fixture(run, options = {}) {
       }
       return store.recordWorkspaceResponse(user, agent, request, { result: data });
     };
+    // These fixtures exercise persisted private conversation mechanics; the isolated
+    // runtime has no peer-to-model consumption path. Unsafe declarations are tested separately.
+    await save("capabilities", { peer_content_safety: { version: 1, mode: "owner_review", automatic_peer_model_execution: false } }, 1);
     await run({ db, filename, user, other, agent, otherAgent, store, row, save, makeStore });
   } finally {
     if (priorSecret === undefined) delete process.env.NEXTAUTH_SECRET; else process.env.NEXTAUTH_SECRET = priorSecret;
@@ -350,7 +355,7 @@ test("authenticated failures preserve user text and use fixed safe summaries bef
   assert.equal(workspace.conversation.turns[0].status, "failed");
   assert.equal(workspace.conversation.turns[0].locally_unconfirmed, false);
   assert.equal(JSON.stringify(workspace).includes("Private queue exception"), false);
-  assert.equal(Number((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceSnapshot"'))[0].n), 0);
+  assert.equal(Number((await db.$queryRawUnsafe('SELECT COUNT(*) AS n FROM "WorkspaceSnapshot" WHERE "method" <> \'capabilities\''))[0].n), 0);
 }));
 
 test("send receipts require exact submitted status and the pending conversation and turn IDs", () => fixture(async ({ db, user, agent, store, row }) => {
@@ -915,7 +920,7 @@ test("collaboration aliases share one recoverable tombstone and cannot hide live
   assert.equal((await store.getWorkspaceRecordStates(user.id, agent.id)).length, 1);
   await save("collaboration.state", { tasks: [], collaborations: [] }, Date.now() + 300);
   const restored = await store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "collab-view", false);
-  assert.equal(restored.id, "task-view"); assert.equal(restored.deleted, false); assert.equal(restored.title, "Private cooperation title");
+  assert.equal(restored.id, "task-view"); assert.equal(restored.deleted, false); assert.equal(restored.title, "合作记录");
   await assert.rejects(store.saveWorkspaceRecordState(user.id, agent.id, "collaboration", "missing", true), { status: 404 });
 }));
 

@@ -27,6 +27,10 @@ export const controlCallSchema = z.object({
     "contacts.requests": z.object({}).strict(),
     "contacts.respond": z.object({ request_id: stableId, decision: z.enum(["accept", "reject"]),
       contact_id: contactParams.shape.contact_id.optional(), aliases: contactParams.shape.aliases.optional() }).strict(),
+    "contacts.block": z.object({ urn: contactParams.shape.urn }).strict(),
+    "contacts.unblock": z.object({ urn: contactParams.shape.urn }).strict(),
+    "inbox.review_preview": z.object({ message_id: stableId }).strict(),
+    "inbox.review": z.object({ message_id: stableId, decision: z.enum(["approve", "reject"]) }).strict(),
     "messages.send": z.object({ recipient_urn: contactParams.shape.urn, text: z.string().min(1).refine(value => value.trim().length > 0 && new TextEncoder().encode(value).length <= 24000), message_id: stableId.optional() }).strict(),
     "inbox.mark_read": z.object({ message_id: stableId }).strict(),
   };

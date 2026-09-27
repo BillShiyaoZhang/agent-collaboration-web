@@ -4,6 +4,7 @@ import { prisma } from "@/lib/shared/db";
 import { ControlError } from "@/lib/control/control-transport";
 import { record, records, string, strings, type PendingCall, type RemoteRecord, type RpcMethod } from "@/lib/control/workbench-client";
 import type { WorkspaceAgent, WorkspaceConnection, WorkspaceConversationPage, WorkspaceConversationState, WorkspaceOperation, WorkspaceOverview, WorkspaceRecordKind, WorkspaceRecordState, WorkspaceSubmission, WorkspaceSync } from "@/lib/workspace/workspace-types";
+import { filterWorkspaceInbound } from "@/lib/moderation/inbound";
 
 type DB = Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw">;
 type StateRow = { agentId: string; activeConversationId: string; activeSelectedAt: number; status: WorkspaceSync["status"];
@@ -14,7 +15,10 @@ type ItemRow = { itemId: string; payload: string; sourceAt: number; sortTime: nu
 type SubmissionRow = { requestId: string; payload: string; phase: "sending" | "uncertain"; createdAt: number };
 type OperationRow = { requestId: string; method: string; payload: string; phase: WorkspaceOperation["phase"]; createdAt: number; updatedAt: number };
 type ConversationStateRow = { conversationId: string; payload: string; updatedAt: number };
-const operationMethods = new Set(["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"]);
+const operationMethods = new Set(["contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"]);
+function validSafetyReceipt(method:string,data:RemoteRecord,urn?:unknown) {
+  return (!urn || data.urn===urn) && /^urn:[A-Za-z0-9][A-Za-z0-9._:-]*:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(string(data.urn)) && Number.isSafeInteger(data.safety_revision) && Number(data.safety_revision)>=0 && data.blocked===(method==="contacts.block") && data.status===(method==="contacts.block"?"blocked":"unblocked") && (method==="contacts.block"?data.connection_status==="blocked":["connected","pending","rejected","unverified"].includes(string(data.connection_status)));
+}
 const emptyConversationState = (): WorkspaceConversationState => ({ archived: false, readAt: 0, draft: "", scrollTop: null });
 import { canonicalJSON, validateAttentionPage, attentionRequiresAction, notificationRoute, type AttentionItem, type NotificationPage, type WorkspaceNotification, type SyncPlanItem } from "@agent-comm/client-contract";
 export type { SyncPlanItem } from "@agent-comm/client-contract";
@@ -125,6 +129,9 @@ export async function getWorkspaceAgent(userId: string, agentId: string, convers
     const inbox = await prisma.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId" = ${agentId} AND "kind" = 'inbox' ORDER BY "sortTime" DESC, "itemId" DESC LIMIT 100`;
     snapshots["inbox.list"].data.messages = inbox.reverse().map(row => unseal(userId, agentId, "inbox", row.itemId, row.payload));
   }
+  // Reapply the display gate to older saved snapshots too. The encrypted review
+  // queue holds peer text; client snapshots, search and raw details receive only the safe view.
+  for (const [method,snapshot] of Object.entries(snapshots)) if(snapshot) snapshot.data=await filterWorkspaceInbound(prisma,userId,agentId,agent.urn,method,snapshot.data);
   let turns: ItemRow[] = [], hasEarlierTurns = false;
   if (active) {
     let cursor: ItemRow | undefined;
@@ -140,6 +147,7 @@ export async function getWorkspaceAgent(userId: string, agentId: string, convers
   }
   let conversation = active ? { ...snapshots["conversation.get"]?.data, conversation_id: active,
     turns: turns.map(row => unseal<RemoteRecord>(userId, agentId, "turn", row.itemId, row.payload)) } : null;
+  if(conversation)conversation=await filterWorkspaceInbound(prisma,userId,agentId,agent.urn,"conversation.get",conversation) as typeof conversation;
   if (conversation && snapshots["conversation.get"]) snapshots["conversation.get"].data = conversation;
   const savedStates = await prisma.$queryRaw<ConversationStateRow[]>`SELECT * FROM "WorkspaceConversationState" WHERE "agentId" = ${agentId}`;
   const metadata = new Map(savedStates.map(row => [row.conversationId, unseal<WorkspaceConversationState>(userId, agentId, "conversation-state", row.conversationId, row.payload)]));
@@ -148,15 +156,16 @@ export async function getWorkspaceAgent(userId: string, agentId: string, convers
     hasEarlierTurns = false;
     delete snapshots["conversation.get"];
   }
-  return { agent: connection(agent, stateRows[0]), identity: { virtualUrn: user?.virtualUrn || null, virtualEd25519PublicKey: user?.virtualEd25519PublicKey || null },
+  const removedConversations=await removedConversationIDs(prisma,userId,agentId);
+  return { contentSafety: {version:1}, agent: connection(agent, stateRows[0]), identity: { virtualUrn: user?.virtualUrn || null, virtualEd25519PublicKey: user?.virtualEd25519PublicKey || null },
     sync: sync(stateRows[0]), snapshots, conversations: conversationRows.map(row => {
       const saved = metadata.get(row.conversationId) || emptyConversationState();
       return { id: row.conversationId,
-        title: saved.title || string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话"),
+        title: removedConversations.has(row.conversationId)?"包含已移除回复的聊天":saved.title || string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话"),
         deleted: saved.deleted === true, archived: saved.archived, readAt: saved.readAt, unread: row.updatedAt > saved.readAt,
         updatedAt: row.updatedAt, turnCount: Number(row.turnCount), pending: Number(row.pending) > 0 || submission?.conversationId === row.conversationId };
     }), activeConversationId: active, conversation, hasEarlierTurns, submission,
-    operations: await getWorkspaceOperations(userId, agentId), recordStates: await getWorkspaceRecordStates(userId, agentId), activeConversationState: metadata.get(active) || emptyConversationState() };
+    operations: await getWorkspaceOperations(userId, agentId), recordStates: await getWorkspaceRecordStates(userId, agentId), activeConversationState: removedConversations.has(active)?{...(metadata.get(active) || emptyConversationState()),title:"包含已移除回复的聊天"}:metadata.get(active) || emptyConversationState() };
 }
 
 export async function selectWorkspaceConversation(userId: string, agentId: string, conversationId: string | null) {
@@ -250,12 +259,25 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
   if (agent.userId !== user.id || row.agentId !== agent.id || !await owned(user.id, agent.id)) throw new ControlError("连接不存在。", 404);
   await retryProjectionTransaction(onEnter => prisma.$transaction(async tx => {
     onEnter();
+    // Deletion can commit after the earlier ownership probe. Recheck within the
+    // projection transaction before any write, including on legacy tables without FK.
+    await requireOwnedRecord(tx, user.id, agent.id);
     await state(tx, agent.id);
     const pendingRow = (await tx.$queryRaw<SubmissionRow[]>`SELECT * FROM "WorkspaceSubmission" WHERE "agentId" = ${agent.id}`)[0];
     const pending = decodeSubmission(user.id, agent.id, pendingRow);
     const matchingPending = pendingRow?.requestId === row.id ? pending : null;
     const sourceAt = row.createdAt.getTime();
     await settleWorkspaceOperation(tx, user.id, agent.id, row, response);
+    const safetyResult=record(response.result);
+    if(["contacts.block","contacts.unblock"].includes(row.method) && !Object.hasOwn(response,"error") && validSafetyReceipt(row.method,safetyResult)) {
+      const operation=(await tx.$queryRaw<OperationRow[]>`SELECT * FROM "WorkspaceOperation" WHERE "agentId"=${agent.id} AND "requestId"=${row.id}`)[0];
+      const highest=(await tx.$queryRaw<{revision:number|null}[]>`SELECT MAX("revision") AS "revision" FROM "WorkspacePeerSafety" WHERE "agentId"=${agent.id}`)[0]?.revision || 0;
+      if(operation && Number(safetyResult.safety_revision)>=highest && decodeOperation(user.id,agent.id,operation).call.params.urn===safetyResult.urn) {
+        await tx.$executeRaw`INSERT INTO "WorkspacePeerSafety" ("agentId","urn","blocked","confirmedAt","revision") VALUES (${agent.id},${string(safetyResult.urn)},${safetyResult.blocked?1:0},${Date.now()},${Number(safetyResult.safety_revision)}) ON CONFLICT("agentId","urn") DO UPDATE SET "blocked"=excluded."blocked","confirmedAt"=excluded."confirmedAt","revision"=excluded."revision" WHERE excluded."revision">="WorkspacePeerSafety"."revision"`;
+        const contacts=await savedSnapshot(tx,user.id,agent.id,"contacts.list");
+        await saveSnapshot(tx,user.id,agent.id,row,"contacts.list","",{...contacts,safety_revision:Number(safetyResult.safety_revision),contacts:records(contacts.contacts).map(contact=>contact.urn===safetyResult.urn?{...contact,blocked:safetyResult.blocked,connection_status:safetyResult.connection_status}:contact),blocked_peers:[...records(contacts.blocked_peers).filter(peer=>peer.urn!==safetyResult.urn),...(safetyResult.blocked?[{urn:safetyResult.urn,blocked:true,connection_status:"blocked"}]:[])]});
+      }
+    }
     if (!Object.hasOwn(response, "error")) await reconcileWorkspaceOperations(tx, user.id, agent.id, row.method, record(response.result));
     if (Object.hasOwn(response, "error")) {
       if (row.method === "conversation.send" && matchingPending && pendingRow) {
@@ -266,6 +288,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
           unsupported_method: "Agent 暂不支持对话发送，未受理这条消息。",
           invalid_params: "Agent 未接受这条消息的请求参数。",
           queue_full: "Agent 当前待办队列已满，未受理这条消息。",
+          peer_content_safety_required: "请先升级 Agent 到支持主人内容审核的运行时，再发送新对话。此次新消息未被受理。",
         };
         const code = string(record(response.error).code);
         const rejected = Object.hasOwn(rejectionMessages, code);
@@ -279,7 +302,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
       }
       return;
     }
-    const data = record(response.result), convId = string(data.conversation_id);
+    const data = await filterWorkspaceInbound(tx,user.id,agent.id,agent.urn,row.method,record(response.result)), convId = string(data.conversation_id);
     if (row.method === "conversation.send") {
       const validId = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
       const validReceipt = data.status === "submitted" && validId(data.conversation_id) && validId(data.turn_id) &&
@@ -321,13 +344,13 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     if (row.method === "inbox.mark_read" && data.status === "read" && record(data.message).message_id === data.message_id && record(data.message).read === true) {
       await saveItem(tx, user.id, agent.id, "inbox", string(data.message_id), "", record(data.message), sourceAt);
     }
-    if (["contacts.add", "approval.respond", "contacts.respond", "messages.send", "inbox.mark_read", "collaboration.execute"].includes(row.method)) {
+    if (["contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"].includes(row.method)) {
       // The authenticated receipt schedules a new read; it never edits a contact
       // list or approval snapshot using browser input or a transport acknowledgement.
       await tx.$executeRaw`UPDATE "WorkspaceState" SET "nextSyncAt" = MIN("nextSyncAt",${Date.now()}) WHERE "agentId" = ${agent.id}`;
     }
     if (row.method === "contacts.list" || row.method === "collaboration.state") {
-      if (Array.isArray(data.contacts)) await saveSnapshot(tx, user.id, agent.id, row, "contacts.list", "", { contacts: data.contacts });
+      if (Array.isArray(data.contacts)) await saveSnapshot(tx, user.id, agent.id, row, "contacts.list", "", { contacts: data.contacts, blocked_peers: data.blocked_peers });
     }
     if (row.method === "collaboration.state" && Array.isArray(data.contact_requests))
       await saveSnapshot(tx, user.id, agent.id, row, "contacts.requests", "", { contact_requests: data.contact_requests });
@@ -366,6 +389,30 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
   }, { timeout: 20000 }));
 }
 
+/** Only an account-owned saved record can be reported; hidden text is never
+ * recovered through this endpoint to bypass the website content-review gate. */
+export async function getWorkspaceModerationTarget(db: DB,userId:string,agentId:string,target:{kind:string;id:string}):Promise<string> {
+  await requireOwnedRecord(db,userId,agentId);
+  let value:RemoteRecord={};
+  if(target.kind==="inbox" || target.kind==="turn") {
+    const row=(await db.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId"=${agentId} AND "kind"=${target.kind} AND "itemId"=${target.id}`)[0];
+    if(row) value=unseal(userId,agentId,target.kind,target.id,row.payload);
+  } else {
+    const method=target.kind==="contact"?"contacts.list":target.kind==="contact_request"?"contacts.requests":"collaboration.state";
+    const agent=(await db.$queryRaw<{urn:string}[]>`SELECT "urn" FROM "Agent" WHERE "id"=${agentId} AND "userId"=${userId}`)[0];
+    const data=await filterWorkspaceInbound(db,userId,agentId,agent?.urn || "",method,await savedSnapshot(db,userId,agentId,method));
+    value=(target.kind==="contact"?records(data.contacts):target.kind==="contact_request"?records(data.contact_requests ?? data.requests):[...records(data.tasks),...records(record(data.collaboration ?? data.collaboration_v2).collaborations),...records(data.collaborations)]).find(item=>[item.contact_id,item.request_id,item.task_id,item.collaboration_id].includes(target.id)) || {};
+  }
+  if(!Object.keys(value).length) throw new ControlError("已保存的记录不存在。",404);
+  if(target.kind==="inbox" || target.kind==="turn") {const agent=(await db.$queryRaw<{urn:string}[]>`SELECT "urn" FROM "Agent" WHERE "id"=${agentId} AND "userId"=${userId}`)[0],key=target.kind==="turn"?"turns":"messages";value=records((await filterWorkspaceInbound(db,userId,agentId,agent?.urn || "",target.kind==="turn"?"conversation.get":"inbox.list",{[key]:[value]}))[key])[0] || {};}
+  const contacts=await savedSnapshot(db,userId,agentId,"contacts.list");
+  const blocked=records(contacts.blocked_peers).some(peer=>peer.urn===value.sender_urn || peer.urn===value.urn) || records(contacts.contacts).some(peer=>peer.blocked===true && (peer.urn===value.sender_urn || peer.urn===value.urn));
+  const safety=(await db.$queryRaw<{urn:string}[]>`SELECT "urn" FROM "WorkspacePeerSafety" WHERE "agentId"=${agentId} AND "blocked"=1`).some(peer=>peer.urn===value.sender_urn || peer.urn===value.urn);
+  const review=record(value.content_review ?? value.moderation);
+  if(blocked || safety || review.status && review.status!=="approved") return "";
+  return target.kind==="turn" ? string(value.response) : target.kind==="inbox" ? string(value.text) : target.kind==="contact" ? `${strings(value.aliases).join(" / ")} ${string(value.urn)}` : target.kind==="contact_request" ? string(value.peer_urn) : string(record(value.scope).topic,string(record(value.terms).topic));
+}
+
 export async function reserveWorkspaceSubmission(user: User, agent: Agent, call: { request_id: string; method: string; params: Record<string, unknown> }) {
   if (call.method !== "conversation.send") return;
   if (agent.userId !== user.id || !await owned(user.id, agent.id)) throw new ControlError("连接不存在。", 404);
@@ -379,6 +426,8 @@ export async function reserveWorkspaceSubmission(user: User, agent: Agent, call:
   const payload = seal(user.id, agent.id, "submission", call.request_id, value);
   await prisma.$transaction(async tx => {
     await requireOwnedRecord(tx, user.id, agent.id);
+    const safety=record((await savedSnapshot(tx,user.id,agent.id,"capabilities")).peer_content_safety);
+    if(safety.version!==1 || safety.mode!=="owner_review" || safety.automatic_peer_model_execution!==false) throw new ControlError("请先升级 Agent 到支持主人内容审核的运行时并刷新能力，再发送新对话。",409);
     if ((await conversationState(tx, user.id, agent.id, value.conversationId)).deleted)
       throw new ControlError("请先恢复已删除的聊天，再发送新消息。", 409);
     await tx.$executeRaw`INSERT OR IGNORE INTO "WorkspaceSubmission" ("agentId","requestId","payload","createdAt") VALUES (${agent.id},${call.request_id},${payload},${Date.now()})`;
@@ -476,6 +525,7 @@ async function finishNotificationBaseline(db: DB, agentId: string, kind: string)
     ON CONFLICT("agentId","kind") DO UPDATE SET "complete" = 1`;
 }
 async function saveNotification(db: DB, userId: string, agentId: string, item: AttentionItem, sourceAt: number, source: NotificationPayload["source"], baselineComplete: boolean) {
+  if(item.target.kind!=="conversation") item={...item,title:"协作或通信事项有更新",safe_summary:"请在网站核对对端内容后查看原事项。"};
   // Match a legacy projection to the feed's authoritative target without revealing IDs in storage keys.
   const id = notificationDigest(item.target.kind === "task" ? ["attention", item.attention_id] : item.target.kind === "conversation"
     ? ["conversation", item.target.id, item.target.turn_id || ""] : [item.target.kind, item.target.id]);
@@ -565,7 +615,7 @@ export async function getWorkspaceNotifications(userId: string, before?: number,
     const { item, source } = unseal<NotificationPayload>(userId, row.agentId, "notification", row.id, row.payload);
     const state = row.state === "open" && row.expiresAt !== null && row.expiresAt <= Date.now() ? "expired" : row.state;
     return { id: row.id, agentId: row.agentId, agentName: row.agentName, revision: row.revision, unread: state === "open" && row.readRevision < row.revision,
-      requiresAction: attentionRequiresAction(row.kind, state), kind: row.kind, state, title: item.title, summary: item.safe_summary,
+      requiresAction: attentionRequiresAction(row.kind, state), kind: row.kind, state, title: item.target.kind==="conversation"?item.title:"协作或通信事项有更新", summary: item.target.kind==="conversation"?item.safe_summary:"请在网站核对对端内容后查看原事项。",
       target: item.target, href: notificationRoute(row.agentId, item.target), updatedAt: row.updatedAt, observedAt: row.sourceAt, expiresAt: row.expiresAt,
       systemEligible: !!row.systemEligible, source, sync: sync(stateRows.find(state => state.agentId === row.agentId)) };
   });
@@ -603,8 +653,9 @@ export async function getWorkspaceOperations(userId: string, agentId: string): P
     ORDER BY CASE WHEN "phase" IN ('sending','uncertain') THEN 0 ELSE 1 END, "updatedAt" DESC, "requestId" DESC`;
   // Historical describe rows remain in encrypted audit storage, but a read
   // cannot be restored as a pending business effect or lock real writes.
-  return rows.map(row => decodeOperation(userId, agentId, row)).filter(operation =>
-    !(operation.call.method === "collaboration.execute" && operation.call.params.action === "describe"));
+  const agent=await owned(userId,agentId);
+  const operations=rows.map(row=>decodeOperation(userId,agentId,row)).filter(operation=>!(operation.call.method==="collaboration.execute" && operation.call.params.action==="describe"));
+  return Promise.all(operations.map(async operation=>({...operation,message:["succeeded","failed"].includes(operation.phase)?"Agent 已返回原操作结果，请核对当前对象状态。":operation.message,...(operation.result?{result:await filterWorkspaceInbound(prisma,userId,agentId,agent?.urn || "",operation.call.method,operation.result)}:{})})));
 }
 
 /** Persist exact parameters before any encoding or delivery; never extend a replay window. */
@@ -670,11 +721,13 @@ async function settleWorkspaceOperation(db: DB, userId: string, agentId: string,
   if (!saved || !["sending", "uncertain"].includes(saved.phase)) return;
   const operation = decodeOperation(userId, agentId, saved), data = record(response.result), params = operation.call.params;
   const errorCode = string(record(response.error).code);
-  const rejected = Object.hasOwn(response, "error") && ["not_paired", "owner_mismatch", "method_not_allowed", "unsupported_method", "invalid_params", "queue_full", "pairing_expired", "pairing_revoked"].includes(errorCode) || !!data.error || ["not_executed", "unsupported", "unavailable", "denied", "rejected"].includes(string(data.status)) && !["contacts.respond", "approval.respond"].includes(row.method) || data.decision === "deny" && row.method !== "approval.respond";
+  const rejected = Object.hasOwn(response, "error") && ["not_paired", "owner_mismatch", "method_not_allowed", "unsupported_method", "invalid_params", "queue_full", "pairing_expired", "pairing_revoked"].includes(errorCode) || !!data.error || ["not_executed", "unsupported", "unavailable", "denied", "rejected"].includes(string(data.status)) && !["contacts.respond", "approval.respond", "inbox.review"].includes(row.method) || data.decision === "deny" && row.method !== "approval.respond";
   const confirmed = !Object.hasOwn(response, "error") && !rejected && data.status !== "uncertain" && (row.method === "collaboration.execute" ? Object.keys(data).length > 0
     : row.method === "contacts.add" ? data.decision === "allow" && ["requested", "request_sent", "pending", "already_requested", "already_connected", "confirmed", "already_confirmed"].includes(string(data.status))
     : row.method === "approval.respond" ? data.approval_id === params.approval_id && (params.decision === "approve" ? data.decision === "allow" && data.status === "approved_once" : data.decision === "deny" && data.status === "denied")
     : row.method === "contacts.respond" ? data.request_id === params.request_id && data.status === (params.decision === "accept" ? "accepted" : "rejected")
+    : row.method === "contacts.block" || row.method === "contacts.unblock" ? validSafetyReceipt(row.method,data,params.urn)
+    : row.method === "inbox.review" ? data.message_id === params.message_id && data.status === (params.decision === "approve" ? "approved" : "rejected") && /^[a-f0-9]{64}$/.test(string(data.fingerprint)) && /^urn:[A-Za-z0-9][A-Za-z0-9._:-]*:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(string(data.sender_urn))
     : row.method === "inbox.mark_read" ? data.message_id === params.message_id && (data.status === "read" || data.read === true)
     : data.message_id === params.message_id && ["sent", "queued", "accepted"].includes(string(data.status)));
   const phase = rejected ? "failed" : confirmed ? "succeeded" : "uncertain";
@@ -724,6 +777,10 @@ export async function saveWorkspaceConversationState(userId: string, agentId: st
   });
 }
 
+async function removedConversationIDs(db:DB,userId:string,agentId:string) {
+  const rows=await db.$queryRaw<{conversationId:string}[]>`SELECT DISTINCT i."conversationId" FROM "WorkspaceItem" i JOIN "ModerationReport" m ON m."agentId"=i."agentId" AND m."targetId"=i."itemId" WHERE i."agentId"=${agentId} AND i."kind"='turn' AND m."userId"=${userId} AND m."targetKind"='turn' AND m."decision"='hide'`;
+  return new Set(rows.map(row=>row.conversationId));
+}
 export async function listWorkspaceConversations(userId: string, agentId: string, options: { q?: string; archived?: "active" | "archived" | "all"; deleted?: "active" | "deleted" | "all"; before?: string; limit?: number } = {}): Promise<WorkspaceConversationPage> {
   if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
   const limit = Math.min(50, Math.max(1, options.limit || 25)), query = (options.q || "").trim().toLocaleLowerCase();
@@ -736,17 +793,19 @@ export async function listWorkspaceConversations(userId: string, agentId: string
   const cursor = options.before ? rows.find(row => row.conversationId === options.before) : undefined;
   if (options.before && !cursor) throw new ControlError("对话分页位置不存在。", 400);
   const items: WorkspaceConversationPage["items"] = [];
+  const removedConversations=await removedConversationIDs(prisma,userId,agentId);
   for (const row of rows) {
     if (cursor && !(row.updatedAt < cursor.updatedAt || row.updatedAt === cursor.updatedAt && row.conversationId < cursor.conversationId)) continue;
     const saved = metadata.get(row.conversationId) || emptyConversationState();
     if ((options.deleted || "active") !== "all" && (saved.deleted === true) !== (options.deleted === "deleted")) continue;
     if ((options.archived || (options.deleted === "deleted" ? "all" : "active")) !== "all" && saved.archived !== (options.archived === "archived")) continue;
-    const title = saved.title || string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话");
+    const title = removedConversations.has(row.conversationId)?"包含已移除回复的聊天":saved.title || string(unseal<RemoteRecord>(userId, agentId, "conversation", row.conversationId, row.payload).title, "新对话");
     let match: WorkspaceConversationPage["items"][number]["match"];
     if (query) {
       // Search only authenticated, saved history; drafts and unconfirmed local sends are excluded.
       const turns = await prisma.$queryRaw<ItemRow[]>`SELECT * FROM "WorkspaceItem" WHERE "agentId" = ${agentId} AND "kind" = 'turn' AND "conversationId" = ${row.conversationId} ORDER BY "sortTime" DESC, "itemId" DESC`;
-      const searchable = turns.map(turn => ({ turn, data: unseal<RemoteRecord>(userId, agentId, "turn", turn.itemId, turn.payload) })).filter(item => item.data.locally_unconfirmed !== true);
+      const agent=await owned(userId,agentId),filtered=records((await filterWorkspaceInbound(prisma,userId,agentId,agent?.urn || "","conversation.get",{turns:turns.map(turn=>unseal<RemoteRecord>(userId,agentId,"turn",turn.itemId,turn.payload))})).turns);
+      const searchable = turns.map((turn,index) => ({ turn, data: filtered[index] })).filter(item => item.data.locally_unconfirmed !== true);
       if (turns.length && !searchable.length) continue;
       if (!title.toLocaleLowerCase().includes(query)) {
         for (const { turn, data } of searchable) {
@@ -858,7 +917,7 @@ export async function removeWorkspaceAgent(userId: string, agentId: string) {
 type RecordStateRow = { kind: WorkspaceRecordKind; recordId: string; payload: string; updatedAt: number };
 async function recordStates(db: DB, userId: string, agentId: string): Promise<WorkspaceRecordState[]> {
   const rows = await db.$queryRaw<RecordStateRow[]>`SELECT * FROM "WorkspaceRecordState" WHERE "agentId" = ${agentId} ORDER BY "updatedAt" DESC, "kind" ASC, "recordId" ASC`;
-  return rows.map(row => unseal<WorkspaceRecordState>(userId, agentId, `record-state:${row.kind}`, row.recordId, row.payload));
+  return rows.map(row => {const state=unseal<WorkspaceRecordState>(userId, agentId, `record-state:${row.kind}`, row.recordId, row.payload);return row.kind==="collaboration"?{...state,title:"合作记录"}:state;});
 }
 export async function getWorkspaceRecordStates(userId: string, agentId: string) {
   if (!await owned(userId, agentId)) throw new ControlError("连接不存在。", 404);
@@ -913,7 +972,7 @@ export async function saveWorkspaceRecordState(userId: string, agentId: string, 
       }
     }
     const title = kind === "contact" ? strings(contact?.aliases)[0] || string(contact?.name, string(contact?.alias, previous?.title || "联系人")) :
-      string(record(task?.scope).topic ?? record(task?.scope).goal ?? record(collaboration?.terms).topic, previous?.title || "合作记录");
+      "合作记录";
     const next: WorkspaceRecordState = { kind, id: recordId, deleted, updatedAt: Date.now(), title, relatedIds };
     if (previous && previous.id !== recordId) await tx.$executeRaw`DELETE FROM "WorkspaceRecordState" WHERE "agentId" = ${agentId} AND "kind" = ${kind} AND "recordId" = ${previous.id}`;
     await tx.$executeRaw`INSERT INTO "WorkspaceRecordState" ("agentId","kind","recordId","payload","updatedAt") VALUES (${agentId},${kind},${recordId},${seal(userId, agentId, `record-state:${kind}`, recordId, next)},${next.updatedAt})

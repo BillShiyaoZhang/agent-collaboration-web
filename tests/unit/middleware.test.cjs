@@ -136,7 +136,7 @@ test("authentication middleware", { concurrency: false }, async (t) => {
     });
 
     await t.test("allows the public app pages, login, registration and auth routes without a session", async () => {
-      for (const pathname of ["/", "/docs", "/docs/", "/docs/?path=deploy%2FREADME.md", "/login", "/register", "/forgot-password", "/resend-verification", "/verify-email", "/reset-password", "/confirm-password-change", "/api/auth/session", "/api/auth/callback/credentials"]) {
+      for (const pathname of ["/", "/docs", "/docs/", "/docs/?path=deploy%2FREADME.md", "/privacy", "/privacy/", "/community", "/community/", "/login", "/register", "/forgot-password", "/resend-verification", "/verify-email", "/reset-password", "/confirm-password-change", "/api/auth/session", "/api/auth/callback/credentials"]) {
         assertAllowed(await middleware(request(productionOrigin, pathname)));
       }
     });
@@ -148,7 +148,7 @@ test("authentication middleware", { concurrency: false }, async (t) => {
     });
 
     await t.test("keeps similarly named pages private", async () => {
-      for (const pathname of ["/documentation", "/docs-extra", "/docs/private", "/docs/source-extra/deploy/README.md"]) {
+      for (const pathname of ["/documentation", "/docs-extra", "/docs/private", "/docs/source-extra/deploy/README.md", "/privacy-extra", "/privacy/private", "/community-extra", "/community/private"]) {
         assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
       }
     });
