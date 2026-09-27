@@ -148,6 +148,7 @@ test("a missing managed grant re-enrolls once and resends the identical v1 envel
       ciphertext:Buffer.from("same wire"),tag:Buffer.alloc(16,3),messageId:"managed-retry"},owner.ed.privateKey);
     const envelope=proto.encodeEncryptedEnvelope(signed).toString("base64"), bodies=[];
     global.fetch=async(url,init)=>{
+      if(url.endsWith("/api/v1/registry/register"))return Response.json({ok:true});
       assert.ok(url.endsWith("/api/v1/mq/store"));
       bodies.push(init.body);
       return bodies.length===1 ? Response.json({error:"grant not registered"},{status:400})
@@ -238,7 +239,7 @@ test("deletion while checking managed access prevents the pending send or retrie
 test("deletion after a rejected first send prevents both enrollment and retry", async () => {
   await accountTransportCase(async({user,recipient,envelope,deadline})=>{
     let requests=0;
-    global.fetch=async()=>{requests++;activeAccount=false;return Response.json({error:"grant unavailable"},{status:403});};
+    global.fetch=async(url)=>{if(url.endsWith("/api/v1/registry/register"))return Response.json({ok:true});requests++;activeAccount=false;return Response.json({error:"grant unavailable"},{status:403});};
     await assert.rejects(transport.submitEnvelope(user,envelope,recipient,deadline),error=>error instanceof transport.ControlError&&error.status===401);
     assert.equal(requests,1);assert.deepEqual(managedGateCalls,[false]);
   });
@@ -247,7 +248,7 @@ test("deletion after a rejected first send prevents both enrollment and retry", 
 test("deletion during forced enrollment prevents the identical retry from leaving Web", async () => {
   await accountTransportCase(async({user,recipient,envelope,deadline})=>{
     let requests=0;
-    global.fetch=async()=>{requests++;return Response.json({error:"grant unavailable"},{status:400});};
+    global.fetch=async(url)=>{if(url.endsWith("/api/v1/registry/register"))return Response.json({ok:true});requests++;return Response.json({error:"grant unavailable"},{status:400});};
     managedGateEffect=async force=>{if(force)activeAccount=false;};
     await assert.rejects(transport.submitEnvelope(user,envelope,recipient,deadline),error=>error instanceof transport.ControlError&&error.status===401);
     assert.equal(requests,1);assert.deepEqual(managedGateCalls,[false,true]);
