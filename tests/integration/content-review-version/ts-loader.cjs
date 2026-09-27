@@ -1,0 +1,2 @@
+const fs=require('node:fs'),ts=require('typescript');
+module.exports=function(source){const options=this.getOptions();if(options.variant==='old'&&this.resourcePath.replaceAll('\\','/').endsWith('/components/content-review-page.tsx'))source=fs.readFileSync(options.baseline,'utf8');return ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;};

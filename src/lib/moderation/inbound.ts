@@ -106,7 +106,12 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
     if (review.status === "approved" && !isRemoved) return {...body,content_review:review};
     return {...safeFields(body,["message_id","sender_urn","kind","received_at","created_at","read","read_at","task_id","unknown_sender"]),text:CONTENT_PENDING,content_review:isRemoved?{...review,status:"rejected"}:review};
   }
-  if(method==="inbox.review_preview") { await message(data); return {...safeFields(data,["message_id","sender_urn","kind","received_at","status","fingerprint"]),text:CONTENT_PENDING}; }
+  if(method==="inbox.review_preview") {
+    const projected=await message(data);
+    // Keep the server-bound review reference on the saved masked snapshot.
+    // Reapplying this gate must not queue its placeholder as a new peer body.
+    return {...safeFields(data,["message_id","sender_urn","kind","received_at","status","fingerprint"]),text:CONTENT_PENDING,content_review:projected.content_review};
+  }
   if (Array.isArray(data.messages)) data.messages=await Promise.all(records(data.messages).map(message));
   if (Array.isArray(data.inbox)) data.inbox=await Promise.all(records(data.inbox).map(message));
   else if (Array.isArray(record(data.inbox).messages)) data.inbox={...safeSocialMetadata(record(data.inbox)) as RemoteRecord,messages:await Promise.all(records(record(data.inbox).messages).map(message))};

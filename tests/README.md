@@ -233,3 +233,26 @@ MouseEvent 的 truthy 值不能被误认为后台刷新标志。它有意允许�
 不使用 `.next`、真实身份、业务状态或共享 fixture 的 3061～3063 端口。
 `PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 可指定已有浏览器工具。
 这项检查验证通知后台更新的渲染契约；完整 Next.js 页面重新加载仍需上述共享许可浏览器验收。
+
+### 本机完整预览与历史网站版本
+
+`node --test tests/unit/moderation-native-projection.test.cjs` 使用真实临时 Prisma/SQLite 验证
+六个场景：完整预览保存后反复读取仅保留原记录、三个审核状态、历史占位不恢复、
+真实正文等于占位时仍独立审核，以及伪造或跨账户/Agent/类型/消息引用不能解开内容。
+
+运行 `node --test tests/unit/native-review-preview.test.cjs`（8 项）及
+`node tests/integration/content-review-version-browser.cjs`（23 个场景）。浏览器脚本使用实际
+`ContentReviewPage`、`Button`、`WorkbenchClient` 和 Next.js 自带的 React；固定
+`a919245809b5c37f634459f76b1960296ab0327a` 组件为负例，验证较新占位版本遮住较早完整正文，
+当前组件须选择与本机完整预览精确匹配的网站版本。已拒绝匹配优先，其中旧正文省略自身
+`kind` 时遵循 SDK 的 `chat.message` 缺省值，不能绕过拒绝。
+
+覆盖只有占位、错误发送者/消息/类型/摘要/目标/记录、超过四个候选、无读取或写入能力、
+本机截断或异常响应、未勾选同意、忙碌重复点击、换账户和失焦；实际按钮与 HTTP 回执断言
+本机审核先于确切网站 ID/摘要决定且各只执行一次。已有本机批准不重放；本机回执刻意延迟时
+失焦或换账户必须停止后续网站批准。所有场景要求无页面错误和外部网络请求。
+
+Webpack、报告和快照只写入 `build/workspace-sync-preview/content-review-version/`。
+脚本使用随机 loopback 端口，不改 `.next`，不使用真实身份、数据库、业务状态或共享
+3061～3063 fixture；可通过 `PLAYWRIGHT_MODULE`、`CHROME_EXECUTABLE` 指定已有工具。
+这些回归不代表生产部署或真实 Agent 业务已经通过。

@@ -10,6 +10,8 @@
 
 记录使用规范 JSON 的 SHA-256 作为确切版本摘要，完整审核证据加密保存到 `ModerationContent`；未标记内容同样隔离。占位为 `content_review:{status:'pending'|'rejected',reviewId,digest}`；仅已批准的确切证据回填正文并标记 `approved`。正文改变要重新审核，已屏蔽和运营者移除的目标不能批准。网站显式敏感预览是主人判断的入口；App 默认入口只显示元数据并链接该网站。
 
+保存 `inbox.review_preview` 的遮罩快照时保留服务端绑定的 `content_review`，后续快照读取与投影沿用同一完整内容记录，不将占位文字排入新的正文审核。已有历史占位记录仍保留其独立摘要与决定；真实正文恰好等于占位文字时也必须独立审核。标记须重新核对账户、Agent、内容类型、消息 ID 和摘要，不能由客户端伪造引用解开其他内容。真实临时 SQLite 回归见 `tests/unit/moderation-native-projection.test.cjs`。
+
 私人助手普通问答和历史没有进入运营审核队列。仅针对真实单回合举报的 `hide` 决定，移除那份回复及其搜索/分页/预览投影。Web 无法证明旧 Agent 本地模型曾经如何使用对端正文；新 `conversation.send` 必须具有通过认证 RPC 保存的 `peer_content_safety:{version:1,mode:'owner_review',automatic_peer_model_execution:false}`，缺失即升级提示且不创建提交记录。`peer_content_safety_required` 证明新请求未受理；`peer_content_safety_changed` 表示已受理回合宿主变化，保持结果不确定并只核实既有会话。
 
 ## Agent 安全动作
