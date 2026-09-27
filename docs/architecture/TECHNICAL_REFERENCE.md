@@ -315,3 +315,5 @@ Loopback workspace fixture 没有模型/工具执行，并实际按原对端记�
 ## 对端内容隔离与持久举报
 
 Web 在认证响应保存、直接控制响应和旧快照读取时统一隔离未经审核的对端自由文本。跨端 `contentSafety` 与 `content_review` 标记、SDK 主人审核/安全 revision、精确报告 ID、最小证据、数据库队列和实际管理员 CLI 见 [内容安全契约](CONTENT_SAFETY.md) 与 [举报处理运行手册](../operations/MODERATION.md)。普通私人助手历史不自动送运营者审核；只针对已举报记录的明确移除决定执行投影隐藏。实际负责人和及时响应安排仍须运营者完成。
+
+`inbox.review` 的认证回执只有在确切消息 ID、完整发送者 URN、`approved`/`rejected` 状态和 64 位小写十六进制指纹均合法时保留顶层 `fingerprint`，供界面与原完整预览核对。它不批准网站展示，也不放行附加正文、嵌套指纹或其他方法中的同名字段；网站仍需原内容的独立预览、明确同意和决定。已保存的 `ControlRequest.responseEnvelope` 保留原签名线字节，读取原请求时重新认证和投影，可核实已有本机决定，不能为了恢复界面重发已成功的审核。

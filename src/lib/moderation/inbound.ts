@@ -68,6 +68,15 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
   if (!["inbox.list","inbox.mark_read","inbox.review_preview","collaboration.state","contacts.requests","contacts.list","attention.list",...socialWrites].includes(method)) return original;
   const data:RemoteRecord=JSON.parse(JSON.stringify(original));
   data.contentSafety={version:1};
+  // A paired host's review receipt binds the owner's decision to the exact
+  // full preview. Preserve only this typed digest, never arbitrary strings
+  // called fingerprint elsewhere or additional peer content on the receipt.
+  const reviewFingerprint=method==="inbox.review" && stable(data.message_id)
+    && typeof data.sender_urn==="string" && data.sender_urn.length<=256
+    && /^urn:[A-Za-z0-9][A-Za-z0-9._:-]*:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.sender_urn)
+    && ["approved","rejected"].includes(string(data.status))
+    && typeof data.fingerprint==="string" && /^[a-f0-9]{64}$/.test(data.fingerprint)
+    ? data.fingerprint : undefined;
   let safety=await db.$queryRaw<{urn:string;blocked:number;revision:number}[]>`SELECT s."urn",s."blocked",s."revision" FROM "WorkspacePeerSafety" s JOIN "Agent" a ON a."id"=s."agentId" WHERE s."agentId"=${agentId} AND a."userId"=${userId}`;
   const latest=Math.max(0,...safety.map(peer=>peer.revision));
   if((method==="contacts.list" || method==="collaboration.state") && Number.isSafeInteger(data.safety_revision) && Number(data.safety_revision)>=latest && Array.isArray(data.blocked_peers)) {
@@ -163,5 +172,6 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
   const projected=new Set(["contacts","blocked_peers","messages","inbox","message","pending_review","review_policy","collaboration","collaboration_v2","collaborations","invitations","contact_requests","requests","sent_messages","tasks","resources","operations","pending_confirmations","approval_decisions","events","proposals","agreements","dependencies","contentSafety","safety_revision","items"]);
   if(method==="collaboration.state" || method==="inbox.list" || method==="contacts.list" || method==="contacts.requests" || method==="inbox.mark_read" || socialWrites.includes(method))for(const collection of collections)for(const [key,value] of Object.entries(collection))if(!projected.has(key))collection[key]=safeSocialMetadata(value,key);
   if(method==="attention.list") data.items=records(data.items).map(item=>record(item.target).kind!=="conversation" ? {...safeSocialMetadata(item) as RemoteRecord,title:"对端事项有更新",safe_summary:"请在网站核对对端内容后查看。"}:item);
+  if(reviewFingerprint)data.fingerprint=reviewFingerprint;
   return data;
 }

@@ -57,6 +57,31 @@ test("describe preserves only known action and argument enums, never arbitrary r
  const described=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,"collaboration.execute",{actions:["prepare_task","prepare_collaboration","dispatch","unreviewed-action-text"],business_capabilities:["propose_meeting","accept_meeting","unreviewed-capability-text"],action_fields:{prepare_task:{required:["task_id","scope","unreviewed-field-text"],optional:[]}},source_context_support:{rpc_param:"source_conversation_id",summary:"secret source text"},background_worker:{kind:"finite_deterministic_meeting",native_policy_required:true,max_runs:100,max_sends:32},instruction:"secret description instruction"});
  assert.ok(described.actions.includes("prepare_task")&&described.actions.includes("prepare_collaboration")&&described.actions.includes("dispatch"));assert.ok(described.business_capabilities.includes("accept_meeting"));assert.equal(described.action_fields.prepare_task.required[0],"task_id");assert.equal(described.source_context_support.rpc_param,"source_conversation_id");assert.equal(described.background_worker.kind,"finite_deterministic_meeting");assert.doesNotMatch(JSON.stringify(described),/unreviewed-|secret source|secret description/);
 }));
+test("exact native review receipts retain only their typed fingerprint so the independent website review can finish",()=>fixture(async({db,user,agent,save,store,content})=>{
+ const fingerprint=crypto.createHash("sha256").update("synthetic exact native wire").digest("hex");
+ const raw={message_id:"reviewed-peer-message",sender_urn:"urn:agent:peer",kind:"chat",text:"peer text still requires independent website approval",extra:{summary:"unknown incoming extension"}};
+ await save("inbox.list",{messages:[raw]});
+ for(const status of ["approved","rejected"]){
+  const result=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,"inbox.review",{message_id:raw.message_id,sender_urn:raw.sender_urn,status,fingerprint,text:raw.text,extra:{fingerprint,summary:raw.extra.summary}});
+  assert.equal(result.fingerprint,fingerprint);assert.equal(result.message_id,raw.message_id);assert.equal(result.sender_urn,raw.sender_urn);assert.equal(result.status,status);
+  assert.equal(result.text,inbound.CONTENT_PENDING);assert.equal(result.extra.fingerprint,inbound.CONTENT_PENDING);assert.equal(result.extra.summary,inbound.CONTENT_PENDING);
+ }
+ await save("inbox.review",{message_id:raw.message_id,sender_urn:raw.sender_urn,status:"approved",fingerprint});
+ let view=await store.getWorkspaceAgent(user.id,agent.id,"private-chat");assert.equal(view.snapshots["inbox.review"].data.fingerprint,fingerprint);
+ assert.equal(view.snapshots["inbox.list"].data.messages[0].content_review.status,"pending");assert.doesNotMatch(JSON.stringify(view),/peer text still|unknown incoming extension/);
+ const queued=(await content.list(user.id,agent.id)).items.find(item=>item.target.id===raw.message_id),preview=await content.action(user.id,{action:"preview",id:queued.id});assert.equal(preview.body.text,raw.text);
+ await content.action(user.id,{action:"decide",id:queued.id,digest:queued.digest,decision:"approve",previewToken:preview.previewToken,consent:true});
+ view=await store.getWorkspaceAgent(user.id,agent.id,"private-chat");assert.equal(view.snapshots["inbox.list"].data.messages[0].text,raw.text);assert.equal(view.snapshots["inbox.list"].data.messages[0].content_review.status,"approved");
+}));
+test("review receipt fingerprint exceptions reject malformed, missing, lookalike and other-method values",()=>fixture(async({db,user,agent})=>{
+ const fingerprint="a".repeat(64),base={message_id:"reviewed-message",sender_urn:"urn:agent:peer",status:"approved",fingerprint};
+ const invalid=[{fingerprint:"a".repeat(63)},{fingerprint:"A".repeat(64)},{fingerprint:"g".repeat(64)},{fingerprint:"unreviewed arbitrary fingerprint"},{message_id:""},{message_id:"free text masquerading as id"},{sender_urn:"not an authenticated urn"},{sender_urn:"urn:free text"},{sender_urn:"urn:only-one-part"},{sender_urn:"urn:x"},{sender_urn:"urn::"},{sender_urn:"urn:---"},{sender_urn:"urn:agent:"+"x".repeat(250)},{status:"pending"},{status:"completed"}];
+ for(const change of invalid){const result=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,"inbox.review",{...base,...change});assert.equal(result.fingerprint,inbound.CONTENT_PENDING);}
+ for(const field of ["message_id","sender_urn","status"]){const result={...base};delete result[field];assert.equal((await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,"inbox.review",result)).fingerprint,inbound.CONTENT_PENDING);}
+ const missing={...base};delete missing.fingerprint;assert.equal((await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,"inbox.review",missing)).fingerprint,undefined);
+ for(const method of ["messages.send","approval.respond","collaboration.execute","collaboration.state","inbox.list"]){assert.equal((await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,method,base)).fingerprint,inbound.CONTENT_PENDING);}
+ assert.equal(inbound.safeSocialMetadata({fingerprint}).fingerprint,inbound.CONTENT_PENDING);
+}));
 test("a masked exact authorization card cannot be approved or denied until its current full question is reviewed",()=>{
  const workflow=load("../../src/components/workbench/collaboration-workflow-model.ts",{"@agent-comm/client-contract":require("@agent-comm/client-contract")});
  const Button=({children,disabled,type})=>React.createElement("button",{disabled,type},children),Link=({children,href})=>React.createElement("a",{href},children);
