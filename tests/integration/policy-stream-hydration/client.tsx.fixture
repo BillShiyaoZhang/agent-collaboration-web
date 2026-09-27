@@ -1,0 +1,7 @@
+import React from 'react';
+import {hydrateRoot} from 'react-dom/client';
+import {App} from './app.tsx.fixture';
+(window as any).__recoverable=[];
+(window as any).__serverTemplate=document.querySelector("[data-template]");
+(window as any).__templatePending=new Promise(resolve=>setTimeout(()=>{(window as any).__templateReady=true;resolve(true)},1500));
+hydrateRoot(document.getElementById('root')!,<App/>,{onRecoverableError:(error:any,info:any)=>{(window as any).__recoverable.push({message:error.message,stack:info.componentStack})}});

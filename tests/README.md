@@ -203,3 +203,10 @@ Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实
 ## 内容安全与举报
 
 `npm run test:moderation` 使用真实临时 SQLite 校验未标记对端正文隔离、确切版本主人批准、旧快照/详情和嵌套协作过滤、ACL revision 竞态、协议元数据、私人单回合举报移除/搜索、最小证据/过期凭证幂等、HTTP Origin/会话/大小限制、持久速率、真实 CLI 权限及令牌文件、公开回复与账户删除隔离。也以实际 React SSR 挂载删除组件确认不依赖不存在的 SessionProvider。该隔离验证不访问生产，不证明实际部署已经有人响应举报。
+
+
+### 后台政策刷新与迟到的页面模板
+
+运行 `node tests/integration/policy-stream-hydration-browser.cjs`，不需要 Next.js fixture、账号或网络服务。它使用真实 `PolicyDisclosureGate`、生产 React `renderToPipeableStream` / `hydrateRoot` 和 loopback 临时 HTTP 服务；固定旧提交 `43fe9d7` 为负例。Template 仍等待客户端时，旧版普通 refresh 更新会移走原 SSR 节点，新版后台 transition 必须保持原节点及其可见内容；随后当前政策仍生效，用户点击暂停立即撤回权限。
+
+这项回归断言模板被移走的原因，不刻意令普通 React Suspense 抛 Next.js 的 `#418` 或 `$RS` 异常；实际 Next.js 原页面还需串行运行 `agent-sharing-browser.cjs`，包含举报回执丢失后的完整重新加载。Webpack 编译和报告仅写入 `build/workspace-sync-preview/policy-stream-hydration/`，不访问生产或派发业务。可用 `PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 指定已安装的浏览器依赖。

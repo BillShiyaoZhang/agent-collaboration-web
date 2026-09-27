@@ -1,0 +1,5 @@
+import React from 'react';
+import {renderToPipeableStream} from 'react-dom/server';
+import {PassThrough} from 'node:stream';
+import {App} from './app.tsx.fixture';
+export function stream(variant:string){const output=new PassThrough();const rendered=renderToPipeableStream(<html><head/><body><div id="root"><App server/></div></body></html>,{bootstrapScripts:['/'+variant+'-web.cjs'],onAllReady(){rendered.pipe(output);}});return output;}
