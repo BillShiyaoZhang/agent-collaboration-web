@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { homeContentHtml } from "./home-content";
 import { PublicFooter, PublicNavigation, usePublicLanguage } from "./public-navigation";
 import "./home.css";
+import "./hero-scene.css";
+
+// Keep React from replacing the effect-managed DOM when hydration readiness
+// changes. Copy listeners and translated markup belong to this same subtree.
+const initialHomeMarkup = { __html: homeContentHtml };
 
 function legacyCopy(value: string): boolean {
   const temporary = document.createElement("textarea");
@@ -103,8 +108,7 @@ export function HomeExperience() {
   return (
     <div className={`public-site public-home${hydrated ? "" : " no-js"}`} onClick={navigateWithinApp}>
       <PublicNavigation current="home" language={language} onLanguageChange={setLanguage} homeSections />
-      <p className="wrap agent-install-banner"><a href="/agent-install.md">{language === "en" ? "Installing from an agent? Read the current guide: one setup command, then confirm in Web." : "让 agent 安装？阅读当前接入指南：一条安装命令，网页确认后自动完成配对。"}</a></p>
-      <main id="main" ref={main} dangerouslySetInnerHTML={{ __html: homeContentHtml }} />
+      <main id="main" ref={main} dangerouslySetInnerHTML={initialHomeMarkup} />
       <PublicFooter language={language} />
     </div>
   );

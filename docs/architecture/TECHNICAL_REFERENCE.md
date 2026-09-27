@@ -195,6 +195,8 @@ node tests/integration/workspace-resilience.cjs
 
 `/dashboard/chats` 的名称为“我的 agents”，桌面三栏为主导航、agent/会话列表和直接可输入的聊天框，消息区域独立滚动。默认选中可用连接，多个连接也不需要先进入卡片；手机采用列表切换。`/dashboard/contacts`、`/dashboard/collaborations`、`/dashboard/me` 各自渲染专用内容。`/dashboard/connections?agent=...` 处理所选连接设置，`/dashboard/agents` 仅管理连接。旧 `/dashboard/agents/:id?tab=...` 在账户所有权验证后跳转专页，保留原主题、事项和回合定位参数；不再展示混合标签页。
 
+工作空间使用暖白底色、墨绿导航选中态、浅绿本人消息与白色 Agent 回复。`globals.css` 的 `.dashboard-shell` 局部颜色变量只作用于控制台，公开官网由独立样式控制；`.agent-avatar` 使用 `public/brand/agent-loop-sage.png` 作为无自定义头像时的装饰图形，不能用图形或颜色推断身份认证、在线、授权或业务完成。Agent 列表仍展示实际同步状态；主题标题来自账户保存记录。手机保留列表抽屉、底部导航和可滚动的内容共享说明，输入区在放大文字时允许局部滚动；键盘焦点与减少动态效果设置继续生效。视觉更新不改变共享许可、配对、原请求核实或记录管理的规则。
+
 - `PATCH /api/agents/:id` 同源改名；`DELETE` 移除此账户的连接与级联副本，不删除 agent 本机数据或撤销配对。
 - 会话 metadata 的 `deleted` 保存删除状态；列表默认排除已删主题，可通过 deleted 筛选恢复。后台同步和迟到草稿保存不能清除删除标记；删除当前主题会清理当前网页选择与本地草稿缓存。
 - `GET/POST /api/agents/:id/workspace/records` 保存联系人/合作的账户显示状态。合作的 task/collaboration 稳定 ID 归并，原 agent 快照仍作为业务事实，删除状态不冒充本机删除或业务取消。
