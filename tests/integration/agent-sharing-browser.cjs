@@ -3,8 +3,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const base = process.env.WORKSPACE_BROWSER_URL || 'http://127.0.0.1:3062';
 assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname), 'Only a loopback fixture is permitted');
+const chatChunkDelay = Number(process.env.WORKSPACE_CHAT_CHUNK_DELAY_MS || 0);
+assert.ok(Number.isInteger(chatChunkDelay) && chatChunkDelay >= 0 && chatChunkDelay <= 5000, 'Synthetic client chunk delay must be 0–5000ms');
 const out = path.resolve(__dirname, '../../build/agent-sharing-preview');
 const calls = [], errors = [], checks = []; let browser, page;
+let delayedChatChunks = 0;
 const sendCount = () => calls.filter(call => call.method === 'conversation.send').length;
 const composer = () => page.getByRole('textbox', { name: '给 agent 的消息', exact: true });
 const send = () => page.getByRole('button', { name: '发送消息', exact: true });
@@ -36,6 +39,19 @@ async function main() {
  await publicPage.setViewportSize({width:320,height:844}); await publicPage.goto(base+'/community'); await publicPage.getByRole('heading',{name:'Content standards',exact:true}).waitFor(); await publicPage.screenshot({path:path.join(out,'community-en-320.png'),fullPage:true}); await publicContext.close();
  checks.push('匿名公开内容规范两语言、320/768/1366无横向溢出、键盘跳转和确切审核入口');
  const context = await browser.newContext({ viewport: { width: 1366, height: 768 }, ignoreHTTPSErrors: new URL(base).protocol === 'https:' }); page = await context.newPage(); page.setDefaultTimeout(30000);
+ if (chatChunkDelay) {
+  await context.route('**/_next/static/chunks/app/dashboard/chats/page-*.js', async route => {
+   await new Promise(resolve => setTimeout(resolve, chatChunkDelay)); delayedChatChunks++; await route.continue();
+  });
+  await context.addInitScript(() => {
+   // Observe the original streamed node before the delayed client module arrives.
+   const capture = () => {
+    const template = document.querySelector('#main-content .page-enter');
+    if (template) { window.__streamedTemplate = template; observer.disconnect(); }
+   };
+   const observer = new MutationObserver(capture); observer.observe(document, { childList:true, subtree:true }); capture();
+  });
+ }
  page.on('pageerror', error => errors.push(error.message));
  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/control')) calls.push(request.postDataJSON()); });
  await login(context.request); await page.goto(base + '/dashboard/chats?agent=agent-a1'); await composer().waitFor();
@@ -74,6 +90,7 @@ async function main() {
  const originalReportId=reportBody.reportId;
  assert.equal(await page.evaluate(id=>Object.keys(localStorage).filter(key=>key.startsWith('content-report:v1:')).some(key=>JSON.parse(localStorage.getItem(key)).reportId===id),originalReportId),true);
  await page.reload(); await composer().waitFor();
+ if (chatChunkDelay) assert.equal(await page.evaluate(() => window.__streamedTemplate?.isConnected), true, 'Late Flight hydration must retain the original saved SSR page');
  await page.getByRole('group',{name:/^举报 Agent 回复 /}).first().getByRole('button',{name:'举报内容',exact:true}).click();
  await dialog().getByRole('button',{name:'核实原举报',exact:true}).click();
  await dialog().getByRole('link',{name:'查看我的举报',exact:true}).waitFor();
@@ -90,6 +107,7 @@ async function main() {
  await page.getByRole('button', { name: '与 同步测试 A1 聊天', exact: true }).click(); await page.getByRole('region', { name: '与 同步测试 A1 对话', exact: true }).waitFor(); await page.getByRole('button', { name: '管理共享许可，尚未允许', exact: true }).first().waitFor();
  checks.push('切换Agent并切回都不恢复旧许可');
  await manage(); await approve(); await page.reload(); await composer().waitFor(); await page.getByRole('button', { name: '管理共享许可，尚未允许', exact: true }).first().waitFor();
+ if (chatChunkDelay) assert.equal(await page.evaluate(() => window.__streamedTemplate?.isConnected), true, 'Cold reload must preserve the streamed page node');
  checks.push('冷页面重新加载不保存许可');
  await manage(); await approve(); await login(context.request); await composer().fill('重新登录必须再次许可'); await send().click(); await page.getByRole('button', { name: '管理共享许可，尚未允许', exact: true }).first().waitFor(); assert.equal(sendCount(), 1);
  checks.push('同账户重新登录使旧登录会话许可失效');
@@ -98,6 +116,7 @@ async function main() {
  assert.ok(bounds.left>=0 && bounds.right<=bounds.width+1 && bounds.top>=0 && bounds.bottom<=bounds.height+1, JSON.stringify(bounds));
  await dialog().getByRole('button', { name: '同意共享并返回', exact: true }).scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(out,'sharing-320x640.png'), fullPage: true }); await approve(); assert.equal(sendCount(), 1);
  checks.push('320×640说明可滚动且同意/拒绝可触达，无横向溢出');
- assert.deepEqual(errors, []); fs.writeFileSync(path.join(out,'results.json'), JSON.stringify({ passed:true, checks, errors, contentSends:sendCount() },null,2)); console.log(JSON.stringify({ passed:true, checks }));
+ if (chatChunkDelay) assert.ok(delayedChatChunks >= 2, 'The regression must delay actual chat chunks across reloads');
+ assert.deepEqual(errors, []); fs.writeFileSync(path.join(out,'results.json'), JSON.stringify({ passed:true, checks, errors, contentSends:sendCount(), chatChunkDelay, delayedChatChunks, ...(chatChunkDelay ? { originalStreamedPagePreserved:true } : {}) },null,2)); console.log(JSON.stringify({ passed:true, checks, chatChunkDelay, delayedChatChunks }));
 }
 main().catch(async error => { console.error(error.stack); if(page) { try { await page.screenshot({ path:path.join(out,'failure.png'), fullPage:true }); fs.writeFileSync(path.join(out,'failure.json'), JSON.stringify({ error:error.message, body:await page.locator('body').innerText(), calls, errors },null,2)); } catch {} } process.exitCode=1; }).finally(async()=>{ if(browser) await browser.close(); });

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { startTransition, createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { availableMethods, pairingAllowsSend, WorkbenchClient } from "@agent-comm/client-contract";
 import type { NotificationPage, WorkspaceAgent, WorkspaceNotification } from "@agent-comm/client-contract";
 import { workspaceRequest } from "@/components/workspace-provider";
@@ -67,9 +67,9 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
       readSupportPending.current.add(agentId);
       try {
         const workspace = await workspaceRequest<ReadSupport>(`/api/agents/${encodeURIComponent(agentId)}/workspace`, { signal });
-        if (!signal.aborted) setReadSupport(previous => ({ ...previous, [agentId]: { workspace: { snapshots: { capabilities: workspace.snapshots.capabilities }, sync: workspace.sync } } }));
+        if (!signal.aborted) startTransition(() => setReadSupport(previous => ({ ...previous, [agentId]: { workspace: { snapshots: { capabilities: workspace.snapshots.capabilities }, sync: workspace.sync } } })));
       } catch {
-        if (!signal.aborted) setReadSupport(previous => ({ ...previous, [agentId]: { error: "暂时无法核验本机已读能力，请恢复连接后刷新。" } }));
+        if (!signal.aborted) startTransition(() => setReadSupport(previous => ({ ...previous, [agentId]: { error: "暂时无法核验本机已读能力，请恢复连接后刷新。" } })));
       } finally { readSupportPending.current.delete(agentId); readSupportChecked.current.set(agentId, Date.now()); }
     }));
   }, []);
@@ -83,8 +83,8 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
     try {
       const settings = await workspaceRequest<PushSettings>(`/api/notifications/push?deviceId=${encodeURIComponent(device.current)}`, { signal });
       if (signal?.aborted || generation !== pushGeneration.current) return;
-      if (settings.accountId !== accountId) { pushRef.current = false; setBackground(false); throw new Error("登录账号已变化，请刷新页面。"); }
-      setPushAvailable(settings.available);
+      if (settings.accountId !== accountId) { pushRef.current = false; startTransition(() => setBackground(false)); throw new Error("登录账号已变化，请刷新页面。"); }
+      startTransition(() => setPushAvailable(settings.available));
       const active = await browserPushTransition(async () => {
         if (signal?.aborted || generation !== pushGeneration.current) return false;
         if (settings.subscription && !enabledRef.current) { await clearBrowserPush(); await workspaceRequest("/api/notifications/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "revoke", deviceId: device.current }), signal }); }
@@ -99,20 +99,26 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
         return bound;
       });
       if (signal?.aborted || generation !== pushGeneration.current) return;
-      pushRef.current = active; setBackground(active);
+      pushRef.current = active;
       const labels: Record<string, string> = { pending: "推送已排队", sending: "正在联系浏览器推送服务", sent: "推送服务已接收，等待浏览器回执", received: "浏览器已收到推送", deferred: "页面在前台，离开后会在有效期内继续尝试提醒", displayed: "浏览器已接受显示请求；是否弹出横幅由系统设置决定", suppressed: "此设备已处理该提醒", expired: "提醒已过期或状态已更新", failed: "推送未能送达，请重新开启或稍后测试", display_error: "浏览器未接受显示请求，请检查网站通知权限" };
-      if (settings.lastDelivery) setDiagnostic(labels[settings.lastDelivery.status] || "推送状态已更新");
-      else if (!settings.available) setDiagnostic("服务器尚未启用后台推送；页面打开时的提醒仍可使用。");
-      else if (enabledRef.current && !active) setDiagnostic("当前仅在页面打开时提醒。可开启后台推送，关闭页面后继续接收。");
-    } catch (failure) { if (!lifetime.current?.signal.aborted) setDiagnostic(failure instanceof Error ? failure.message : "无法读取后台推送状态。"); }
+      startTransition(() => {
+        setBackground(active);
+        if (settings.lastDelivery) setDiagnostic(labels[settings.lastDelivery.status] || "推送状态已更新");
+        else if (!settings.available) setDiagnostic("服务器尚未启用后台推送；页面打开时的提醒仍可使用。");
+        else if (enabledRef.current && !active) setDiagnostic("当前仅在页面打开时提醒。可开启后台推送，关闭页面后继续接收。");
+      });
+    } catch (failure) { if (!lifetime.current?.signal.aborted) startTransition(() => setDiagnostic(failure instanceof Error ? failure.message : "无法读取后台推送状态。")); }
     finally { pushRefreshing.current = false; }
   }, [accountId]);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (backgroundRefresh = false) => {
     const signal = lifetime.current?.signal;
     if (!signal || signal.aborted || reading.current) return;
     reading.current = true;
-    try { const value = await workspaceRequest<NotificationPage>("/api/notifications", { signal }); if (!signal.aborted) { setPage(value); setError(""); } }
-    catch (failure) { if (!signal.aborted) setError(failure instanceof Error ? failure.message : "提醒暂时无法更新。"); }
+    // An urgent provider update can restart a still-hydrating Next Template.
+    // Background publication must retain streamed HTML; explicit actions stay urgent.
+    const publish = (update: () => void) => backgroundRefresh === true ? startTransition(update) : update();
+    try { const value = await workspaceRequest<NotificationPage>("/api/notifications", { signal }); if (!signal.aborted) publish(() => { setPage(value); setError(""); }); }
+    catch (failure) { if (!signal.aborted) publish(() => setError(failure instanceof Error ? failure.message : "提醒暂时无法更新。")); }
     finally { reading.current = false; }
   }, []);
   useEffect(() => {
@@ -120,20 +126,20 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
     let timer: ReturnType<typeof setTimeout>, running = true;
     const restore = () => {
       const supported = "Notification" in window && window.isSecureContext;
-      setPermission(supported ? Notification.permission : "unsupported");
+      startTransition(() => setPermission(supported ? Notification.permission : "unsupported"));
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
         device.current = typeof saved.deviceId === "string" && /^[a-f0-9-]{36}$/i.test(saved.deviceId) ? saved.deviceId : crypto.randomUUID();
         const nextEnabled = supported && saved.enabled === true && Notification.permission === "granted";
         if (enabledRef.current !== nextEnabled) pushGeneration.current++;
         enabledRef.current = nextEnabled;
-        setEnabled(enabledRef.current);
+        startTransition(() => setEnabled(enabledRef.current));
         localStorage.setItem(storageKey, JSON.stringify({ deviceId: device.current, enabled: enabledRef.current }));
-      } catch { device.current = ""; enabledRef.current = false; setEnabled(false); }
+      } catch { device.current = ""; enabledRef.current = false; startTransition(() => setEnabled(false)); }
     };
     restore();
     void (async () => { try { await browserPushTransition(async () => { if (controller.signal.aborted) return; const previous = localStorage.getItem(PUSH_OWNER_KEY); if (previous && previous !== accountId) await clearBrowserPush(); }); } catch {} await refreshPush(); })();
-    const tick = async () => { clearTimeout(timer); await refresh(); await refreshPush(); if (running) timer = setTimeout(tick, document.hidden ? 15000 : 5000); };
+    const tick = async () => { clearTimeout(timer); await refresh(true); await refreshPush(); if (running) timer = setTimeout(tick, document.hidden ? 15000 : 5000); };
     const resume = () => { restore(); void tick(); };
     window.addEventListener("online", resume); window.addEventListener("storage", restore); document.addEventListener("visibilitychange", resume);
     void tick();
@@ -143,8 +149,8 @@ export function NotificationProvider({ accountId, children }: { accountId: strin
 
   useEffect(() => {
     let wasFocused = false;
-    const update = () => { const next = browserIsAway(document.hidden, document.hasFocus()); setAway(next); if (pushRef.current && device.current && (!next || wasFocused)) void pushRequest({ action: "presence", deviceId: device.current, focused: !next }).catch(() => {}); wasFocused = !next; };
-    const message = (event: MessageEvent) => { if (event.data?.type === "agent-comm-attention-refresh") void refresh(); };
+    const update = () => { const next = browserIsAway(document.hidden, document.hasFocus()); startTransition(() => setAway(next)); if (pushRef.current && device.current && (!next || wasFocused)) void pushRequest({ action: "presence", deviceId: device.current, focused: !next }).catch(() => {}); wasFocused = !next; };
+    const message = (event: MessageEvent) => { if (event.data?.type === "agent-comm-attention-refresh") void refresh(true); };
     update(); const timer = setInterval(() => { if (!browserIsAway(document.hidden, document.hasFocus())) update(); }, 10000);
     window.addEventListener("focus", update); window.addEventListener("blur", update); document.addEventListener("visibilitychange", update);
     navigator.serviceWorker?.addEventListener("message", message);

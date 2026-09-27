@@ -195,6 +195,8 @@ Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实
 
 构建 Web 后，以 `WORKSPACE_FIXTURE_HTTPS=1 node tests/integration/workspace-fixture.cjs` 启动上述 loopback fixture，再运行 `WORKSPACE_BROWSER_URL=https://127.0.0.1:3063 node tests/integration/agent-sharing-browser.cjs`。HTTPS 模式使用本机 OpenSSL 生成一次性的自签名测试证书，只绑定 loopback 代理，保留生产接口的 HTTPS 与 Origin 校验；浏览器只在已核对的 loopback 地址忽略此测试证书错误。可用 `PLAYWRIGHT_MODULE` 指向已有 Playwright 模块。
 
+同一门禁可另设 `WORKSPACE_CHAT_CHUNK_DELAY_MS=900`，只延迟真实聊天客户端 JS 的到达，覆盖服务端 HTML 已出现而 Flight/客户端尚未准备完的窗口。此模式保留完整共享许可与举报回执恢复流程，核对首次举报刷新和冷刷新仍保留原 SSR 页面节点，并要求所有 `pageerror` 为空；默认值 0 不拦截请求。它针对 Next 页面实际流边界，不能用单独 React provider 实验或忽略 React `#418` 替代。`DashboardContent` 的显式 Suspense 包围内容 host 和 Template，fallback 沿用真正的工作空间 loading 视图；内部 Next LoadingBoundary 安装前发生的 Flight suspend 也必须停在这个边界内。
+
 脚本验证真实说明 URL/URN、拒绝保留草稿、同意后不自动发送、修改后的明确提交、撤回仍可读取、Agent 切换、刷新、同账户重新登录以及 320×640 可滚动说明；也检查匿名内容规范的中英文、手机/平板/桌面布局和键盘跳转。举报场景明确同意但不附正文，在真实隔离后台保存后模拟丢失 HTTP 回执，检查刷新恢复原编号、Web Locks 与 GET 核实，不自动重发。输出仅写 `build/agent-sharing-preview/`。其他业务浏览器回归在正文外发前须通过独立“管理共享许可”入口明确同意；配对和业务核对不能替代此步骤。
 
 2026-09-27 本轮工作树已通过完整生产构建和上述 HTTPS Chromium 浏览器脚本的 9 组检查：唯一一次内容发送使用用户明确再次提交的当前草稿，举报 POST 仅一次且正文证据为空，原编号在刷新后由 GET 核实，页面运行错误为零。已视检 320×640 共享说明和举报核实截图。此证据仅覆盖新共享许可、公开规范和私人 Agent 回复举报流程；合成 runtime 没有执行模型或工具，不证明真实供应商配置、运营人员响应、生产部署或其他旧业务故事已验收。
@@ -210,3 +212,24 @@ Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实
 运行 `node tests/integration/policy-stream-hydration-browser.cjs`，不需要 Next.js fixture、账号或网络服务。它使用真实 `PolicyDisclosureGate`、生产 React `renderToPipeableStream` / `hydrateRoot` 和 loopback 临时 HTTP 服务；固定旧提交 `43fe9d7` 为负例。Template 仍等待客户端时，旧版普通 refresh 更新会移走原 SSR 节点，新版后台 transition 必须保持原节点及其可见内容；随后当前政策仍生效，用户点击暂停立即撤回权限。
 
 这项回归断言模板被移走的原因，不刻意令普通 React Suspense 抛 Next.js 的 `#418` 或 `$RS` 异常；实际 Next.js 原页面还需串行运行 `agent-sharing-browser.cjs`，包含举报回执丢失后的完整重新加载。Webpack 编译和报告仅写入 `build/workspace-sync-preview/policy-stream-hydration/`，不访问生产或派发业务。可用 `PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 指定已安装的浏览器依赖。
+
+### 后台通知更新与迟到的页面模板
+
+运行 `node tests/integration/notification-stream-hydration-browser.cjs`，无需 Next.js fixture、账号或 Platform。
+脚本直接编译当前 `NotificationProvider` 和实际 `useHydrated`，固定提交 `9baaf3e` 的通知组件为负对照；
+不会改写生产组件的 setter。服务端和浏览器统一使用 Next.js 自带的 React，并断言两端版本均为
+`19.2.0-canary-0bdb9206-20250818`，避免独立安装的 React 与真实 Next.js 页面使用不同 runtime。
+
+四个场景覆盖未开启的设备与已保存开启且浏览器已授权的设备，各自运行旧版和当前组件。
+客户端 Template 尚未就绪时，旧代码必须移走原 SSR 节点，当前代码必须保留该节点及其可见内容；
+随后真实通知计数和已保存设备授权仍须生效。显式关闭通知必须在刻意延迟的服务器撤销回执前
+立即更新页面与本地存储；直接挂到 `onClick` 的 `refresh` 还须处理真实 MouseEvent 并显示最新计数。
+两端不能出现 recoverable/page 错误，所有浏览器请求限于随机 loopback 端口。
+第五个场景在 Template 仍未就绪时点击这个真实 `onClick` 刷新按钮，最新计数必须立即生效；
+MouseEvent 的 truthy 值不能被误认为后台刷新标志。它有意允许明确操作更新未就绪的模板，
+区别于上述必须保留原 SSR 内容的后台发布。
+
+结果、旧源码快照和 bundle 仅写入 `build/workspace-sync-preview/notification-stream-hydration/`，
+不使用 `.next`、真实身份、业务状态或共享 fixture 的 3061～3063 端口。
+`PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 可指定已有浏览器工具。
+这项检查验证通知后台更新的渲染契约；完整 Next.js 页面重新加载仍需上述共享许可浏览器验收。

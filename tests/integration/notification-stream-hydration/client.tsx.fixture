@@ -1,0 +1,14 @@
+import React from "react";
+import { hydrateRoot } from "react-dom/client";
+import { App } from "./app.tsx.fixture";
+
+(window as any).__clientReactVersion = React.version;
+(window as any).__recoverable = [];
+(window as any).__serverTemplate = document.querySelector("[data-template]");
+(window as any).__templatePending = new Promise(resolve => {
+  // The driver releases the client after observing the original SSR node.
+  (window as any).__releaseTemplate = () => { (window as any).__templateReady = true; resolve(true); };
+});
+hydrateRoot(document.getElementById("root")!, <App />, {
+  onRecoverableError: (error: any, info: any) => (window as any).__recoverable.push({ message: error.message, stack: info.componentStack }),
+});
