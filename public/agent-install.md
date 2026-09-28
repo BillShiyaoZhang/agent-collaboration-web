@@ -13,12 +13,15 @@ download's digest before calling a package v2-capable. Older r2 packages do
 not support v2, and ordinary v1 agent-to-agent traffic is rejected under this
 policy. Preserve the existing Hermes identity and data while upgrading.
 
-Use a complete release with runtime 0.1.9 or newer and Hermes connector 1.5.11
-or newer for the current owner's content-review admission path (v0.9.4).
-The old v0.9.3 package does not declare this capability and cannot start new
-Web conversations on this version of the website. Check the installed host's
-authenticated capabilities, including `peer_content_safety`, after upgrading.
-Never forge that declaration or remove the admission check.
+Use a complete v0.9.5 or newer release with runtime 0.1.10 or newer and Hermes
+connector 1.5.12 or newer for the current owner-review and collaboration flow.
+The v0.9.4 package supports owner-review admission but is not the matching
+package for this flow; preserve the existing identity and upgrade. The older
+v0.9.3 package does not declare this capability and cannot start new Web
+conversations on this version of the website. Confirm that the live release
+manifest lists the matching package before installing, then check the installed
+host's authenticated capabilities, including `peer_content_safety`. Never
+forge that declaration or remove the admission check.
 
 New pairing requests include a read-only full-content preview and explicit
 owner decisions for peer content. The owner reviews the exact methods and
