@@ -36,10 +36,17 @@ export function websiteReviewPreview(chosen:ReviewItem,raw:unknown):ReviewPrevie
   return {item:item as ReviewItem,body,previewToken:preview.previewToken};
 }
 
-export function matchingNativeReview(previews:ReviewPreview[],remote:NativePreview):ReviewPreview|undefined {
+export function matchingNativeReview(previews:ReviewPreview[],remote:NativePreview,requested?:ReviewItem):ReviewPreview|undefined {
   const matching=previews.filter(preview=>preview.item.target.kind==="inbox" && preview.item.target.id===remote.message_id
     && preview.body.message_id===remote.message_id && preview.body.sender_urn===remote.sender_urn
     && preview.body.text===remote.text && (Object.hasOwn(preview.body,"kind")?preview.body.kind:"chat.message")===remote.kind);
   // An exact rejected version must never be bypassed by a pending/approved twin.
-  return matching.find(preview=>preview.item.status==="rejected") || matching[0];
+  const rejected=matching.find(preview=>preview.item.status==="rejected");
+  if(!requested)return rejected || matching[0];
+  const chosen=matching.find(preview=>preview.item.id===requested.id && preview.item.agentId===requested.agentId
+    && preview.item.digest===requested.digest && preview.item.target.kind===requested.target.kind
+    && preview.item.target.id===requested.target.id);
+  if(!chosen)return undefined;
+  if(rejected && rejected.item.id!==chosen.item.id)throw new Error("同一份内容已有拒绝版本，请刷新并核对该版本；不会改选或批准其他版本。");
+  return chosen;
 }

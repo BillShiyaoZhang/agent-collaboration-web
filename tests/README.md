@@ -237,15 +237,18 @@ MouseEvent 的 truthy 值不能被误认为后台刷新标志。它有意允许�
 ### 本机完整预览与历史网站版本
 
 `node --test tests/unit/moderation-native-projection.test.cjs` 使用真实临时 Prisma/SQLite 验证
-六个场景：完整预览保存后反复读取仅保留原记录、三个审核状态、历史占位不恢复、
-真实正文等于占位时仍独立审核，以及伪造或跨账户/Agent/类型/消息引用不能解开内容。
+八个场景：完整预览保存后反复读取仅保留原记录、三个审核状态、历史占位不恢复、
+真实正文等于占位时仍独立审核、伪造或跨账户/Agent/类型/消息引用不能解开内容，
+以及真实 SDK 预览/收件箱派生字段归一、历史批准不自动授权新摘要。语义字段变化仍产生待审版本。
 
-运行 `node --test tests/unit/native-review-preview.test.cjs`（8 项）及
-`node tests/integration/content-review-version-browser.cjs`（23 个场景）。浏览器脚本使用实际
+运行 `node --test tests/unit/native-review-preview.test.cjs`（9 项）及
+`node tests/integration/content-review-version-browser.cjs`（26 个场景）。浏览器脚本使用实际
 `ContentReviewPage`、`Button`、`WorkbenchClient` 和 Next.js 自带的 React；固定
 `a919245809b5c37f634459f76b1960296ab0327a` 组件为负例，验证较新占位版本遮住较早完整正文，
 当前组件须选择与本机完整预览精确匹配的网站版本。已拒绝匹配优先，其中旧正文省略自身
 `kind` 时遵循 SDK 的 `chat.message` 缺省值，不能绕过拒绝。
+点击具体网站行时还需绑定该行 ID/Agent/目标/摘要，不可被本机待审入口重映射到其他候选；
+历史占位行不匹配本机原文、与已拒绝版本冲突时均不得提交决定。
 
 覆盖只有占位、错误发送者/消息/类型/摘要/目标/记录、超过四个候选、无读取或写入能力、
 本机截断或异常响应、未勾选同意、忙碌重复点击、换账户和失焦；实际按钮与 HTTP 回执断言

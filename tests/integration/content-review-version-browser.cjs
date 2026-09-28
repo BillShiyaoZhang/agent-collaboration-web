@@ -34,11 +34,13 @@ function complete(res,call,result){json(res,{request_id:call.request_id,status:'
 function setup(name){
  current={name,session:1,events:[],queue:[item(1),item(3,'pending','collaboration'),item(2)],bodies:{1:{...body(),text:placeholder},2:body(),3:body()},nativeStatus:'pending'};
  if(name==='only-placeholder')current.queue=[item(1)];
+ if(name==='specific-second'){current.queue=[item(1),item(4),item(2)];current.bodies[4]=body();}
  if(name==='already-native-approved')current.nativeStatus='approved';
  if(name==='wrong-sender')current.bodies[2]={...body(),sender_urn:'urn:agent:other'};
  if(name==='wrong-message')current.bodies[2]={...body(),message_id:'other-message'};
  if(name==='wrong-kind')current.bodies[2]={...body(),kind:'other.message'};
  if(['rejected-match','rejected-match-default-kind'].includes(name)){current.queue=[item(2,'approved'),item(4,'rejected')];current.bodies[4]=body();if(name==='rejected-match-default-kind')delete current.bodies[4].kind;}
+ if(name==='specific-rejected-conflict'){current.queue=[item(2,'approved'),item(4,'rejected')];current.bodies[4]=body();}
  if(name==='too-many'){current.queue=[1,2,3,4,5].map(n=>item(n));for(let n=1;n<=5;n++)current.bodies[n]=body();}
  return current;
 }
@@ -95,7 +97,7 @@ async function runCase(base,variant,name){
  page.on('pageerror',error=>errors.push(error.message));
  try{
   await page.goto(base+`/?variant=${variant}&agentId=${agent}&messageId=${message}`);
-  const launch=page.getByRole('button',{name:'我理解风险，查看完整待审核内容',exact:true});await launch.waitFor();
+  const launch=name.startsWith('specific-')?page.getByRole('button',{name:'我理解风险，查看这份内容',exact:true}).nth(name==='specific-second'?2:0):page.getByRole('button',{name:'我理解风险，查看完整待审核内容',exact:true});await launch.waitFor();
   await launch.click();
   if(name==='busy'){
    await held(page,s);assert.equal(await launch.isDisabled(),true);await launch.evaluate(element=>element.dispatchEvent(new MouseEvent('click',{bubbles:true})));
@@ -105,7 +107,7 @@ async function runCase(base,variant,name){
    await held(page,s);if(name==='scope-changed')s.session=2;else await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
    s.held();s.held=undefined;
   }
-  const positive=['positive','busy','already-native-approved','rejected-match','rejected-match-default-kind','blur-after-preview','no-write-capability','blur-during-native-decision','scope-during-native-decision'].includes(name)&&variant==='new';
+  const positive=['positive','busy','already-native-approved','specific-second','rejected-match','rejected-match-default-kind','blur-after-preview','no-write-capability','blur-during-native-decision','scope-during-native-decision'].includes(name)&&variant==='new';
   if(positive){
    await page.getByRole('heading',{name:'完整证据预览',exact:true}).waitFor();
    const shown=JSON.parse(await page.locator('pre').textContent()),expected=body();if(name==='rejected-match-default-kind')delete expected.kind;assert.deepEqual(shown,expected);
@@ -132,7 +134,7 @@ async function runCase(base,variant,name){
   }else{
    await page.getByRole('alert').waitFor();assert.equal(await page.getByRole('heading',{name:'完整证据预览',exact:true}).count(),0);
   }
-  const completes=['positive','busy','already-native-approved'].includes(name)&&variant==='new';
+  const completes=['positive','busy','already-native-approved','specific-second'].includes(name)&&variant==='new';
   assert.equal(nativeWrites(s),completes&&name!=='already-native-approved'||['blur-during-native-decision','scope-during-native-decision'].includes(name)?1:0);assert.equal(webWrites(s),completes?1:0);
   assert.ok(previewCount(s)<=4);assert.ok(!s.events.some(row=>row.action==='preview'&&row.id===item(3,'pending','collaboration').id));
   if(['too-many','no-native-capability','truncated-native','malformed-native'].includes(name))assert.equal(previewCount(s),0);
@@ -145,7 +147,7 @@ async function main(){
  const port=server.address().port;assert.ok(![3061,3062,3063].includes(port));report.port=port;
  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
  const base=`http://127.0.0.1:${port}`;await runCase(base,'old','positive');
- for(const name of ['positive','busy','already-native-approved','only-placeholder','wrong-sender','wrong-message','wrong-kind','wrong-digest','wrong-target','wrong-item',
+ for(const name of ['positive','busy','already-native-approved','specific-second','specific-placeholder','specific-rejected-conflict','only-placeholder','wrong-sender','wrong-message','wrong-kind','wrong-digest','wrong-target','wrong-item',
   'rejected-match','rejected-match-default-kind','too-many','no-native-capability','no-write-capability','truncated-native','malformed-native','scope-changed','blur-during-preview','blur-after-preview',
   'blur-during-native-decision','scope-during-native-decision'])await runCase(base,'new',name);
  assert.equal(report.server_failure,undefined);assert.equal(report.external_requests,0);report.passed=true;

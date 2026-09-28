@@ -12,6 +12,8 @@
 
 保存 `inbox.review_preview` 的遮罩快照时保留服务端绑定的 `content_review`，后续快照读取与投影沿用同一完整内容记录，不将占位文字排入新的正文审核。已有历史占位记录仍保留其独立摘要与决定；真实正文恰好等于占位文字时也必须独立审核。标记须重新核对账户、Agent、内容类型、消息 ID 和摘要，不能由客户端伪造引用解开其他内容。真实临时 SQLite 回归见 `tests/unit/moderation-native-projection.test.cjs`。
 
+同一普通消息的本机完整预览和稍后的收件箱投影，只排除网站生成的 `contentSafety`、`safety_revision` 以及宿主派生的 `trust`、`unknown_sender` 等既有读取状态字段后计算审核摘要；消息 ID、发送者、正文、类型、任务等语义字段仍绑定到确切版本。旧版本即使已批准，也不会自动批准归一后的新摘要，主人须对新版本单独明确决定。点击网站队列中的某一版本只会预览并决定该记录的 ID、Agent、目标和摘要；本机原文不匹配或另有精确匹配的已拒绝版本时停止，不改选其他版本。
+
 私人助手普通问答和历史没有进入运营审核队列。仅针对真实单回合举报的 `hide` 决定，移除那份回复及其搜索/分页/预览投影。Web 无法证明旧 Agent 本地模型曾经如何使用对端正文；新 `conversation.send` 必须具有通过认证 RPC 保存的 `peer_content_safety:{version:1,mode:'owner_review',automatic_peer_model_execution:false}`，缺失即升级提示且不创建提交记录。`peer_content_safety_required` 证明新请求未受理；`peer_content_safety_changed` 表示已受理回合宿主变化，保持结果不确定并只核实既有会话。
 
 ## Agent 安全动作

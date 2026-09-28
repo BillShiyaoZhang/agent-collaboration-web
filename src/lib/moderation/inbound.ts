@@ -101,13 +101,19 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
     }
     if (!string(body.text)) return {...safeSocialMetadata(body) as RemoteRecord,content_review:{status:"pending",reviewId:"",digest:""}};
     try {const packet=JSON.parse(string(body.text));if(["receipt","agreement_ack","sync"].includes(packet?.kind))return {...safeFields(body,["message_id","sender_urn","kind","received_at","created_at","read","read_at","task_id"]),text:"协作协议状态已更新，请查看原事项。",content_review:{status:"approved",reviewId:"",digest:hash(packet),metadata_only:true}};}catch{/* Ordinary text is queued for review below. */}
-    const evidence={...body};for(const key of ["received_at","created_at","updated_at","read","read_at","status","fingerprint","text_truncated","content_review","moderation"])delete evidence[key];const review=await reviewPeerContent(db,userId,agentId,"inbox",string(body.message_id),evidence);
+    const evidence={...body};for(const key of ["received_at","created_at","updated_at","read","read_at","status","fingerprint","text_truncated","content_review","moderation"])delete evidence[key];
+    if(evidence.trust==="peer_statement_not_owner_authority") {delete evidence.trust;if(typeof evidence.unknown_sender==="boolean")delete evidence.unknown_sender;}
+    const review=await reviewPeerContent(db,userId,agentId,"inbox",string(body.message_id),evidence);
     const isRemoved=await removed("inbox",string(body.message_id));
     if (review.status === "approved" && !isRemoved) return {...body,content_review:review};
     return {...safeFields(body,["message_id","sender_urn","kind","received_at","created_at","read","read_at","task_id","unknown_sender"]),text:CONTENT_PENDING,content_review:isRemoved?{...review,status:"rejected"}:review};
   }
   if(method==="inbox.review_preview") {
-    const projected=await message(data);
+    // These two fields were added above to the response envelope by Web, not
+    // returned in the signed Native preview. Keep same-named inbox extensions
+    // in the digest rather than granting them a blanket exclusion.
+    const nativePreview={...data};delete nativePreview.contentSafety;delete nativePreview.safety_revision;
+    const projected=await message(nativePreview);
     // Keep the server-bound review reference on the saved masked snapshot.
     // Reapplying this gate must not queue its placeholder as a new peer body.
     return {...safeFields(data,["message_id","sender_urn","kind","received_at","status","fingerprint"]),text:CONTENT_PENDING,content_review:projected.content_review};

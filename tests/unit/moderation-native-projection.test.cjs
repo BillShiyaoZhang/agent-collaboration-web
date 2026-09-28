@@ -67,6 +67,47 @@ async function repeated(state) {
 }
 for(const state of ['pending','rejected','approved'])test('saved Native preview keeps its exact '+state+' review through repeated real snapshot/read projections without queuing a placeholder',()=>repeated(state));
 
+test('real SDK preview and later inbox projection share one reviewed wire digest while semantic changes require review',()=>fixture(async({db,user,agent,store,content,rows})=>{
+ const text='A synthetic plain message with exact owner-reviewed content.';
+ // peer_review.review_preview returns only these fields; social._message_view
+ // adds the local trust and contact/read projection after Native approval.
+ const preview={message_id:'sdk-shaped-message',sender_urn:'urn:agent:peer',kind:'chat.message',received_at:12,status:'pending',fingerprint:'b'.repeat(64),text,text_truncated:false};
+ const record=async(method,result,offset)=>store.recordWorkspaceResponse(user,agent,{id:crypto.randomUUID(),agentId:agent.id,method,createdAt:new Date(Date.now()+offset),deadline:new Date(Date.now()+120000)},{result});
+ await record('inbox.review_preview',preview,1);
+ const reviewed=(await content.list(user.id,agent.id)).items[0];
+ await decide(content,user,reviewed,'approve');
+ const inbox={message_id:preview.message_id,sender_urn:preview.sender_urn,kind:preview.kind,text,
+  fingerprint:preview.fingerprint,received_at:preview.received_at,trust:'peer_statement_not_owner_authority',read:false,read_at:null,unknown_sender:false};
+ const direct=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,'inbox.list',{messages:[inbox]});
+ assert.equal(direct.messages[0].content_review.digest,reviewed.digest);
+ await record('collaboration.state',{inbox:[inbox],pending_review:[],contacts:[],safety_revision:0},2);
+ const workspace=await store.getWorkspaceAgent(user.id,agent.id),message=workspace.snapshots['inbox.list'].data.messages.find(row=>row.message_id===preview.message_id);
+ assert.equal(message.text,text);assert.equal(message.content_review.status,'approved');
+ assert.equal(message.content_review.reviewId,reviewed.id);assert.equal(message.content_review.digest,reviewed.digest);
+ assert.equal((await rows()).length,1,'local read/contact metadata must not create a second review version');
+ for(const changed of [{text:text+' changed'},{sender_urn:'urn:agent:another'},{kind:'other.message'},{task_id:'semantic-task'},
+  {trust:'unexpected-peer-value'},{unknown_sender:'unexpected-peer-value'},{contentSafety:{version:2}},{safety_revision:2}]){
+  const projected=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,'inbox.list',{messages:[{...inbox,...changed}]});
+  assert.equal(projected.messages[0].text,inbound.CONTENT_PENDING);
+  assert.equal(projected.messages[0].content_review.status,'pending');
+  assert.notEqual(projected.messages[0].content_review.digest,reviewed.digest);
+ }
+}));
+
+test('historical approval containing projection metadata does not authorize the new canonical message version',()=>fixture(async({db,user,agent,content,rows})=>{
+ const wire={message_id:'historical-preview',sender_urn:'urn:agent:peer',kind:'chat.message',text:'Synthetic text whose display still needs a new exact review.'};
+ const old=await inbound.reviewPeerContent(db,user.id,agent.id,'inbox',wire.message_id,{...wire,contentSafety:{version:1},safety_revision:0});
+ await decide(content,user,{id:old.reviewId,digest:old.digest},'approve');
+ const projected=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,'inbox.list',{messages:[{...wire,trust:'peer_statement_not_owner_authority',unknown_sender:false,read:false,read_at:null}]});
+ const current=projected.messages[0].content_review;
+ assert.equal(projected.messages[0].text,inbound.CONTENT_PENDING);
+ assert.equal(current.status,'pending');assert.notEqual(current.digest,old.digest);assert.notEqual(current.reviewId,old.reviewId);
+ assert.equal((await rows()).length,2);
+ await decide(content,user,{id:current.reviewId,digest:current.digest},'approve');
+ const reopened=await inbound.filterWorkspaceInbound(db,user.id,agent.id,agent.urn,'inbox.list',{messages:[{...wire,trust:'peer_statement_not_owner_authority',unknown_sender:false,read:false,read_at:null}]});
+ assert.equal(reopened.messages[0].text,wire.text);assert.equal(reopened.messages[0].content_review.reviewId,current.reviewId);
+}));
+
 test('historical placeholder versions remain independently rejected while the real full version stays pending',()=>fixture(async({db,user,agent,store,content,raw,save,rows})=>{
  // Replay an old unmarked projection through the real filter to retain its
  // actual generated metadata/digest, rather than inventing a historical row.

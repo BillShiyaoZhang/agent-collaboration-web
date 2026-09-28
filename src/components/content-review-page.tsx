@@ -48,7 +48,7 @@ export function ContentReviewPage() {
         await guard();if(response.status!==200)throw new Error(queue.error || "无法读取所属审核队列。");
         const candidates=nativeReviewCandidates(queue.items,remote,pendingId,agentId),previews:ReviewPreview[]=[];
         for(const candidate of candidates)previews.push(await read(candidate));
-        selected=matchingNativeReview(previews,remote);
+        selected=matchingNativeReview(previews,remote,item);
       }else if(item)selected=await read(item);
       if(!selected)throw new Error("尚未保存与本机原文一致的完整审核内容，请刷新后核实；不会以不完整预览批准。");
       await guard();setPreview({...selected,remote});setUncertain(false);

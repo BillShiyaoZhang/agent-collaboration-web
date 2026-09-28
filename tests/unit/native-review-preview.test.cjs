@@ -22,6 +22,17 @@ test('exact rejected body takes priority over pending and approved matches',()=>
  assert.equal(match([preview(rows[1],full(rows[1])),preview(rows[2],historical)],remote).item.id,rows[2].id,'SDK gives an omitted wire kind the exact chat.message default');
  historical.body.kind=null;assert.equal(match([preview(rows[2],historical)],remote),undefined,'present malformed kind is not a default');
 });
+test('a clicked website version stays bound to its own ID and digest without bypassing a rejection',()=>{
+ const placeholder=item(1),first=item(2),second=item(3),rows=[placeholder,first,second];
+ const previews=rows.map(row=>preview(row,full(row,{...full(row).body,text:row.id===placeholder.id?'historical placeholder':remote.text})));
+ assert.equal(match(previews,remote,second).item.id,second.id);
+ assert.equal(match(previews,remote,placeholder),undefined);
+ for(const changed of [{id:item(4).id},{digest:'f'.repeat(64)},{agentId:'another-agent'},{target:{kind:'collaboration',id:remote.message_id}}])
+  assert.equal(match(previews,remote,{...second,...changed}),undefined);
+ const rejected=item(4,'rejected'),conflict=[preview(first,full(first)),preview(rejected,full(rejected))];
+ assert.throws(()=>match(conflict,remote,first),/拒绝版本/);
+ assert.equal(match(conflict,remote,rejected).item.id,rejected.id);
+});
 test('only placeholders, wrong sender, wrong message, present undefined kind or altered text have no match',()=>{
  for(const body of [{...full(item(1)).body,text:'placeholder'},{...full(item(1)).body,sender_urn:'urn:agent:other'},
   {...full(item(1)).body,message_id:'other-message'},{...full(item(1)).body,kind:undefined},{...full(item(1)).body,text:remote.text+' changed'}]){
