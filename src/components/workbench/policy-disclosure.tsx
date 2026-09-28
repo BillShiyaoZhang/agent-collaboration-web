@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { startTransition, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useHydrated } from "@/components/local-time";
 import type { PolicyDisclosure } from "@/lib/control/policy-disclosure-types";
@@ -37,14 +37,19 @@ export function PolicyDisclosureGate({ children, compact = false }: { children: 
     try {
       const current = await readResponse(await fetch("/api/platform-policy", { cache: "no-store" }));
       if (request !== requestNumber.current) return;
-      setPolicy(current); setError("");
       const hash = current.status === "signed" ? current.policy_hash : "";
-      if (hash !== displayedHash.current) setAccepted(false);
-      displayedHash.current = hash;
+      // Preserve server-streamed descendants until their hydration completes.
+      startTransition(() => {
+        setPolicy(current); setError("");
+        if (hash !== displayedHash.current) setAccepted(false);
+        displayedHash.current = hash;
+      });
     } catch (cause) {
       if (request !== requestNumber.current) return;
-      setPolicy(null);
-      setError(cause instanceof Error ? cause.message : "无法验证平台政策。");
+      startTransition(() => {
+        setPolicy(null);
+        setError(cause instanceof Error ? cause.message : "无法验证平台政策。");
+      });
     }
   }, []);
   useEffect(() => {

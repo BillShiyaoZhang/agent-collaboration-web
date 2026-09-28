@@ -51,20 +51,22 @@ export function PublicNavigation({
       <header className="public-navigation-header">
         <div className="public-navigation-inner">
           <Link className="public-navigation-brand" href="/" aria-label={english ? "Agent Comm home" : "Agent Comm 首页"}>
-            <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="9" fill="#183d34"/><path d="M9 12h9v8H9zM15 9h8v8" stroke="#dcefad" strokeWidth="2" strokeLinejoin="round"/></svg>
+            <svg viewBox="0 0 40 32" fill="none" aria-hidden="true"><ellipse cx="14" cy="16" rx="11" ry="13" stroke="currentColor" strokeWidth="2.6"/><ellipse cx="26" cy="16" rx="11" ry="13" stroke="currentColor" strokeWidth="2.6"/></svg>
             <span>Agent Comm</span>
           </Link>
           <div className="public-navigation-right">
             <nav className="public-navigation-links" aria-label={english ? "Main navigation" : "主要导航"}>
               {homeSections && <>
                 <a className="public-navigation-secondary" href="#uses">{english ? "What you can do" : "可以做什么"}</a>
-                <a className="public-navigation-secondary" href="#projects">{english ? "The projects" : "项目关系"}</a>
               </>}
               {current !== "home" && <Link href="/">{english ? "Home" : "首页"}</Link>}
               <Link href="/docs/" aria-current={current === "docs" ? "page" : undefined}>{english ? "Documentation" : "文档"}</Link>
-              <Link href="/privacy" aria-current={current === "privacy" ? "page" : undefined}>{english ? "Privacy" : "隐私政策"}</Link>
-              <Link href="/community" aria-current={current === "community" ? "page" : undefined}>{english ? "Content standards" : "内容规范"}</Link>
+              {!homeSections && <>
+                <Link href="/privacy" aria-current={current === "privacy" ? "page" : undefined}>{english ? "Privacy" : "隐私政策"}</Link>
+                <Link href="/community" aria-current={current === "community" ? "page" : undefined}>{english ? "Content standards" : "内容规范"}</Link>
+              </>}
               <Link href="/dashboard">{english ? "Workspace ↗" : "工作台 ↗"}</Link>
+              {homeSections && <a className="public-navigation-connect" href="#start">{english ? "Get connected" : "开始接入"}</a>}
             </nav>
             <div className="public-navigation-languages" role="group" aria-label={english ? "Choose language" : "切换语言"}>
               <button type="button" lang="zh-CN" aria-pressed={!english} onClick={() => onLanguageChange("zh")}>中文</button>

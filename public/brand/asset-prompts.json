@@ -1,0 +1,15 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-09-27",
+  "transparentBackground": true,
+  "assets": [
+    {
+      "file": "agent-loop-sage.png",
+      "prompt": "Use case: product-mockup. Generate ONE original abstract Agent Comm identity object on a truly transparent background, clean 1024x1024 square PNG cutout. Two organically curved interlocking loops with softly rounded asymmetric tubular geometry, communicating connection and cooperation. Sculptural premium product photography, no text, no logo, no icon drawn in vector, no robot faces. Forest-green glazed ceramic with a slightly translucent jade-green glass feel, glossy specular highlights, soft pearl reflections, exquisite smooth surfaces and tiny natural glaze variation, muted sage in the highlights and deep green at the edges. A single connected sculpture, not a pile of objects. Three-quarter view from slightly above, centered, object occupies 78 percent of square, intact silhouette with ample clear alpha margins. Large soft studio light upper left, beautiful believable internal reflections, subtle self-shadow and soft ambient occlusion within loops. NO floor, NO background plane, NO backdrop, no cast shadow extending beyond the object, no watermark. The object must be visibly glossy, luminous and tactile, sophisticated and warm. This will be an identity avatar in a real app and a hero object on a website, so readable silhouette even at 32px."
+    },
+    {
+      "file": "agent-loop-lilac.png",
+      "prompt": "Use case: product-mockup. Generate ONE original abstract Agent Comm identity sculpture on a genuinely transparent background, clean 1024x1024 square PNG cutout. A pair of organically curved interlocking ring loops with softly rounded asymmetric tubular geometry representing two personal agents making contact. Beautiful premium glossy product photography. Material: pale lilac glazed ceramic with glasslike glossy pearl sheen, lavender undertones, soft silvery white specular highlights, light purple edges, exquisite dimensionality and realistic smooth reflections. No text, no logo, no robot faces, no vector icon. Single self-contained sculpture, not a pile of objects. Three-quarter view from slightly above, object occupies 78 percent of canvas, ample transparent margins, silhouette fully intact. Soft studio lighting upper left, delicate self-shadow and inner occlusion only. NO ground, NO background plane, NO backdrop, NO unrelated props, NO watermark. Warm, collectible, contemporary, visually pleasing and visibly GLOSSY; polished material rather than clay matte. This is a UI identity asset and website hero art, must read as connection at small sizes."
+    }
+  ]
+}

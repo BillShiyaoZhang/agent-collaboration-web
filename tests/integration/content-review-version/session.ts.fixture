@@ -1,0 +1,1 @@
+export async function getSession(){return (await fetch('/api/auth/session',{cache:'no-store'})).json();}

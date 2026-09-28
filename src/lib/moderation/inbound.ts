@@ -8,13 +8,40 @@ export const CONTENT_PENDING = "对端内容尚未审核，请在网站核对后
 const hash = (body: unknown) => createHash("sha256").update(canonicalJSON(body)).digest("hex");
 const stable = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
 const safeFields = (body: RemoteRecord, keys: string[]) => Object.fromEntries(keys.filter(key => Object.hasOwn(body,key)).map(key=>[key,body[key]]));
+// These are protocol values, never a license to display arbitrary text under a
+// familiar key. The host's describe response must remain usable by the forms.
+const actions=new Set("describe state attention collaborations prepare_collaboration revoke_collaboration_maintenance inbox import_proposal register_resource resolve_contact export_contact prepare_contact contact_requests prepare_contact_response prepare_message mark_read prepare_task prepare_worker_policy pause_worker revoke_worker prepare_action confirm dispatch revoke memory_search memory_snapshot snapshot_resource".split(" "));
+const capabilities=new Set(["share_slots","share_resource","propose_meeting","accept_meeting","send_text"]);
+const argumentNames=new Set("task_id collaboration_id operation_id kind payload message_id resource_id title text name contact_id platform_url aliases urn request_id decision recipient_urn scope policy operation approval_id query limit reference max_chars after".split(" "));
+const waitingReasons=new Set("peer_join peer_accept waiting_for_peer collaboration_complete agreement_sync agreement_ack agreement_ack_delivery missing_event withdrawal_decision cancel_decision maintenance_permission maintenance_budget event_chain_conflict owner_decision exception_requires_owner send_uncertain budget_exhausted state_changed worker_error peer_content_unavailable owner_revoked owner_paused".split(" "));
 export function safeSocialMetadata(value:unknown,key=""):unknown {
   if(Array.isArray(value))return value.map(item=>safeSocialMetadata(item,key));
   if(value && typeof value==="object")return Object.fromEntries(Object.entries(value).map(([name,item])=>[name,safeSocialMetadata(item,name)]));
   if(typeof value!=="string")return value;
+  if((key==="actions" && actions.has(value)) || (key==="business_capabilities" && capabilities.has(value)) || (["required","optional"].includes(key) && argumentNames.has(value)) || (key==="rpc_param" && value==="source_conversation_id") || (key==="waiting_reason" && waitingReasons.has(value)))return value;
   if(/_at$/.test(key))return Number.isFinite(Date.parse(value))?value:CONTENT_PENDING;
   if(/(?:^id$|_ids?$|_urns?$|_digest$|_hash$|^(?:urn|status|state|phase|kind|direction|decision|method|action|connection_status|closure_reason|version)$)/.test(key) && /^[A-Za-z0-9._:-]{1,256}$/.test(value))return value;
   return CONTENT_PENDING;
+}
+function localTask(body:RemoteRecord,agentUrn:string):RemoteRecord|null {
+  const scope=record(body.scope),session=string(body.owner_session),caps=scope.capabilities;
+  // Store.state() emits owner-bound tasks from the local native authority
+  // store. Peer invitations/events do not create this schema. Do not infer
+  // ownership from a task ID, and do not trust a foreign sender's lookalike.
+  if(body.sender_urn && body.sender_urn!==agentUrn || !stable(body.task_id) || !/^[A-Za-z0-9._:-]{1,128}\|[A-Za-z0-9._:-]{1,128}$/.test(session)
+    || !Number.isSafeInteger(body.revision) || Number(body.revision)<1 || !["pending","active","revoked","denied"].includes(string(body.status))
+    || !Array.isArray(caps) || !caps.length || !caps.every(value=>typeof value==="string" && capabilities.has(value))
+    || typeof scope.purpose!=="string" || scope.purpose.length>1000 || typeof scope.topic!=="string" || scope.topic.length>500
+    || !["recipient_ids","participant_ids","resource_ids"].every(key=>Array.isArray(scope[key]) && (scope[key] as unknown[]).every(stable))
+    || !["window_start","window_end","expires_at"].every(key=>typeof scope[key]==="string" && Number.isFinite(Date.parse(scope[key] as string)))
+    || !["max_duration_minutes","max_candidates","max_actions"].every(key=>Number.isSafeInteger(scope[key]) && Number(scope[key])>0))return null;
+  const selected=safeSocialMetadata(body) as RemoteRecord;
+  // Only the owner's typed mandate is private local content. Unknown task
+  // extensions, peer packets, and source_context strings keep the same gate.
+  selected.owner_session=session;
+  selected.scope=safeFields(scope,["purpose","topic","capabilities","recipient_ids","participant_ids","resource_ids","window_start","window_end","max_duration_minutes","max_candidates","max_actions","expires_at"]);
+  if(Array.isArray(scope.allowed_windows))selected.scope={...record(selected.scope),allowed_windows:records(scope.allowed_windows).map(window=>({start:typeof window.start==="string" && Number.isFinite(Date.parse(window.start))?window.start:CONTENT_PENDING,end:typeof window.end==="string" && Number.isFinite(Date.parse(window.end))?window.end:CONTENT_PENDING}))};
+  return selected;
 }
 export async function reviewPeerContent(db: DB,userId: string,agentId: string,kind: string,id: string,body: RemoteRecord) {
   const digest = hash(body), timestamp=Date.now();
@@ -41,6 +68,15 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
   if (!["inbox.list","inbox.mark_read","inbox.review_preview","collaboration.state","contacts.requests","contacts.list","attention.list",...socialWrites].includes(method)) return original;
   const data:RemoteRecord=JSON.parse(JSON.stringify(original));
   data.contentSafety={version:1};
+  // A paired host's review receipt binds the owner's decision to the exact
+  // full preview. Preserve only this typed digest, never arbitrary strings
+  // called fingerprint elsewhere or additional peer content on the receipt.
+  const reviewFingerprint=method==="inbox.review" && stable(data.message_id)
+    && typeof data.sender_urn==="string" && data.sender_urn.length<=256
+    && /^urn:[A-Za-z0-9][A-Za-z0-9._:-]*:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(data.sender_urn)
+    && ["approved","rejected"].includes(string(data.status))
+    && typeof data.fingerprint==="string" && /^[a-f0-9]{64}$/.test(data.fingerprint)
+    ? data.fingerprint : undefined;
   let safety=await db.$queryRaw<{urn:string;blocked:number;revision:number}[]>`SELECT s."urn",s."blocked",s."revision" FROM "WorkspacePeerSafety" s JOIN "Agent" a ON a."id"=s."agentId" WHERE s."agentId"=${agentId} AND a."userId"=${userId}`;
   const latest=Math.max(0,...safety.map(peer=>peer.revision));
   if((method==="contacts.list" || method==="collaboration.state") && Number.isSafeInteger(data.safety_revision) && Number(data.safety_revision)>=latest && Array.isArray(data.blocked_peers)) {
@@ -65,12 +101,23 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
     }
     if (!string(body.text)) return {...safeSocialMetadata(body) as RemoteRecord,content_review:{status:"pending",reviewId:"",digest:""}};
     try {const packet=JSON.parse(string(body.text));if(["receipt","agreement_ack","sync"].includes(packet?.kind))return {...safeFields(body,["message_id","sender_urn","kind","received_at","created_at","read","read_at","task_id"]),text:"协作协议状态已更新，请查看原事项。",content_review:{status:"approved",reviewId:"",digest:hash(packet),metadata_only:true}};}catch{/* Ordinary text is queued for review below. */}
-    const evidence={...body};for(const key of ["received_at","created_at","updated_at","read","read_at","status","fingerprint","text_truncated","content_review","moderation"])delete evidence[key];const review=await reviewPeerContent(db,userId,agentId,"inbox",string(body.message_id),evidence);
+    const evidence={...body};for(const key of ["received_at","created_at","updated_at","read","read_at","status","fingerprint","text_truncated","content_review","moderation"])delete evidence[key];
+    if(evidence.trust==="peer_statement_not_owner_authority") {delete evidence.trust;if(typeof evidence.unknown_sender==="boolean")delete evidence.unknown_sender;}
+    const review=await reviewPeerContent(db,userId,agentId,"inbox",string(body.message_id),evidence);
     const isRemoved=await removed("inbox",string(body.message_id));
     if (review.status === "approved" && !isRemoved) return {...body,content_review:review};
     return {...safeFields(body,["message_id","sender_urn","kind","received_at","created_at","read","read_at","task_id","unknown_sender"]),text:CONTENT_PENDING,content_review:isRemoved?{...review,status:"rejected"}:review};
   }
-  if(method==="inbox.review_preview") { await message(data); return {...safeFields(data,["message_id","sender_urn","kind","received_at","status","fingerprint"]),text:CONTENT_PENDING}; }
+  if(method==="inbox.review_preview") {
+    // These two fields were added above to the response envelope by Web, not
+    // returned in the signed Native preview. Keep same-named inbox extensions
+    // in the digest rather than granting them a blanket exclusion.
+    const nativePreview={...data};delete nativePreview.contentSafety;delete nativePreview.safety_revision;
+    const projected=await message(nativePreview);
+    // Keep the server-bound review reference on the saved masked snapshot.
+    // Reapplying this gate must not queue its placeholder as a new peer body.
+    return {...safeFields(data,["message_id","sender_urn","kind","received_at","status","fingerprint"]),text:CONTENT_PENDING,content_review:projected.content_review};
+  }
   if (Array.isArray(data.messages)) data.messages=await Promise.all(records(data.messages).map(message));
   if (Array.isArray(data.inbox)) data.inbox=await Promise.all(records(data.inbox).map(message));
   else if (Array.isArray(record(data.inbox).messages)) data.inbox={...safeSocialMetadata(record(data.inbox)) as RemoteRecord,messages:await Promise.all(records(record(data.inbox).messages).map(message))};
@@ -96,7 +143,8 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
   for(const collection of collections) {
     for(const field of ["tasks","resources","operations","pending_confirmations","approval_decisions","events","proposals","agreements","dependencies"]) if(Array.isArray(collection[field])) collection[field]=await Promise.all(records(collection[field]).map(async body=> {
       const id=string(body.task_id,string(body.approval_id,string(body.operation_id,string(body.resource_id,string(body.event_id,string(body.id))))));
-      return socialRecord(body,id);
+      const native=field==="tasks"?localTask(body,agentUrn):null;
+      return native && !await removed("collaboration",id) ? native : socialRecord(body,id);
     }));
     if (Array.isArray(collection.invitations)) collection.invitations=await Promise.all(records(collection.invitations).map(async invitation=> {
       return socialRecord(invitation,string(invitation.collaboration_id,string(invitation.message_id)));
@@ -135,5 +183,6 @@ export async function filterWorkspaceInbound(db:DB,userId:string,agentId:string,
   const projected=new Set(["contacts","blocked_peers","messages","inbox","message","pending_review","review_policy","collaboration","collaboration_v2","collaborations","invitations","contact_requests","requests","sent_messages","tasks","resources","operations","pending_confirmations","approval_decisions","events","proposals","agreements","dependencies","contentSafety","safety_revision","items"]);
   if(method==="collaboration.state" || method==="inbox.list" || method==="contacts.list" || method==="contacts.requests" || method==="inbox.mark_read" || socialWrites.includes(method))for(const collection of collections)for(const [key,value] of Object.entries(collection))if(!projected.has(key))collection[key]=safeSocialMetadata(value,key);
   if(method==="attention.list") data.items=records(data.items).map(item=>record(item.target).kind!=="conversation" ? {...safeSocialMetadata(item) as RemoteRecord,title:"对端事项有更新",safe_summary:"请在网站核对对端内容后查看。"}:item);
+  if(reviewFingerprint)data.fingerprint=reviewFingerprint;
   return data;
 }

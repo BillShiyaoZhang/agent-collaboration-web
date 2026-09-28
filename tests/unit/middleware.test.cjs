@@ -141,6 +141,15 @@ test("authentication middleware", { concurrency: false }, async (t) => {
       }
     });
 
+    await t.test("allows public artwork without exposing other brand files or paths", async () => {
+      for (const pathname of ["/brand/agent-loop-sage.png", "/brand/agent-loop-lilac.png"]) {
+        assertAllowed(await middleware(request(productionOrigin, pathname)));
+      }
+      for (const pathname of ["/brand/asset-prompts.json", "/brand/private.png", "/brand/agent-loop-sage.png/private"]) {
+        assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
+      }
+    });
+
     await t.test("allows documentation source requests through to the route allowlist", async () => {
       for (const pathname of ["/docs/source/deploy/README.md", "/docs/source/platform/guides/API.md"]) {
         assertAllowed(await middleware(request(productionOrigin, pathname)));

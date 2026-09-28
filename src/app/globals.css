@@ -64,6 +64,68 @@ textarea::placeholder {
   opacity: 1;
 }
 
+/* The working surfaces share the public site's warm paper and deep green,
+   while leaving public pages and their scoped visual systems independent. */
+.dashboard-shell {
+  --background: 45 25% 98%;
+  --foreground: 155 16% 13%;
+  --primary: 157 31% 25%;
+  --secondary: 105 17% 91%;
+  --secondary-foreground: 155 25% 22%;
+  --muted: 45 14% 94%;
+  --muted-foreground: 150 5% 39%;
+  --accent: 105 16% 91%;
+  --accent-foreground: 157 31% 25%;
+  --border: 45 9% 84%;
+  --input: 45 9% 81%;
+  --ring: 157 31% 25%;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.dashboard-sidebar, .dashboard-mobile-nav {
+  background: hsl(45 16% 94%);
+}
+.dashboard-navigation { min-height: min-content; }
+.dashboard-header { background: hsl(45 25% 98%); }
+.dashboard-account {
+  box-shadow: inset 0 1px 3px hsl(0 0% 100% / 0.85);
+}
+.agents-workspace { background: hsl(45 25% 98%); }
+.agent-library-sidebar { background: hsl(45 28% 98%); }
+.agent-avatar {
+  display: inline-block;
+  border-radius: 50%;
+  background-color: hsl(110 17% 91%);
+  background-image: url("/brand/agent-loop-sage.png");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+.conversation-panel { background: hsl(45 25% 98%); }
+.conversation-heading { border-color: hsl(45 9% 84% / 0.7); }
+.conversation-user-bubble {
+  color: hsl(155 20% 16%);
+  background: hsl(105 20% 91%);
+}
+.conversation-agent-bubble {
+  background: hsl(0 0% 100%);
+  box-shadow: 0 2px 12px hsl(45 15% 50% / 0.045);
+}
+.conversation-composer-box { box-shadow: 0 2px 12px hsl(45 15% 40% / 0.055); }
+/* Keep content readable at large user text scales: the fixed-height app still
+   reserves a usable transcript, and longer instructions scroll locally. */
+.conversation-composer {
+  max-height: 48%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 767px) {
+  .conversation-heading { gap: 0.5rem; padding-block: 0.625rem; }
+  .conversation-composer { padding: 0.5rem 0.75rem; }
+  .conversation-composer-box { padding: 0.5rem; }
+}
+
 @media (forced-colors: active) {
   :focus-visible { outline-color: CanvasText; }
 }

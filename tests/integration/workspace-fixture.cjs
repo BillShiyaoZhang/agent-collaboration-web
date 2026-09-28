@@ -239,6 +239,19 @@ async function handle(req,res){
    completedTurns:(data.conversation?.turns||[]).filter(t=>t.status==='completed').length});
  }
  if(offline)return json(res,{error:'fixture offline'},503);
+ if(url.pathname==='/api/v1/registry/register'){
+  assert.equal(req.method,'POST');
+  const body=await read(req),owner=verifyBody(req,body);
+  assert.equal(body.urn,owner.urn,'registration retains the signed fixture identity');
+  assert.equal(identities.get(body.urn),owner,'registration cannot create or replace a fixture identity');
+  const record={urn:body.urn,peerId:body.peer_id,x25519Pubkey:Buffer.from(body.x25519_pubkey,'base64'),
+   ed25519Pubkey:Buffer.from(body.ed25519_pubkey,'base64'),signature:Buffer.from(body.signature,'base64'),
+   storesUserData:body.stores_user_data,timestamp:body.timestamp};
+  assert.deepEqual(record.ed25519Pubkey,owner.edRaw);assert.deepEqual(record.x25519Pubkey,owner.xRaw);
+  assert.equal(record.storesUserData,true);assert.deepEqual(body.addrs,[]);
+  auth.verifyRegistration(record,owner.urn);
+  return json(res,{ok:true});
+ }
  if(url.pathname==='/api/v1/registry/resolve'){
   const i=identities.get(url.searchParams.get('urn'));assert.ok(i,'known fixture registry identity');
   const record={urn:i.urn,peerId:auth.peerIdFromEd25519PublicKey(i.edRaw),x25519Pubkey:i.xRaw,ed25519Pubkey:i.edRaw,storesUserData:true,timestamp:Math.floor(Date.now()/1000)};

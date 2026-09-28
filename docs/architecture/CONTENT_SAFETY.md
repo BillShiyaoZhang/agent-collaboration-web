@@ -6,7 +6,13 @@
 
 `filterWorkspaceInbound` 在认证 RPC 保存前、直接控制响应与旧快照读取时执行。Web 服务生成 `WorkspaceAgent.contentSafety={version:1}`，不信任 Agent 自报同名字段。对端收件箱正文及自由字段、协作邀请/条款/变更/任务/资源/操作/确认/来源上下文在审核前只能投影安全元数据。未覆盖的自由扩展字段显示固定占位，不能借摘要、原始详情或通知绕过。协议 receipt/agreement_ack/sync 仅显示服务生成的固定状态文字，不把协议自由字段当已审核内容。
 
+本方 `Store.state()` 返回的任务必须具有有效的 `owner_session`、修订号、状态和严格范围，且不能标记为外来发送者，才保留本方草案、固定权限、时间与预算字段；未知扩展和来源自由文本仍遮罩。`describe` 仅保留已知动作、参数、业务能力和 worker 状态枚举，不能凭字段名称放行任意字符串。完整审批问题仍逐条审核；未核对当前完整问题时，网页审批卡禁用同意与拒绝，并提供该确切问题的审核入口。展示批准后返回原卡单独作业务决定，展示审核不会生成业务授权。
+
 记录使用规范 JSON 的 SHA-256 作为确切版本摘要，完整审核证据加密保存到 `ModerationContent`；未标记内容同样隔离。占位为 `content_review:{status:'pending'|'rejected',reviewId,digest}`；仅已批准的确切证据回填正文并标记 `approved`。正文改变要重新审核，已屏蔽和运营者移除的目标不能批准。网站显式敏感预览是主人判断的入口；App 默认入口只显示元数据并链接该网站。
+
+保存 `inbox.review_preview` 的遮罩快照时保留服务端绑定的 `content_review`，后续快照读取与投影沿用同一完整内容记录，不将占位文字排入新的正文审核。已有历史占位记录仍保留其独立摘要与决定；真实正文恰好等于占位文字时也必须独立审核。标记须重新核对账户、Agent、内容类型、消息 ID 和摘要，不能由客户端伪造引用解开其他内容。真实临时 SQLite 回归见 `tests/unit/moderation-native-projection.test.cjs`。
+
+同一普通消息的本机完整预览和稍后的收件箱投影，只排除网站生成的 `contentSafety`、`safety_revision` 以及宿主派生的 `trust`、`unknown_sender` 等既有读取状态字段后计算审核摘要；消息 ID、发送者、正文、类型、任务等语义字段仍绑定到确切版本。旧版本即使已批准，也不会自动批准归一后的新摘要，主人须对新版本单独明确决定。点击网站队列中的某一版本只会预览并决定该记录的 ID、Agent、目标和摘要；本机原文不匹配或另有精确匹配的已拒绝版本时停止，不改选其他版本。
 
 私人助手普通问答和历史没有进入运营审核队列。仅针对真实单回合举报的 `hide` 决定，移除那份回复及其搜索/分页/预览投影。Web 无法证明旧 Agent 本地模型曾经如何使用对端正文；新 `conversation.send` 必须具有通过认证 RPC 保存的 `peer_content_safety:{version:1,mode:'owner_review',automatic_peer_model_execution:false}`，缺失即升级提示且不创建提交记录。`peer_content_safety_required` 证明新请求未受理；`peer_content_safety_changed` 表示已受理回合宿主变化，保持结果不确定并只核实既有会话。
 

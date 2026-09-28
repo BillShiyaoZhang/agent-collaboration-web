@@ -71,8 +71,37 @@ export async function resolveIdentity(urn: string) {
   return data;
 }
 
-export async function registerConsole(user: User) {
-  const keys = consoleKeys(user);
+// Platform registry TTL is configurable in whole hours (minimum one hour).
+// Thirty seconds also keeps its 90-second presence proof current while active;
+// a managed MQ certificate alone does not publish the Console encryption key.
+export const CONSOLE_REGISTRATION_REFRESH_MS = 30_000;
+const consoleRegistrations = new Map<string, number>();
+const consoleRegistrationCalls = new Map<string, Promise<void>>();
+
+export async function registerConsole(user: User, force = false) {
+  await requireActiveAccount(user);
+  await ensureConsoleRegistration(user, consoleKeys(user), force);
+}
+
+async function ensureConsoleRegistration(user: User, keys: ReturnType<typeof consoleKeys>, force = false) {
+  await requireActiveAccount(user);
+  const key = JSON.stringify([user.id, keys.urn, keys.publicKey, keys.xPublicKey.toString("hex"), process.env.AGENT_PLATFORM_URL || "http://localhost:8080"]);
+  const now = Date.now();
+  for (const [identity, expires] of consoleRegistrations) if (expires <= now) consoleRegistrations.delete(identity);
+  if (force) consoleRegistrations.delete(key);
+  const existing = consoleRegistrationCalls.get(key);
+  if (existing) { await existing; await requireActiveAccount(user); return; }
+  if ((consoleRegistrations.get(key) || 0) > now) return;
+  const pending = registerConsoleOnce(user, keys).then(async () => {
+    await requireActiveAccount(user);
+    consoleRegistrations.set(key, now + CONSOLE_REGISTRATION_REFRESH_MS);
+  });
+  consoleRegistrationCalls.set(key, pending);
+  try { await pending; }
+  finally { if (consoleRegistrationCalls.get(key) === pending) consoleRegistrationCalls.delete(key); }
+}
+
+async function registerConsoleOnce(user: User, keys: ReturnType<typeof consoleKeys>) {
   const record = { urn: keys.urn, peerId: peerIdFromEd25519PublicKey(Buffer.from(keys.publicKey, "hex")),
     x25519Pubkey: keys.xPublicKey, ed25519Pubkey: Buffer.from(keys.publicKey, "hex"), signature: Buffer.alloc(0),
     storesUserData: true, timestamp: Math.floor(Date.now() / 1000) };
@@ -83,7 +112,8 @@ export async function registerConsole(user: User) {
     stores_user_data: true, timestamp: record.timestamp, addrs: [],
   });
   const response = await accountPlatformFetch(user, "/api/v1/registry/register", { method: "POST", headers: signedHeaders(body, keys), body });
-  await response.json();
+  const result = await response.json();
+  if (result.ok !== true) throw new ControlError("平台未确认原控制台身份登记，请稍后重试同一请求。");
 }
 
 export async function encodeControl(user: User, request: ControlRequestBody): Promise<string> {
@@ -130,6 +160,7 @@ export function decodeControl(user: User, encoded: string, keys = consoleKeys(us
 export async function submitEnvelope(user: User, envelope: string, recipientUrn: string, deadline: Date) {
   const keys = consoleKeys(user);
   await ensureManagedV1(user, keys);
+  await ensureConsoleRegistration(user, keys);
   const body = JSON.stringify({ recipient_urn: recipientUrn, expiry_unix: Math.ceil(deadline.getTime() / 1000), payload_proto: envelope });
   const send = () => accountPlatformFetch(user, "/api/v1/mq/store", { method: "POST", headers: signedHeaders(body, keys), body });
   let response: Response;
@@ -137,6 +168,7 @@ export async function submitEnvelope(user: User, envelope: string, recipientUrn:
   catch (error) {
     if (!(error instanceof ControlError) || ![400, 403].includes(error.platformStatus || 0)) throw error;
     await ensureManagedV1(user, keys, true); // Restore a lost platform grant; retry the identical wire body.
+    await ensureConsoleRegistration(user, keys, true);
     response = await send();
   }
   const result = await response.json();
@@ -146,6 +178,7 @@ export async function submitEnvelope(user: User, envelope: string, recipientUrn:
 export async function retrieveEnvelopes(user: User, timings?: ControlPollTimings) {
   const keys = consoleKeys(user), timestamp = Math.floor(Date.now() / 1000), bytes = Buffer.alloc(8);
   await ensureManagedV1(user, keys);
+  await ensureConsoleRegistration(user, keys);
   bytes.writeBigInt64BE(BigInt(timestamp));
   const signature = crypto.sign(null, Buffer.concat([Buffer.from(`mq-retrieve|${keys.urn}|`), bytes]), keys.signingKey);
   const started = performance.now();

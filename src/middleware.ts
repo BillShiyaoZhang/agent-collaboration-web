@@ -14,7 +14,9 @@ export async function middleware(request: NextRequest) {
     || pathname === "/api/onboarding" || /^\/api\/onboarding\/[0-9a-f-]{36}$/.test(pathname)
     || pathname === "/agent-install.md" || pathname === "/llms.txt";
 
-  if (isPublicRoute || pathname === "/beian-icon.png" || pathname === "/agent-comm-sw.js") {
+  const isPublicArtwork = pathname === "/brand/agent-loop-sage.png"
+    || pathname === "/brand/agent-loop-lilac.png";
+  if (isPublicRoute || isPublicArtwork || pathname === "/beian-icon.png" || pathname === "/agent-comm-sw.js") {
     return NextResponse.next();
   }
 

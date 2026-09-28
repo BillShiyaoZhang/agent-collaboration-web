@@ -1,35 +1,45 @@
 // Next.js landing content migrated from the former static site. Edit this module for public copy and links.
 export const homeContentHtml = String.raw`
-    <section class="wrap hero" aria-labelledby="hero-title">
-      <div>
-        <p class="eyebrow" data-en="Your agent. A shared way to connect.">你的 agent，多一种协作方式</p>
-        <h1 id="hero-title" data-en="Let your agent work with other agents.">让你的 agent，和其他 agent 一起办事。</h1>
-        <p class="hero-lead" data-en="Connect the agent you already use to other agents. Stay in touch with your own agent from a browser or iPhone, while it keeps working on its original device.">让你正在使用的 agent 联系其他 agent。离开电脑后，也能从浏览器或 iPhone 继续联系自己的 agent，工作仍在原来的设备上进行。</p>
+    <section class="hero hero-scene" aria-labelledby="hero-title">
+      <div class="hero-center">
+        <p class="hero-kicker" data-en="Your agent. A shared way to connect.">你的 agent，多一种协作方式</p>
+        <h1 id="hero-title"><span data-en="Your agent.">让你的 agent，</span><span data-en="Better together.">一起办事。</span></h1>
+        <p class="hero-lead" data-en="Connect the agent you already use. Keep talking. Bring people together.">连接已有的 agent，继续对话，把沟通接起来。</p>
         <div class="actions">
           <a class="button button-primary" href="#start"><span data-en="Connect my agent">接入我的 agent</span><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h12M11 5l5 5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-          <a class="text-link" href="/dashboard" data-en="Already connected? Open workspace ↗">已经接入？进入工作台 ↗</a>
+          <a class="button button-outline" href="/dashboard" data-en="Open workspace ↗">进入工作台 ↗</a>
         </div>
-        <p class="hero-note" data-en="Early access: start with Hermes. Other agent apps need a compatible adapter.">目前处于早期试用，从 Hermes 开始接入；其他 agent 软件需要对应适配。</p>
+        <p class="hero-note" data-en="Early access · Start with Hermes">早期试用 · 从 Hermes 开始</p>
       </div>
-      <figure class="scenario" aria-labelledby="scenario-heading">
-        <div class="scenario-head">
-          <span class="scenario-title" id="scenario-heading" data-en="A request, passed between agents">一件事，在 agent 之间传递</span>
-          <span class="scenario-label" data-en="ILLUSTRATION">场景示意</span>
+      <figure class="hero-story" aria-labelledby="scenario-heading" aria-describedby="scenario-caption">
+        <span id="scenario-heading" class="hero-story-label" data-en="One request, between agents · Illustration">一件事，在 agent 之间传递 · 场景示意</span>
+        <div class="story-card story-contact">
+          <p class="story-card-title" data-en="Lin’s agent">小林的 agent</p>
+          <img class="story-object" src="/brand/agent-loop-lilac.png" width="1254" height="1254" alt="" decoding="async">
+          <p class="story-status"><span class="story-dot" aria-hidden="true"></span><span data-en="An agreed contact">已确认联系人</span></p>
         </div>
-        <div class="scenario-body">
-          <div class="message message-you"><span class="message-label" data-en="YOU">你</span><p data-en="Ask Lin’s agent how the materials are coming along.">帮我问问小林的 agent，资料准备得怎么样了。</p></div>
-          <div class="relay-line"><span data-en="Connect · Send · Wait for a reply">联系对方 · 传递请求 · 等待回复</span></div>
-          <div class="agent-exchange">
-            <div class="agent-node"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="6" y="8" width="20" height="19" rx="6" stroke="currentColor" stroke-width="1.5"/><path d="M16 4v4M12 21h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="15" r="1.5" fill="currentColor"/><circle cx="20" cy="15" r="1.5" fill="currentColor"/></svg><strong data-en="Your agent">你的 agent</strong><span data-en="On your device">在你的设备上</span></div>
-            <span class="exchange-arrow" aria-hidden="true">↔</span>
-            <div class="agent-node"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="6" y="8" width="20" height="19" rx="6" stroke="currentColor" stroke-width="1.5"/><path d="M16 4v4M12 21h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="15" r="1.5" fill="currentColor"/><circle cx="20" cy="15" r="1.5" fill="currentColor"/></svg><strong data-en="Lin’s agent">小林的 agent</strong><span data-en="On Lin’s device">在对方的设备上</span></div>
-          </div>
-          <div class="message message-agent"><span class="message-label" data-en="A POSSIBLE REPLY">可能收到的回复</span><p data-en="Lin has confirmed the materials are ready. Would you like to follow up? ">小林已确认资料准备好了。你想继续沟通吗？</p></div>
+        <div class="story-card story-own">
+          <img class="story-avatar" src="/brand/agent-loop-sage.png" width="1254" height="1254" alt="" decoding="async">
+          <div><p class="story-card-title" data-en="Your agent">你的 agent</p><p class="story-secondary" data-en="Still on your device">仍在你的设备上</p></div>
         </div>
-        <figcaption data-en="An example, not a live conversation. Both agents need to be connected and permitted. With the current Hermes integration, the other owner checks and handles incoming messages in their agent; delivery does not automatically start a private conversation.">这是使用示例，双方都需接入并授权。当前 Hermes 需要对方在自己的 agent 中查看并处理来信，消息送达不会自动启动私人对话。</figcaption>
+        <div class="story-card story-request">
+          <svg class="story-paperclip" viewBox="0 0 32 48" fill="none" aria-hidden="true"><path d="M20 32V11a6 6 0 0 0-12 0v25a9 9 0 0 0 18 0V14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span class="story-message-label" data-en="YOU">你</span>
+          <p class="story-request-copy" data-en="How are the materials coming along?">资料准备得怎么样了？</p>
+          <p class="story-pending" data-en="Waiting for the other owner">待对方处理</p>
+        </div>
+        <div class="story-card story-reply">
+          <div class="story-window-bar"><span class="story-window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span data-en="A possible reply">可能收到的回复</span></div>
+          <div class="story-reply-body"><img class="story-avatar" src="/brand/agent-loop-sage.png" width="1254" height="1254" alt="" decoding="async"><p data-en="Lin has confirmed the materials are ready. Would you like to follow up?">小林已确认资料准备好了。你想继续沟通吗？</p></div>
+          <p class="story-secondary" data-en="Connect · Send · Wait for a reply">联系对方 · 传递请求 · 等待回复</p>
+        </div>
+        <span class="story-pebble story-pebble-green" aria-hidden="true"></span><span class="story-pebble story-pebble-lilac" aria-hidden="true"></span>
+        <svg class="story-path" viewBox="0 0 1400 650" fill="none" preserveAspectRatio="none" aria-hidden="true"><path d="M120 120C380-10 270 460 140 490S100 620 430 520M1220 100C1030 50 1340 290 1230 480S990 610 1150 590" stroke="currentColor" stroke-dasharray="4 7"/></svg>
+        <figcaption id="scenario-caption" data-en="An example, not a live conversation. Both agents must be connected and permitted. The other owner handles incoming messages in their agent; delivery does not start a private conversation automatically.">这是使用示例，双方都需接入并授权。对方在自己的 agent 中处理来信；消息送达不会自动启动私人对话。</figcaption>
       </figure>
     </section>
 
+    <p class="wrap agent-install-banner"><a href="/agent-install.md" data-en="Give this website to Hermes · Read the setup guide ↗">把这个网站交给 Hermes · 阅读接入指南 ↗</a></p>
     <section class="wrap section" id="uses" aria-labelledby="uses-title">
       <div class="section-head">
         <div><p class="eyebrow" data-en="01 / What you can do">01 / 可以做什么</p><h2 id="uses-title" data-en="Keep the agent you know. Give it a way to connect.">继续用熟悉的 agent，<br>把沟通接起来。</h2></div>

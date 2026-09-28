@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Check, Loader2, Plus, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import { record, records, RemoteRecord, stateLabel, string, strings } from "@/lib/control/workbench-client";
+import Link from "next/link";
 import { collaborationOperations } from "./collaboration-workflow-model";
 import { useHydrated, useLocalTime } from "@/components/local-time";
 import { cn } from "@/lib/shared/utils";
@@ -99,7 +100,8 @@ export function ApprovalRequests({ approvals, workbench: w, scopeSubjectIds }: {
       const action = w.mutations.approvalActions.find(item => item.call.params.approval_id === id);
       const expiry = typeof approval.expires_at === "number" ? approval.expires_at * (approval.expires_at < 1e12 ? 1000 : 1) : Date.parse(string(approval.expires_at));
       const expired = status === "expired" || hydrated && Number.isFinite(expiry) && expiry <= Date.now();
-      const canDecide = !!id && !!question.trim() && ["pending", "presenting", "expired"].includes(status) && w.canRespondApproval && w.mutations.ready;
+      const review=record(approval.content_review),needsReview=question==="对端内容尚未审核，请在网站核对后再允许展示。" || !!review.status && review.status!=="approved";
+      const canDecide = !needsReview && !!id && !!question.trim() && ["pending", "presenting", "expired"].includes(status) && w.canRespondApproval && w.mutations.ready;
       const locked = !!checking || !!w.busy["collaboration.state"] || w.mutations.approvalBusy || !!action && ["sending", "uncertain", "succeeded"].includes(action.phase);
       const operation = operations.find(item => item.operation_id === approval.subject_id || item.approval_id === id);
       const explanation = approval.kind === "task" ? "这份目标需要本方独立委托。批准后仅允许完整问题中的范围；不会自动开启有限后台运行。" : approval.kind === "worker_policy" ? "双方加入后，正在请求一项单独的有限后台策略。批准只允许确切程序、方案、次数和期限；不会扩展原任务范围。" : operation?.kind === "join" ? "对方邀请需要本方独立决定。批准后还需实际执行加入；选择不加入仅记录本方拒绝，当前没有专用拒绝通知。" : operation?.kind === "invite" ? "当前要向指定对象发出确切邀请，并批准问题中列明的有限协议维护。批准与实际投递、对方加入是不同步骤。" : operation?.kind === "withdraw" ? "你正在撤回自己的接受。批准当前事件后仍需执行和核验同步；不能据此保证既有约定已取消。" : operation?.kind === "cancel_request" || operation?.kind === "cancel_ack" ? "你正在处理既有约定的取消。双方取消结果必须以实际发送和双方同步证据为准。" : "当前动作需要你核对确切内容、接收方和后果。批准后由 agent 再次核验当前版本与权限；发送和业务完成分别报告。";
@@ -107,6 +109,7 @@ export function ApprovalRequests({ approvals, workbench: w, scopeSubjectIds }: {
         <p className="mt-3 text-xs leading-6 text-amber-900">为什么现在问你：{explanation}</p>
         <p className="mt-2 text-xs leading-6 text-muted-foreground">以下是 agent 提供的当前完整问题。聊天、已读与打开此页都不算同意；没有完整历史证据时不显示推测的版本差异。</p>
         <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7">{question || "本次同步缺少请求内容，请刷新后再回应。"}</p>
+        {needsReview && <p className="mt-2 text-xs leading-6 text-amber-900">请先核对当前完整问题的内容。<Link className="ml-1 inline-flex min-h-8 items-center text-primary underline" href={`/dashboard/content-review?agentId=${encodeURIComponent(w.agentId)}&messageId=${encodeURIComponent(id)}`}>查看并核对完整授权问题</Link>展示审核不会批准这次协作动作；返回后还需单独选择同意或拒绝。</p>}
         {approval.expires_at !== undefined && <p className="mt-2 text-xs leading-6 text-muted-foreground">本次确认展示有效至：{displayTime(approval.expires_at) || "未提供"}</p>}
         {expired && <p className="mt-2 text-xs leading-6 text-amber-900">上次确认展示已过期，请重新核对以上内容。Agent 会检查事项是否仍然有效。</p>}
         {decisionErrors[id] && <p role="alert" className="mt-2 text-xs leading-6 text-destructive">{decisionErrors[id]}</p>}

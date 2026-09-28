@@ -4,6 +4,8 @@
 
 本目录的 [`index.html`](index.html) 与 [`docs/index.html`](docs/index.html) 是迁移前静态页面的历史参考，现行服务不读取它们。维护文案、样式和交互时应修改上述 Next.js 文件，并同时核对中英文、窄屏、键盘与缩放显示。
 
+官网首屏的整体构图和原创光泽物件见[视觉约定](../docs/architecture/VISUAL_DESIGN.md)。大标题、场景文字与按钮仍由 HTML 渲染；图片是透明装饰素材。修改 `public/brand/` 的素材后需重建 Web 镜像，不能通过更新旧 `site/` 文件改变现行首页。
+
 ## 文档原文
 
 文档阅读器保留 `/docs/?path=deploy/users/README.md` 等可分享地址，从 `/docs/source/` 读取四仓原始 Markdown。根部署项目把四仓 `docs/` 只读挂载给 nginx 和 Web；nginx 保留现行公开路径白名单、旧 `/docs/api/` 和 `/guide/` 跳转。Next.js 原文路由使用相同的仓库和目录白名单，可供直接访问 Web 与本地开发；非法路径、历史记录和目录外符号链接返回 404。

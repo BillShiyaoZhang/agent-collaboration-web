@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "Agent Comm · 我的工作空间", template: "%s · Agent Comm" },
   description: "连接自己的 agent，在一个工作空间里对话、查看联系人与协作事项。",
+  icons: { icon: { url: "/brand/agent-loop-sage.png", type: "image/png" } },
 };
 
 export const viewport: Viewport = {

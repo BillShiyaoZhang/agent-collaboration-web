@@ -25,7 +25,7 @@ export default async function DashboardLayout({
     <AppFrame footer={false}>
     <WorkspaceProvider key={`${session.user.id}:${session.user.sessionVersion ?? 0}`} initial={workspace} accountId={session.user.id} sessionVersion={session.user.sessionVersion}>
     <NotificationProvider accountId={session.user.id}>
-    <div className="flex h-full min-h-0">
+    <div className="dashboard-shell flex h-full min-h-0">
       <a href="#main-content" className="sr-only z-50 rounded-lg bg-primary px-4 py-2 text-primary-foreground focus:not-sr-only focus:absolute focus:left-4 focus:top-4">跳转到主要内容</a>
       <DashboardSidebar />
       <div className="flex min-w-0 flex-1 flex-col">

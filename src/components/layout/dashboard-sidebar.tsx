@@ -27,23 +27,24 @@ export function ConnectionGuide() {
 
 export function DashboardNavigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  return <div className="flex h-full flex-col">
-    <Link href="/dashboard" onClick={onNavigate} aria-label="Agent Comm 我的 agents" className="flex min-h-10 items-center self-start rounded-md px-1"><Brand compact /><span className="ml-2 text-sm font-semibold">Agent Comm</span></Link>
-    <nav aria-label="主导航" className="mt-4 space-y-1">{primaryNavigation.map(item => <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={activeNavigation(pathname, item.href) ? "page" : undefined} className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-primary/10 ${activeNavigation(pathname, item.href) ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground"}`}><item.icon className="h-[18px] w-[18px]" />{item.label}</Link>)}
-      <Link href="/dashboard/agents" onClick={onNavigate} className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted"><Layers3 className="h-[18px] w-[18px]" />我的连接</Link>
-      <Link href="/dashboard/notifications" onClick={onNavigate} className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted"><Bell className="h-[18px] w-[18px]" />提醒中心</Link>
+  return <div className="dashboard-navigation flex h-full flex-col">
+    <Link href="/dashboard" onClick={onNavigate} aria-label="Agent Comm 我的 agents" className="dashboard-brand flex min-h-12 items-center self-start rounded-lg px-2"><Brand compact /><span className="ml-2 text-base font-semibold tracking-tight">Agent Comm</span></Link>
+    <nav aria-label="主导航" className="mt-6 space-y-1.5">{primaryNavigation.map(item => <Link key={item.href} href={item.href} onClick={onNavigate} aria-current={activeNavigation(pathname, item.href) ? "page" : undefined} className={`dashboard-nav-link flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${activeNavigation(pathname, item.href) ? "bg-primary font-medium text-primary-foreground shadow-sm hover:bg-primary/90" : "text-foreground/80 hover:bg-primary/5"}`}><item.icon className="h-5 w-5 shrink-0" strokeWidth={1.6} />{item.label}</Link>)}
+      <div className="!my-5 border-t" />
+      <Link href="/dashboard/agents" onClick={onNavigate} aria-current={pathname === "/dashboard/agents" ? "page" : undefined} className={`dashboard-nav-link flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${pathname === "/dashboard/agents" ? "bg-primary font-medium text-primary-foreground" : "text-foreground/80 hover:bg-primary/5"}`}><Layers3 className="h-5 w-5 shrink-0" strokeWidth={1.6} />我的连接</Link>
+      <Link href="/dashboard/notifications" onClick={onNavigate} aria-current={pathname === "/dashboard/notifications" ? "page" : undefined} className={`dashboard-nav-link flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${pathname === "/dashboard/notifications" ? "bg-primary font-medium text-primary-foreground" : "text-foreground/80 hover:bg-primary/5"}`}><Bell className="h-5 w-5 shrink-0" strokeWidth={1.6} />提醒中心</Link>
     </nav>
-    <nav aria-label="站点导航" className="mt-4 border-t pt-2">
-      <Link href="/" onClick={onNavigate} className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><House className="h-4 w-4" />首页</Link>
-      <Link href="/docs" onClick={onNavigate} className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><BookOpen className="h-4 w-4" />文档</Link>
+    <nav aria-label="站点导航" className="mt-auto border-t pt-4">
+      <Link href="/" onClick={onNavigate} className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-primary/5 hover:text-foreground"><House className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />站点首页<ArrowUpRight className="h-3.5 w-3.5" /></Link>
+      <Link href="/docs" onClick={onNavigate} className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-primary/5 hover:text-foreground"><BookOpen className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />文档</Link>
     </nav>
-    <div className="mt-auto pt-4">
+    <div className="pt-2">
       <ConnectionGuide />
     </div>
   </div>;
 }
 export function DashboardSidebar() {
-  return <aside className="hidden w-44 shrink-0 border-r bg-card p-2 md:block"><DashboardNavigation /></aside>;
+  return <aside className="dashboard-sidebar hidden w-52 shrink-0 overflow-y-auto border-r p-3 md:block xl:w-56"><DashboardNavigation /></aside>;
 }
 
 const primaryNavigation = [
@@ -57,5 +58,5 @@ function activeNavigation(pathname: string, href: string) {
 }
 export function MobileNavigation() {
   const pathname = usePathname();
-  return <nav aria-label="手机主导航" className="grid shrink-0 grid-cols-4 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">{primaryNavigation.map(item => <Link key={item.href} href={item.href} aria-current={activeNavigation(pathname,item.href) ? "page" : undefined} className={`flex min-h-12 flex-col items-center justify-center gap-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeNavigation(pathname,item.href) ? "font-semibold text-primary" : "text-muted-foreground"}`}><item.icon className="h-5 w-5" />{item.label}</Link>)}</nav>;
+  return <nav aria-label="手机主导航" className="dashboard-mobile-nav grid shrink-0 grid-cols-4 border-t pb-[env(safe-area-inset-bottom)] md:hidden">{primaryNavigation.map(item => <Link key={item.href} href={item.href} aria-current={activeNavigation(pathname,item.href) ? "page" : undefined} className={`flex min-h-12 flex-col items-center justify-center gap-1 px-1 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeNavigation(pathname,item.href) ? "bg-primary/5 font-semibold text-primary" : "text-muted-foreground"}`}><item.icon className="h-5 w-5 shrink-0" strokeWidth={1.6} />{item.label}</Link>)}</nav>;
 }

@@ -195,6 +195,8 @@ Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实
 
 构建 Web 后，以 `WORKSPACE_FIXTURE_HTTPS=1 node tests/integration/workspace-fixture.cjs` 启动上述 loopback fixture，再运行 `WORKSPACE_BROWSER_URL=https://127.0.0.1:3063 node tests/integration/agent-sharing-browser.cjs`。HTTPS 模式使用本机 OpenSSL 生成一次性的自签名测试证书，只绑定 loopback 代理，保留生产接口的 HTTPS 与 Origin 校验；浏览器只在已核对的 loopback 地址忽略此测试证书错误。可用 `PLAYWRIGHT_MODULE` 指向已有 Playwright 模块。
 
+同一门禁可另设 `WORKSPACE_CHAT_CHUNK_DELAY_MS=900`，只延迟真实聊天客户端 JS 的到达，覆盖服务端 HTML 已出现而 Flight/客户端尚未准备完的窗口。此模式保留完整共享许可与举报回执恢复流程，核对首次举报刷新和冷刷新仍保留原 SSR 页面节点，并要求所有 `pageerror` 为空；默认值 0 不拦截请求。它针对 Next 页面实际流边界，不能用单独 React provider 实验或忽略 React `#418` 替代。`DashboardContent` 的显式 Suspense 包围内容 host 和 Template，fallback 沿用真正的工作空间 loading 视图；内部 Next LoadingBoundary 安装前发生的 Flight suspend 也必须停在这个边界内。
+
 脚本验证真实说明 URL/URN、拒绝保留草稿、同意后不自动发送、修改后的明确提交、撤回仍可读取、Agent 切换、刷新、同账户重新登录以及 320×640 可滚动说明；也检查匿名内容规范的中英文、手机/平板/桌面布局和键盘跳转。举报场景明确同意但不附正文，在真实隔离后台保存后模拟丢失 HTTP 回执，检查刷新恢复原编号、Web Locks 与 GET 核实，不自动重发。输出仅写 `build/agent-sharing-preview/`。其他业务浏览器回归在正文外发前须通过独立“管理共享许可”入口明确同意；配对和业务核对不能替代此步骤。
 
 2026-09-27 本轮工作树已通过完整生产构建和上述 HTTPS Chromium 浏览器脚本的 9 组检查：唯一一次内容发送使用用户明确再次提交的当前草稿，举报 POST 仅一次且正文证据为空，原编号在刷新后由 GET 核实，页面运行错误为零。已视检 320×640 共享说明和举报核实截图。此证据仅覆盖新共享许可、公开规范和私人 Agent 回复举报流程；合成 runtime 没有执行模型或工具，不证明真实供应商配置、运营人员响应、生产部署或其他旧业务故事已验收。
@@ -203,3 +205,57 @@ Web 仓库 `build/` 中的数据库文件，保留已有账户，使用项目实
 ## 内容安全与举报
 
 `npm run test:moderation` 使用真实临时 SQLite 校验未标记对端正文隔离、确切版本主人批准、旧快照/详情和嵌套协作过滤、ACL revision 竞态、协议元数据、私人单回合举报移除/搜索、最小证据/过期凭证幂等、HTTP Origin/会话/大小限制、持久速率、真实 CLI 权限及令牌文件、公开回复与账户删除隔离。也以实际 React SSR 挂载删除组件确认不依赖不存在的 SessionProvider。该隔离验证不访问生产，不证明实际部署已经有人响应举报。
+
+
+### 后台政策刷新与迟到的页面模板
+
+运行 `node tests/integration/policy-stream-hydration-browser.cjs`，不需要 Next.js fixture、账号或网络服务。它使用真实 `PolicyDisclosureGate`、生产 React `renderToPipeableStream` / `hydrateRoot` 和 loopback 临时 HTTP 服务；固定旧提交 `43fe9d7` 为负例。Template 仍等待客户端时，旧版普通 refresh 更新会移走原 SSR 节点，新版后台 transition 必须保持原节点及其可见内容；随后当前政策仍生效，用户点击暂停立即撤回权限。
+
+这项回归断言模板被移走的原因，不刻意令普通 React Suspense 抛 Next.js 的 `#418` 或 `$RS` 异常；实际 Next.js 原页面还需串行运行 `agent-sharing-browser.cjs`，包含举报回执丢失后的完整重新加载。Webpack 编译和报告仅写入 `build/workspace-sync-preview/policy-stream-hydration/`，不访问生产或派发业务。可用 `PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 指定已安装的浏览器依赖。
+
+### 后台通知更新与迟到的页面模板
+
+运行 `node tests/integration/notification-stream-hydration-browser.cjs`，无需 Next.js fixture、账号或 Platform。
+脚本直接编译当前 `NotificationProvider` 和实际 `useHydrated`，固定提交 `9baaf3e` 的通知组件为负对照；
+不会改写生产组件的 setter。服务端和浏览器统一使用 Next.js 自带的 React，并断言两端版本均为
+`19.2.0-canary-0bdb9206-20250818`，避免独立安装的 React 与真实 Next.js 页面使用不同 runtime。
+
+四个场景覆盖未开启的设备与已保存开启且浏览器已授权的设备，各自运行旧版和当前组件。
+客户端 Template 尚未就绪时，旧代码必须移走原 SSR 节点，当前代码必须保留该节点及其可见内容；
+随后真实通知计数和已保存设备授权仍须生效。显式关闭通知必须在刻意延迟的服务器撤销回执前
+立即更新页面与本地存储；直接挂到 `onClick` 的 `refresh` 还须处理真实 MouseEvent 并显示最新计数。
+两端不能出现 recoverable/page 错误，所有浏览器请求限于随机 loopback 端口。
+第五个场景在 Template 仍未就绪时点击这个真实 `onClick` 刷新按钮，最新计数必须立即生效；
+MouseEvent 的 truthy 值不能被误认为后台刷新标志。它有意允许明确操作更新未就绪的模板，
+区别于上述必须保留原 SSR 内容的后台发布。
+
+结果、旧源码快照和 bundle 仅写入 `build/workspace-sync-preview/notification-stream-hydration/`，
+不使用 `.next`、真实身份、业务状态或共享 fixture 的 3061～3063 端口。
+`PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 可指定已有浏览器工具。
+这项检查验证通知后台更新的渲染契约；完整 Next.js 页面重新加载仍需上述共享许可浏览器验收。
+
+### 本机完整预览与历史网站版本
+
+`node --test tests/unit/moderation-native-projection.test.cjs` 使用真实临时 Prisma/SQLite 验证
+八个场景：完整预览保存后反复读取仅保留原记录、三个审核状态、历史占位不恢复、
+真实正文等于占位时仍独立审核、伪造或跨账户/Agent/类型/消息引用不能解开内容，
+以及真实 SDK 预览/收件箱派生字段归一、历史批准不自动授权新摘要。语义字段变化仍产生待审版本。
+
+运行 `node --test tests/unit/native-review-preview.test.cjs`（9 项）及
+`node tests/integration/content-review-version-browser.cjs`（26 个场景）。浏览器脚本使用实际
+`ContentReviewPage`、`Button`、`WorkbenchClient` 和 Next.js 自带的 React；固定
+`a919245809b5c37f634459f76b1960296ab0327a` 组件为负例，验证较新占位版本遮住较早完整正文，
+当前组件须选择与本机完整预览精确匹配的网站版本。已拒绝匹配优先，其中旧正文省略自身
+`kind` 时遵循 SDK 的 `chat.message` 缺省值，不能绕过拒绝。
+点击具体网站行时还需绑定该行 ID/Agent/目标/摘要，不可被本机待审入口重映射到其他候选；
+历史占位行不匹配本机原文、与已拒绝版本冲突时均不得提交决定。
+
+覆盖只有占位、错误发送者/消息/类型/摘要/目标/记录、超过四个候选、无读取或写入能力、
+本机截断或异常响应、未勾选同意、忙碌重复点击、换账户和失焦；实际按钮与 HTTP 回执断言
+本机审核先于确切网站 ID/摘要决定且各只执行一次。已有本机批准不重放；本机回执刻意延迟时
+失焦或换账户必须停止后续网站批准。所有场景要求无页面错误和外部网络请求。
+
+Webpack、报告和快照只写入 `build/workspace-sync-preview/content-review-version/`。
+脚本使用随机 loopback 端口，不改 `.next`，不使用真实身份、数据库、业务状态或共享
+3061～3063 fixture；可通过 `PLAYWRIGHT_MODULE`、`CHROME_EXECUTABLE` 指定已有工具。
+这些回归不代表生产部署或真实 Agent 业务已经通过。

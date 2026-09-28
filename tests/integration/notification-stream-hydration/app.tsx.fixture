@@ -1,0 +1,39 @@
+import React, { Suspense } from "react";
+import { NotificationProvider, useNotifications } from "@/components/notification-provider";
+import { useHydrated } from "@/components/local-time";
+
+let serverReady = false;
+const serverPending = new Promise(resolve => setTimeout(() => { serverReady = true; resolve(true); }, 30));
+
+function Controls() {
+  const notifications = useNotifications();
+  return <section>
+    <span data-enabled>{String(notifications.enabled)}</span>
+    <span data-permission>{notifications.permission}</span>
+    <span data-live-unread>{notifications.page.unread}</span>
+    <button onClick={() => void notifications.toggleSystem()}>Explicit enable notifications</button>
+    <button onClick={() => void notifications.disableSystem()}>Explicit disable notifications</button>
+    {/* A React event must not accidentally select backgroundRefresh=true. */}
+    <button onClick={notifications.refresh}>Explicit refresh notifications</button>
+  </section>;
+}
+
+function Template({ server }: { server: boolean }) {
+  const raw = useNotifications().page.unread;
+  // Use the real initial-render guard, as the application's consumers do.
+  const hydrated = useHydrated(), current = hydrated ? raw : 0;
+  if (typeof window !== "undefined") {
+    ((window as any).__trace ||= []).push({ raw, hydrated, current, ready: !!(window as any).__templateReady });
+  }
+  if (server && !serverReady) throw serverPending;
+  if (!server && typeof window !== "undefined" && !(window as any).__templateReady) throw (window as any).__templatePending;
+  return <div className="page-enter flex h-full min-h-0 flex-col" data-template>
+    <h1>Original saved SSR template</h1><span data-current>{String(current)}</span>
+  </div>;
+}
+
+export function App({ server = false }: { server?: boolean }) {
+  return <NotificationProvider accountId="synthetic-notification-account">
+    <main><Controls /><Suspense fallback={<p data-loading>Loading saved history</p>}><Template server={server} /></Suspense></main>
+  </NotificationProvider>;
+}

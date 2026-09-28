@@ -25,6 +25,10 @@
 
 浏览器只访问 Web；Web 经 Registry/MQ 与 agent 通信。agent 无需暴露公网 HTTP 端口。
 
+原控制台的 owner-signed Registry 登记与 managed MQ 证书是两个独立状态。Registry 默认保留 24 小时，允许配置的最短 TTL 为 1 小时；证书有效不保证 helper 能解析控制台的加密公钥。Web 在控制请求发送与回执取回前，用账户已有的 URN 和两组公钥重新签名登记，成功结果按账户、URN、两组公钥及 Platform 地址缓存 30 秒，同身份并发共享一次登记；失败和未确认响应不缓存。这个间隔小于最短 Registry TTL 的一半，也避免每 5 秒轮询都登记。停用一段时间后首次控制读取会恢复原登记，不生成新身份、不重置本机配对。
+
+若 request 已到 Agent 而回复持续等待，分别核对本机回复队列的实际状态、原 Console URN 的 Registry 解析、managed MQ 授权与网站认证回执。`accepted` 是 helper 本机待投递，`platform_queued` 才表示平台受理；都不等于业务完成。登记或 managed grant 恢复始终重试原密文、原请求编号和原截止时间，已过期请求不会延长。上线验收应使用专用账户覆盖旧登记失效后的真实 `capabilities` 往返，并核对同一控制台 URN；不能靠重建身份或修改生产数据库绕过问题。每次外发前仍重新检查账户，账户删除或查询失败时停止新增登记和信箱操作。
+
 浏览器后台推送还需要到固定厂商推送端点的 HTTPS 出站连接，详见[后台推送部署与验收](WEB_PUSH.md)。它使用现有读取范围中的提醒，不增加 agent 权限。
 
 根部署项目使用其自身 docker-compose.yml 和 deploy/nginx/nginx.conf。当前目录的 Compose 仅用于独立开发；容器里的 platform 地址必须使用服务名而非 localhost。

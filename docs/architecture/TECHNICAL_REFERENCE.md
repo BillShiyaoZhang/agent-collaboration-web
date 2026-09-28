@@ -72,6 +72,8 @@ flowchart LR
 
 ### v2 策略与托管控制台边界
 
+控制台可被 helper 解析的 owner-signed Registry 登记与托管 MQ 证书分开续期。平台默认 Registry TTL 为 24 小时，最短配置为 1 小时；Web 在提交控制信封和取回响应前，使用已保存的同一 URN 与密钥签署新登记，成功结果缓存 30 秒。同一账户、URN、Ed25519／X25519 公钥和 Platform 地址的并发操作共享一次登记，失败或未确认响应不缓存，强制恢复会使旧成功缓存失效。这个间隔也保持 90 秒在线证明的新鲜度，不能把证书有效推断为 Registry 可解析。登记不会生成新身份或改配对；恢复平台授权后仍使用原密文、请求编号和截止时间。每次外发前继续查询账户状态，删除或查询失败时停止发送；已交给网络的登记无法撤回。相关隔离测试覆盖原登记缺失／TTL 失效后的真实签名加密 `capabilities` 往返、并发合并、失败恢复、缓存隔离与账号删除。
+
 Web 的远程控制消息仍使用已配对的 v1 控制台身份，属于**托管端点可见**的消息；它们不是 Agent ↔ Agent 的 v2 隐私信封，也不能标为“合规网关已解密”。Web 另有独立的 TypeScript v2 规范 JSON、签名策略、握手帧、HPKE 信封和准入回执实现，供 v2 客户端接入与 Go 测试向量校验；当前工作台控制流程尚未切换到 v2 会话。
 
 连接 v2 Platform 时，Web 从 `/api/v2/policy` 取得原始已签策略，用独立配置的策略根公钥和平台 ID 验证，并在 `PlatformPolicyState` 持久记录已见最高 epoch。策略过期、签名错误或回退时，控制消息停止发送。合规策略不允许全局 v1；Web 使用策略指定的托管发行者签发一小时控制台证书，经控制台私钥证明持有身份后登记到 `/api/v2/managed/identity`。登记成功的证书保存在 `ManagedConsoleCertificate`，到期前续签。平台登记丢失时，Web 重新登记一次并重发同一原始信封。此例外只允许已认证的托管控制台继续 v1 控制流，不改变 Agent ↔ Agent 路由的 v2 准入要求；已入队的旧 v1 消息也不会因后来登记而追溯获得准入。旧 Platform 没有 v2 策略端点且未配置 v2 信任根时，保留原 v1 流程。
@@ -195,6 +197,8 @@ node tests/integration/workspace-resilience.cjs
 
 `/dashboard/chats` 的名称为“我的 agents”，桌面三栏为主导航、agent/会话列表和直接可输入的聊天框，消息区域独立滚动。默认选中可用连接，多个连接也不需要先进入卡片；手机采用列表切换。`/dashboard/contacts`、`/dashboard/collaborations`、`/dashboard/me` 各自渲染专用内容。`/dashboard/connections?agent=...` 处理所选连接设置，`/dashboard/agents` 仅管理连接。旧 `/dashboard/agents/:id?tab=...` 在账户所有权验证后跳转专页，保留原主题、事项和回合定位参数；不再展示混合标签页。
 
+工作空间使用暖白底色、墨绿导航选中态、浅绿本人消息与白色 Agent 回复。`globals.css` 的 `.dashboard-shell` 局部颜色变量只作用于控制台，公开官网由独立样式控制；`.agent-avatar` 使用 `public/brand/agent-loop-sage.png` 作为无自定义头像时的装饰图形，不能用图形或颜色推断身份认证、在线、授权或业务完成。Agent 列表仍展示实际同步状态；主题标题来自账户保存记录。手机保留列表抽屉、底部导航和可滚动的内容共享说明，输入区在放大文字时允许局部滚动；键盘焦点与减少动态效果设置继续生效。视觉更新不改变共享许可、配对、原请求核实或记录管理的规则。
+
 - `PATCH /api/agents/:id` 同源改名；`DELETE` 移除此账户的连接与级联副本，不删除 agent 本机数据或撤销配对。
 - 会话 metadata 的 `deleted` 保存删除状态；列表默认排除已删主题，可通过 deleted 筛选恢复。后台同步和迟到草稿保存不能清除删除标记；删除当前主题会清理当前网页选择与本地草稿缓存。
 - `GET/POST /api/agents/:id/workspace/records` 保存联系人/合作的账户显示状态。合作的 task/collaboration 稳定 ID 归并，原 agent 快照仍作为业务事实，删除状态不冒充本机删除或业务取消。
@@ -202,6 +206,10 @@ node tests/integration/workspace-resilience.cjs
 - 详情删除/恢复成功后，`workspace-records-changed` 携带服务端确认的 `{agentId,state}`。Hub 立即合并当前账户已有 agent 的记录状态，保留标题与关联 ID，并作废旧读取，再后台核验；不能等轮询才能从总览隐藏或恢复。
 - `MyAgentsWorkspace` 与 `WorkspaceHub` 各自在客户端首次提交后解除 `fieldset disabled/inert`，以 `display:contents` 保留原布局；SSR 阶段的搜索、筛选、原生消息输入和管理入口暂不可用，就绪后自动启用。当前子树为同步静态导入；若将来拆出独立 Suspense/lazy 边界，应在该边界验证自己的就绪状态，不能提前由父组件开放。真实 SSR 单元和延迟脚本的单次操作浏览器回归见 [测试说明](../../tests/README.md)。
 - 页面中的 `usePolicyAccess` 与 `useWorkbench` 各自使用 `useHydrated` 的 `useSyncExternalStore` 服务端快照。政策权限在 SSR 和首次 hydration 为 `false`，外层 WorkspaceProvider 的错误在这两次渲染为空；即使布局 provider 已先刷新，迟到的页面也必须重现自己的服务端树。hydration 完成后读取当前 context，撤销权限立即生效，真实连接错误正常显示；页面自己的错误状态始终保留。客户端页面切换使用 client snapshot，不等待父组件副作用决定顺序。此契约的真实 SSR hook 回归见 `tests/unit/workbench-context-hydration.test.cjs`；该确定性修复不等于已定位某一次线上 React #418 的原始来源。
+- `DashboardHeader` 的提醒徽标也使用 `useHydrated`：SSR 与首次 hydration 的未读/待处理数为 0，随后读取当前 NotificationProvider 的真实计数。父 provider 提前刷新不会向尚未 hydration 的 Header 插入额外节点；后续计数增加、清零和 99+ 显示正常更新。回归见 `tests/unit/dashboard-header-hydration.test.cjs`。
+- `PolicyDisclosureGate` 的后台政策刷新用 React `startTransition` 发布结果，保留还未 hydration 的服务器流页面模板，避免普通上下文更新先移走模板及流占位节点。确认、暂停和恢复是明确用户动作，仍立即更新权限；所有控制请求继续由服务端核验当前政策。真实生产 React 的模板保留负／正对照见 `tests/integration/policy-stream-hydration-browser.cjs`，同时检查后续政策生效和用户暂停。
+- `NotificationProvider` 的初始化、焦点／可见性事件和后台重验证也以 `startTransition` 发布提醒、权限恢复与推送显示状态。独立流式对照中，即使提醒消费者已冻结首次值，普通父 context 更新仍会提前移走尚未 hydration 的 SSR 模板；这项 producer 契约不单独证明完整 Next 页面的错误已解决。明确刷新、已读、开启／关闭与测试提醒保持普通更新；关闭用的 refs、订阅撤销和服务端权限核验不等待显示状态。`refresh(true)` 只用于后台调度，严格布尔判断避免 React 点击事件被误当后台标志。同 Next 内置 React 版本的负／正浏览器对照见 `tests/integration/notification-stream-hydration-browser.cjs`；同时覆盖后续真实计数、已有提醒设置恢复和明确关闭。
+- `DashboardContent` 在政策区内、内容 host 与 Next Template 外另设明确的 Suspense，使用既有 `DashboardLoading` 视图。Flight 可以在路由自己的 LoadingBoundary 安装之前 suspend；真实 Next 冷刷新负例的 host 认领序列显示内容 div 重入、把 Template div 认作内容 div，最终在内部 Suspense 标记处产生 HTML `#418`，此时尚无已记录的 provider 更新。只移走 Template 包装仍失败，因此保留 Template 的重新挂载语义和原布局样式，靠外部流边界保存 SSR 页面。这是流边界的结构修复，不把该初次渲染错误归因于未证明的 setter。完整回归使用 `agent-sharing-browser.cjs` 的正常与 `WORKSPACE_CHAT_CHUNK_DELAY_MS=900` 两种模式，均要求没有页面错误；延迟模式还检查原 SSR 节点未被客户端重建。
 
 ## 工作空间体验
 
@@ -307,3 +315,13 @@ Loopback workspace fixture 没有模型/工具执行，并实际按原对端记�
 ## 对端内容隔离与持久举报
 
 Web 在认证响应保存、直接控制响应和旧快照读取时统一隔离未经审核的对端自由文本。跨端 `contentSafety` 与 `content_review` 标记、SDK 主人审核/安全 revision、精确报告 ID、最小证据、数据库队列和实际管理员 CLI 见 [内容安全契约](CONTENT_SAFETY.md) 与 [举报处理运行手册](../operations/MODERATION.md)。普通私人助手历史不自动送运营者审核；只针对已举报记录的明确移除决定执行投影隐藏。实际负责人和及时响应安排仍须运营者完成。
+
+`inbox.review` 的认证回执只有在确切消息 ID、完整发送者 URN、`approved`/`rejected` 状态和 64 位小写十六进制指纹均合法时保留顶层 `fingerprint`，供界面与原完整预览核对。它不批准网站展示，也不放行附加正文、嵌套指纹或其他方法中的同名字段；网站仍需原内容的独立预览、明确同意和决定。已保存的 `ControlRequest.responseEnvelope` 保留原签名线字节，读取原请求时重新认证和投影，可核实已有本机决定，不能为了恢复界面重发已成功的审核。
+
+### 本机完整预览与历史网站版本
+
+网站队列按创建时间排列，同一消息可能同时有较新的占位版本和较早的完整版本。`ContentReviewPage` 不用队列首项认定本机正文：先取得确切消息的本机完整预览，要求发送者、消息 ID、内容类型、非截断正文、合法审核状态和 64 位指纹，再读取最多四个 `kind=inbox` 且消息 ID 相同的完整网站预览。每个网站响应必须绑定原记录 ID、Agent、摘要、目标和预览凭证；随后按本机发送者、消息 ID、类型和完整正文选择版本。超过四个候选或没有精确匹配均停止。网站原正文仅在自身没有 `kind` 属性时按 SDK 的 `chat.message` 缺省值比较；显式空值或错误类型不兼容，原正文和摘要不被改写。精确匹配的已拒绝版本优先于其他状态，不能挑选其待审或已批准副本绕过拒绝。
+
+队列具体行的点击还绑定该行 ID、Agent、目标与摘要；即使本机待审入口仍存在，也不能改选另一份同正文版本。若其他精确匹配版本已拒绝，点击未拒绝行会要求刷新核对。SDK 的 `review_preview` 与 `state().inbox` 对同一普通消息分别带网站/宿主派生字段；审核证据剔除这些派生字段，保留消息 ID、发送者、正文、类型和任务等语义字段。历史已批准摘要不能迁移为新摘要的批准。
+
+完整预览仍显示风险说明，用户必须勾选明确同意并点击决定；选择版本不会自动批准。本机待审决定先于网站决定，已批准的本机状态不重发审核。账户范围与窗口失焦在预览、决定各异步步骤前后重新核验；本机决定已外发后发生失焦或换账户时，不继续网站批准，并保留原请求供核实，不自动重放本机决定。验证见 `native-review-preview.test.cjs` 和 `content-review-version-browser.cjs`；这是组件与合成 HTTP 回归，真实 Agent、正式部署与业务闭环另行验收。
