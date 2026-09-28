@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,27 +11,42 @@ import { buildGoalScope, capabilityLabels, collaborationMutationBlocksWrites, co
 import type { Workbench } from "./use-workbench";
 import { isRecordDeleted } from "./record-actions";
 
-const descriptions = new WeakMap<Workbench["invoke"], Promise<RemoteRecord | undefined>>();
+// Only share an in-flight read between controls for the same connection. A
+// settled description must be fetched again after a later mount or policy change.
+const descriptions = new Map<string, Promise<RemoteRecord | undefined>>();
 export function useCollaborationDescription(w: Workbench, enabled = true) {
-  const invoke = w.invoke, canMutate = w.mutations.canMutate;
-  const [description, setDescription] = useState<RemoteRecord>({});
-  const [loading, setLoading] = useState(false);
+  const key = `${w.agentId}\0${w.identity.virtualUrn || ""}`;
+  const allowed = w.policyAllowed && w.mutations.canMutate("collaboration.execute");
+  const invokeRef = useRef(w.invoke);
+  invokeRef.current = w.invoke;
+  const [snapshot, setSnapshot] = useState<{ key: string; description: RemoteRecord }>({ key: "", description: {} });
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
   useEffect(() => {
-    if (!enabled || !canMutate("collaboration.execute")) return;
-    let current = true;
-    let request = descriptions.get(invoke);
-    if (!request) {
-      request = invoke("collaboration.execute", { action: "describe" }).then(outcome => {
-        if (!outcome.result || !Array.isArray(outcome.result.actions)) descriptions.delete(invoke);
-        return outcome.result;
-      });
-      descriptions.set(invoke, request);
+    if (!enabled || !allowed) {
+      if (!allowed) descriptions.delete(key);
+      setSnapshot({ key: "", description: {} });
+      setLoadingKey(null);
+      return;
     }
-    setLoading(true);
-    void request.then(result => { if (current && result) setDescription(result); }).finally(() => { if (current) setLoading(false); });
+    let current = true;
+    setSnapshot({ key: "", description: {} });
+    let request = descriptions.get(key);
+    if (!request) {
+      request = invokeRef.current("collaboration.execute", { action: "describe" })
+        .then(outcome => outcome.result && Array.isArray(outcome.result.actions) ? outcome.result : undefined)
+        .catch(() => undefined);
+      descriptions.set(key, request);
+      void request.finally(() => { if (descriptions.get(key) === request) descriptions.delete(key); });
+    }
+    setLoadingKey(key);
+    void request.then(result => { if (current && result) setSnapshot({ key, description: result }); })
+      .finally(() => { if (current) setLoadingKey(null); });
     return () => { current = false; };
-  }, [enabled, invoke, canMutate]);
-  return { description, loading };
+  }, [key, enabled, allowed]);
+  // Revocation and agent switches hide the previous agent's actions during the
+  // render itself, before effect cleanup runs.
+  return { description: enabled && allowed && snapshot.key === key ? snapshot.description : {},
+    loading: enabled && allowed && loadingKey === key };
 }
 
 function withSource(w: Workbench, description: RemoteRecord, params: RemoteRecord) {

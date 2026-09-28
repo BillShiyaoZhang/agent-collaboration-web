@@ -1,0 +1,55 @@
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { GoalWorkflow } from '@/components/workbench/collaboration-workflow';
+import type { Workbench } from '@/components/workbench/use-workbench';
+
+type Scope = { agent: string; urn: string; policy: boolean; permission: boolean };
+const pending = new Map<string, (result: unknown) => void>();
+const calls: string[] = [];
+const scopeKey = (value: Scope) => `${value.agent}\0${value.urn}`;
+
+function Harness() {
+  const [scope, setScope] = useState<Scope>({ agent: 'agent-a', urn: 'urn:console:a', policy: true, permission: true });
+  const [generation, setGeneration] = useState(0);
+  (window as any).__harness = {
+    setScope: (next: Partial<Scope>) => setScope(current => ({ ...current, ...next })),
+    rerender: () => setGeneration(value => value + 1),
+    resolve: (key: string, actions: string[]) => {
+      const complete = pending.get(key);
+      if (!complete) throw new Error(`No pending describe for ${key}`);
+      pending.delete(key);
+      complete({ result: { actions, business_capabilities: ['propose_meeting'] } });
+    },
+    calls: () => [...calls],
+    generation,
+  };
+  // The parent creates fresh functions and a fresh workbench on every render.
+  // This mirrors the real workbench after setLoading and snapshot refreshes.
+  const workbench = {
+    agentId: scope.agent,
+    identity: { virtualUrn: scope.urn },
+    policyAllowed: scope.policy,
+    mutations: {
+      ready: true,
+      actions: [],
+      canMutate: (_method: string) => scope.permission,
+      run: async () => undefined,
+    },
+    invoke: async (method: string, params: { action: string }) => {
+      if (method !== 'collaboration.execute' || params.action !== 'describe') throw new Error('Unexpected business call');
+      const key = scopeKey(scope);
+      calls.push(key);
+      return new Promise(resolve => pending.set(key, resolve));
+    },
+    available: () => true,
+    busy: {},
+    recordStates: [],
+    snapshots: {
+      'contacts.list': { data: { contacts: [{ contact_id: 'peer-1', urn: 'urn:agent:peer', aliases: ['Peer'], connection_status: 'connected' }] } },
+      'collaboration.state': { data: { tasks: [], resources: [] } },
+    },
+  } as unknown as Workbench;
+  return <GoalWorkflow workbench={workbench} initialOpen />;
+}
+
+createRoot(document.getElementById('root')!).render(<Harness />);
