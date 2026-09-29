@@ -101,7 +101,7 @@ export default function AgentsPage() {
       void load();
       void requestSync(data.id);
       setQuery("");
-      setSuccess(`已保存「${data.name}」，正在进入工作台…`);
+      setSuccess(`已保存「${data.name}」。请在 agent 本机完成网页配对，再检查连接。`);
       setName("");
       setUrn("");
       setOpen(false);
@@ -134,7 +134,7 @@ export default function AgentsPage() {
       <DialogContent className="gap-0 rounded-2xl p-0 sm:max-w-[460px]" hideCloseButton={busy} onCloseAutoFocus={(event) => { event.preventDefault(); (dialogOpener.current?.isConnected ? dialogOpener.current : addButton.current)?.focus(); }}>
         <div className="p-6 sm:p-7">
           <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Fingerprint className="h-6 w-6" strokeWidth={1.7} aria-hidden="true" /></div>
-          <DialogHeader className="text-left"><DialogTitle className="text-xl">手动添加连接</DialogTitle><DialogDescription className="pt-2 text-sm leading-6">适用于已在 agent 所在设备安装连接组件、并取得完整 URN 的情况。首次接入 Hermes 可使用官网自动连接。</DialogDescription></DialogHeader>
+          <DialogHeader className="text-left"><DialogTitle className="text-xl">手动添加连接</DialogTitle><DialogDescription className="pt-2 text-sm leading-6">适用于已有安装、已取得完整 URN，且准备在 agent 本机明确授权网页的情况。首次接入 Hermes 请使用官网的一次性链接。</DialogDescription></DialogHeader>
           <form onSubmit={connect} className="mt-6 space-y-5" aria-busy={busy}>
             <div className="space-y-2"><label htmlFor="connection-name" className="text-sm font-medium">连接名称</label><Input id="connection-name" maxLength={100} placeholder="例如：我的 Hermes" value={name} onChange={(event) => setName(event.target.value)} className="h-11 rounded-xl" disabled={busy} required /></div>
             <div className="space-y-2">
@@ -143,8 +143,8 @@ export default function AgentsPage() {
               <p id="urn-hint" className="text-xs leading-5 text-muted-foreground">这是 agent 的唯一标识，可从本机 helper 获取。</p>
             </div>
             {formError && <p role="alert" className="flex items-start gap-2 rounded-xl bg-destructive/5 p-3 text-sm leading-6 text-destructive"><CircleAlert className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />{formError}</p>}
-            <div className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />保存后在本机完成绑定。尚未注册的 agent 会由本机自动注册，并授权网页访问。</div>
-            <div className="flex gap-3 pt-1"><Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={busy} className="h-11 rounded-xl">取消</Button><Button type="submit" disabled={busy} className="h-11 flex-1 gap-2 rounded-xl">{busy ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />保存连接中…</> : <>绑定我的 agent<ArrowRight className="h-4 w-4" aria-hidden="true" /></>}</Button></div>
+            <div className="flex items-start gap-2 rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />此操作只保存 agent 地址。进入连接设置后，按页面给出的步骤在 agent 本机完成配对、注册及允许网页访问；保存地址本身不会授权网页。</div>
+            <div className="flex gap-3 pt-1"><Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={busy} className="h-11 rounded-xl">取消</Button><Button type="submit" disabled={busy} className="h-11 flex-1 gap-2 rounded-xl">{busy ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />保存连接中…</> : <>保存地址并继续设置<ArrowRight className="h-4 w-4" aria-hidden="true" /></>}</Button></div>
             <span role="status" className="sr-only">{busy ? "正在保存连接，请稍候。" : ""}</span>
           </form>
         </div>

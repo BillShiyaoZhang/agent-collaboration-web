@@ -22,30 +22,35 @@ export function OnboardingClaim({ code }: { code: string }) {
   const displayTime = useLocalTime();
   const [preview, setPreview] = useState<Preview>();
   const [error, setError] = useState("");
+  const [loadStatus, setLoadStatus] = useState<number | null>(null);
+  const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const url = `/api/onboarding/claim/${encodeURIComponent(code)}`;
   useEffect(() => {
     let stopped = false, timer: ReturnType<typeof setTimeout>;
     const load = async () => {
+      let status = 0;
       try {
         const response = await fetch(url, { cache: "no-store" });
-        const value = await response.json();
-        if (!response.ok) throw new Error(value.error || "暂时无法读取连接申请。");
-        if (!stopped) { setPreview(value); setError(""); if (value.status === "approved") timer = setTimeout(load, 2000); }
+        const value = await response.json().catch(() => ({}));
+        status = response.status;
+        if (!response.ok) { if (!stopped) setLoadStatus(status); throw new Error(value.error || "暂时无法读取连接申请。"); }
+        if (!stopped) { setPreview(value); setError(""); setLoadStatus(null); if (value.status === "approved") timer = setTimeout(load, 2000); }
       } catch (cause) { if (!stopped) {
         setError(cause instanceof Error ? cause.message : "暂时无法读取连接申请。");
-        if (preview?.status === "approved") timer = setTimeout(load, 4000);
+        if (preview?.status === "approved" && status !== 404 && status !== 401) timer = setTimeout(load, 4000);
       } }
     };
     void load();
     return () => { stopped = true; clearTimeout(timer); };
-  }, [url, preview?.status]);
+  }, [url, preview?.status, retry]);
   async function approve() {
     setBusy(true); setError("");
     try {
       const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) });
       const value = await response.json();
-      if (!response.ok) throw new Error(value.error || "暂时无法确认连接。");
+      if (!response.ok) { setLoadStatus(response.status); throw new Error(value.error || "暂时无法确认连接。"); }
+      setLoadStatus(null);
       setPreview(previous => previous ? { ...previous, ...value } : previous);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "暂时无法确认连接。"); }
     finally { setBusy(false); }
@@ -58,10 +63,11 @@ export function OnboardingClaim({ code }: { code: string }) {
       <p className="mt-3 text-sm leading-7 text-muted-foreground">{preview?.status === "pending" ? "这是 Hermes 在本机发起的连接申请。确认下面的 agent、可用功能和到期时间后，Hermes 会自动完成本机配置。" : preview?.status === "approved" ? "网页已确认授权。保持 Hermes 运行，它会自动接收结果并完成配对，无需复制命令。" : preview?.status === "completed" ? "本机已保存授权。打开工作台检查连接，并等待 Hermes 对你的消息给出真实回复。" : "正在读取这次连接申请…"}</p>
       {preview && <><dl className="mt-6 space-y-4 text-sm"><div><dt className="text-muted-foreground">连接名称</dt><dd className="mt-1 font-medium">{preview.name}</dd></div><div><dt className="text-muted-foreground">Agent 地址 · 已验证签名</dt><dd className="mt-1 break-all font-mono text-xs leading-6">{preview.agent_urn}</dd></div><div><dt className="text-muted-foreground">网页授权到期时间</dt><dd className="mt-1">{displayTime(preview.expires_at, { style: "full" })}</dd></div></dl>
         <h2 className="mt-6 text-sm font-medium">本次授权的功能</h2><ul className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">{preview.methods.map(method => <li key={method}>✓ {labels[method] || method}</li>)}</ul>
-        {preview.status === "pending" ? <><p className="mt-6 text-xs leading-6 text-muted-foreground">仅确认你刚刚让 Hermes 发起的申请。确认后，本账户可在上述期限内使用所列功能。申请链接于 {displayTime(preview.ticket_expires_at, { style: "time" })} 失效。</p><div className="mt-5 space-y-4"><PolicyDisclosureGate><ApprovalButton busy={busy} approve={approve} /></PolicyDisclosureGate></div></>
+        {preview.status === "pending" && loadStatus !== 404 && loadStatus !== 401 ? <><p className="mt-6 text-xs leading-6 text-muted-foreground">仅确认你刚刚让 Hermes 发起的申请。确认后，本账户可在上述期限内使用所列功能。申请链接于 {displayTime(preview.ticket_expires_at, { style: "time" })} 失效。</p><div className="mt-5 space-y-4"><PolicyDisclosureGate><ApprovalButton busy={busy} approve={approve} /></PolicyDisclosureGate></div></>
           : preview.agent_id && <Button asChild className="mt-6 w-full rounded-xl"><Link href={`/dashboard/agents/${preview.agent_id}`}>打开工作台</Link></Button>}
       </>}
-      {error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
+      {error && <div role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-sm text-destructive"><p>{loadStatus === 404 ? "这条一次性链接已失效，或已由另一个账户领取。请核对登录账户；若链接已过期，让 Hermes 在原设备重新运行接入程序，取得新链接。" : loadStatus === 401 ? "请先登录，再打开 Hermes 提供的一次性链接。" : error}</p><div className="mt-3 flex flex-wrap gap-3">{loadStatus === 401 && <Button asChild size="sm" variant="outline"><Link href={`/login?callbackUrl=${encodeURIComponent(`/connect/${code}`)}`}>登录并返回申请</Link></Button>}{loadStatus !== 404 && loadStatus !== 401 && <Button type="button" size="sm" variant="outline" onClick={() => { setError(""); setRetry(value => value + 1); }}>重新读取申请</Button>}<Button asChild size="sm" variant="link"><Link href="/agent-install.md">查看接入与恢复步骤</Link></Button></div></div>}
+      {error && loadStatus === 404 && <p className="mt-3 text-sm text-muted-foreground">若此前已经确认授权，先<Link href="/dashboard/agents" className="ml-1 underline underline-offset-2">查看已有连接</Link>，核对本机配对状态后再决定是否重新接入。</p>}
     </section>
   </main>;
 }
