@@ -129,7 +129,9 @@ worker 会在读取 Registry 或 MQ 前核验当前政策与账户确认。待�
 | `conversation.send` | 适配器实际受理一个远程会话回合 |
 | `conversation.get` | 查询 agent 保存的回合状态与真实答复 |
 
-`conversation.send` 可带 `mentions: [{kind:"task",task_id}]`（最多 8 个本方已存在任务，去重）。运行时逐项核对配对 owner，回执和 `conversation.get.turns` 回传该字段。`mentions` 是用户指明上下文；`related` 仍表示实际操作产生的可信来源，两者不可混作授权。Web 将确切参数连同原请求 ID 保存，结果不明时仅查询或重试同一请求。旧 runtime 或旧配对缺少 `task.list` / `task.detail` 时，输入菜单说明不可用，普通文本对话继续可用；配对不会因 Web 升级自动扩大。
+`conversation.send` 可带 `mentions: [{kind:"task",task_id}]`（最多 8 个本方已存在任务，去重）。运行时逐项核对配对 owner，回执和 `conversation.get.turns` 回传该字段。`mentions` 是用户指明上下文；`related` 仍表示实际操作产生的可信来源，两者不可混作授权。Web 将确切参数连同原请求 ID 保存，结果不明时仅查询或重试同一请求。输入 `@` 的结构化事项选择同时要求该 Agent 的 `task.list` 和 `task.detail` 可用；未开放时仍可发送普通文本。
+
+`@` 候选菜单的恢复提示需区分原因：政策暂停时引导到政策确认与恢复；尚无可信的 `capabilities` 快照或连接异常时先检查连接；确有方法缺失时，提供当前 Agent 的“连接设置”直达入口并展开本机配对步骤。此时菜单使用普通提示区域，而非空的选项列表。旧 runtime 可能不提供事项读取方法，旧配对不会因网页或本机组件升级自动增权。已有安装应保留原控制台 URN 和 Agent 身份，在 Agent 本机用新版接入包预览 `configure_hermes.py --remote --pair-console CONSOLE_URN --expires FUTURE_UTC_EXPIRY --check-only` 的完整方法和期限，再移除 `--check-only` 明确重配，重启 Gateway，回到网页“重新检查连接”。默认配对的只读方法包含 `task.list`、`task.detail` 和 `task.events`；`--allow-web-actions` 会额外开放联系人、审核和协作等写操作，不能将它作为仅启用 `@事项` 的必要步骤。原配对若使用自选方法，应逐项保留原有范围后增加所需方法，避免用默认集合覆盖。网页的引导不会自行更改本机权限，也不会因输入 `@` 发起配对。
 
 事项详情以 `task.detail.conversation_refs` 反向导航已保存的提及和实际来源回合，并以 `task.events` 展示进展与记录。事件含 `event_id`、`kind`、`at`、`source`、`summary` 和可用详情；`coverage` 显示历史缺口。Web 只展示本方 Agent 获准返回且真实留存的记录，不推断对端内部步骤或过去没有保存的授权问题。概览仍可在旧配对下使用 `collaboration.state` 最近同步副本。
 
@@ -200,7 +202,7 @@ node tests/integration/workspace-resilience.cjs
 
 ## 桌面工作空间与记录管理
 
-`/dashboard/chats` 的名称为“我的 agents”，桌面三栏为主导航、agent/会话列表和直接可输入的聊天框，消息区域独立滚动。默认选中可用连接，多个连接也不需要先进入卡片；手机采用列表切换。`/dashboard/contacts`、`/dashboard/collaborations`、`/dashboard/me` 各自渲染专用内容。`/dashboard/connections?agent=...` 处理所选连接设置，`/dashboard/agents` 仅管理连接。旧 `/dashboard/agents/:id?tab=...` 在账户所有权验证后跳转专页，保留原主题、事项和回合定位参数；不再展示混合标签页。
+`/dashboard/chats` 的名称为“我的 agents”，桌面三栏为主导航、agent/会话列表和直接可输入的聊天框，消息区域独立滚动。默认选中可用连接，多个连接也不需要先进入卡片；手机采用列表切换。`/dashboard/contacts`、`/dashboard/collaborations`、`/dashboard/me` 各自渲染专用内容。`/dashboard/connections?agent=...` 处理所选连接设置，`/dashboard/agents` 仅管理连接。聊天中 `@事项` 的权限引导打开 `/dashboard/connections?agent=<当前连接>&guide=task-mentions`，展开配对说明，不跨到其他 Agent，也不丢失当前对话草稿。旧 `/dashboard/agents/:id?tab=...` 在账户所有权验证后跳转专页，保留原主题、事项和回合定位参数；不再展示混合标签页。
 
 工作空间使用暖白底色、墨绿导航选中态、浅绿本人消息与白色 Agent 回复。`globals.css` 的 `.dashboard-shell` 局部颜色变量只作用于控制台，公开官网由独立样式控制；`.agent-avatar` 使用 `public/brand/agent-loop-sage.png` 作为无自定义头像时的装饰图形，不能用图形或颜色推断身份认证、在线、授权或业务完成。Agent 列表仍展示实际同步状态；主题标题来自账户保存记录。手机保留列表抽屉、底部导航和可滚动的内容共享说明，输入区在放大文字时允许局部滚动；键盘焦点与减少动态效果设置继续生效。视觉更新不改变共享许可、配对、原请求核实或记录管理的规则。
 

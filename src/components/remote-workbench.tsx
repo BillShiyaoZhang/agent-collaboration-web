@@ -31,8 +31,11 @@ function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial
   const subject = search.get("subject"), subjectAttempt = useRef("");
   const snapshotMethod = scope === "contacts" ? "contacts.list" : "collaboration.state";
   const snapshot = w.snapshots[snapshotMethod];
+  const setPairingOpen = w.setPairingOpen;
+  const taskMentionGuide = scope === "connection" && search.get("guide") === "task-mentions";
   const showConnection = scope === "connection" || !w.capabilitySnapshot || w.pairingOpen || !!w.errors.capabilities || w.sync.status === "needs_pairing";
   useEffect(() => { if (search.get("new") === "1") setCreating(true); }, [search]);
+  useEffect(() => { if (taskMentionGuide) setPairingOpen(true); }, [taskMentionGuide, setPairingOpen]);
   useEffect(() => {
     if (!subject || !snapshot || subjectAttempt.current === subject) return;
     const target = document.getElementById(`subject-${subject}`);
@@ -80,7 +83,7 @@ function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial
     </div>
     {linkError && <div role="alert" className="rounded-md border p-3 text-sm"><p>{linkError}</p>{discussionRequest && <Button variant="outline" size="sm" className="mt-2" disabled={w.selectingConversation || !!w.busy["conversation.get"]} onClick={() => void continueDiscussion(discussionRequest.message, discussionRequest.conversationId, discussionRequest.taskId)}>重试打开原对话</Button>}</div>}
     {w.cacheError && <p role="status" className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">{w.cacheError}</p>}
-    <div id="pairing-panel" hidden={!showConnection}><PairingPanel agent={agent} workbench={w} featureCount={scope === "contacts" ? 1 : 2} /></div>
+    <div id="pairing-panel" hidden={!showConnection}><PairingPanel agent={agent} workbench={w} featureCount={scope === "contacts" ? 1 : 2} guideTaskMentions={taskMentionGuide} /></div>
     {scope !== "connection" && <div className="min-w-0 rounded-md border bg-card py-3">
       {scope === "collaborations" && creating && <CollaborationActions workbench={w} initialOpen />}
       {scope === "contacts" && <><AddContactPanel workbench={w} /><FriendRequests workbench={w} /></>}
