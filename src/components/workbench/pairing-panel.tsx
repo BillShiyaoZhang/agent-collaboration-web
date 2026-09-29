@@ -29,6 +29,15 @@ export function PairingPanel({ workbench: w, agent, featureCount, guideTaskMenti
   const step = w.capabilitySnapshot ? 3 : w.identity?.virtualUrn ? 2 : 1;
   const policyBlocked = w.sync.status === "policy_paused" || w.sync.status === "policy_unavailable";
   const unavailable = w.methods.filter(method => method.available !== true);
+  const taskMethods = ["task.list", "task.detail"];
+  const unreportedTaskMethods = taskMethods.filter(name => !w.methods.some(method => method.name === name));
+  const closedTaskMethods = taskMethods.filter(name => w.methods.some(method => method.name === name && method.available !== true));
+  const taskMethodHint = policyBlocked ? "先在页面顶部确认或恢复平台政策，再检查连接。"
+    : w.sync.status === "offline" ? "此 Agent 暂未连上。先恢复原设备、Gateway 与 helper，再检查连接。"
+    : !w.capabilitySnapshot ? "先点击下方“立即检查连接”，确认此 Agent 当前支持的方法。"
+    : unreportedTaskMethods.length ? `最近的能力结果未列出 ${unreportedTaskMethods.join("、")}。请先核对原设备的接入组件是否支持这些方法；升级后重新检查，再核对旧配对。`
+    : closedTaskMethods.length ? `最近的能力结果显示 ${closedTaskMethods.join("、")} 尚未开放。请在原设备核对适配器与当前控制台的配对范围。`
+    : "最近的能力结果已列出事项搜索和详情。如果聊天仍无法引用，先重新检查连接与搜索错误。";
   return <section className="overflow-hidden rounded-2xl border bg-card shadow-sm" aria-label="控制台配对">
     <button type="button" className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onClick={() => { const closing = w.pairingOpen; w.setPairingOpen(!closing); if (closing && w.capabilitySnapshot) requestAnimationFrame(() => document.getElementById("connection-settings-toggle")?.focus()); }} aria-expanded={w.pairingOpen} aria-controls="pairing-details">
       <span className="flex items-center gap-3"><span className={cn("rounded-xl p-2", w.capabilitySnapshot ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{w.capabilitySnapshot ? <ShieldCheck className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}</span><span><span className="block text-sm font-medium">{w.capabilitySnapshot || policyBlocked ? syncLabel(w.sync, !!w.capabilitySnapshot) : "首次连接设置"}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{w.capabilitySnapshot ? `最近验证 ${displayTime(w.capabilitySnapshot.time / 1000)} · ${featureCount} 项功能已授权` : policyBlocked ? "请查看页面的政策披露；原控制台身份与已保存内容仍保留。" : "完成本机配对后，工作台会自动同步。"}</span></span></span><ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", w.pairingOpen && "rotate-180")} />
@@ -36,7 +45,7 @@ export function PairingPanel({ workbench: w, agent, featureCount, guideTaskMenti
     {w.pairingOpen && <div id="pairing-details" className="border-t p-5 sm:p-6">
       {guideTaskMentions && <div className="mb-6 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm leading-6">
         <h2 className="font-semibold">启用聊天中的 @事项</h2>
-        <p className="mt-1 text-muted-foreground">{policyBlocked ? "先在页面顶部确认或恢复平台政策，再检查连接。" : !w.capabilitySnapshot ? "先点击下方“立即检查连接”，确认此 Agent 当前支持的方法。" : "引用事项需要 task.list 和 task.detail；旧配对不会因网页升级自动增加方法。旧接入组件也可能需要升级。"}</p>
+        <p className="mt-1 text-muted-foreground">引用事项需要 task.list 和 task.detail。{taskMethodHint}</p>
         <p className="mt-1 text-muted-foreground">若检查后仍缺方法，请在运行 Hermes 的原设备和原 profile 中，复制本页控制台 URN，先预览完整配对计划，再执行命令、重启 Gateway，最后点“重新检查连接”。网页不能自行增加授权。</p>
         <Link href={`/dashboard/chats?agent=${encodeURIComponent(w.agentId)}`} className="mt-2 inline-flex min-h-9 items-center font-medium text-primary underline underline-offset-4 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">返回此 Agent 的聊天</Link>
       </div>}
