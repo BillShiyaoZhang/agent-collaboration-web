@@ -12,6 +12,8 @@ const approvalParams = z.object({
   approval_id: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/).refine(value => value.trim() === value),
   decision: z.enum(["approve", "deny"]),
 }).strict();
+const stableId = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
+const taskMention = z.object({ kind: z.literal("task"), task_id: stableId }).strict();
 
 export const controlCallSchema = z.object({
   request_id: z.string().uuid(),
@@ -21,8 +23,11 @@ export const controlCallSchema = z.object({
   if ((call.method === "contacts.add" && !contactParams.safeParse(call.params).success) ||
       (call.method === "approval.respond" && !approvalParams.safeParse(call.params).success))
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid action parameters", path: ["params"] });
-  const stableId = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
   const socialSchemas: Partial<Record<string, z.ZodTypeAny>> = {
+    "conversation.send": z.object({ text: z.string().min(1).refine(value => value.trim().length > 0 && new TextEncoder().encode(value).length <= 24000), conversation_id: stableId.optional(), mentions: z.array(taskMention).max(8).refine(value => new Set(value.map(item => item.task_id)).size === value.length).optional() }).strict(),
+    "task.list": z.object({ query: z.string().max(120).optional(), limit: z.number().int().min(1).max(100).optional(), cursor: stableId.optional() }).strict(),
+    "task.detail": z.object({ task_id: stableId }).strict(),
+    "task.events": z.object({ task_id: stableId, limit: z.number().int().min(1).max(20).optional(), cursor: z.string().max(256).regex(/^[A-Za-z0-9_-]+={0,2}$/).optional() }).strict(),
     "collaboration.execute": z.object({ action: z.string().regex(/^[a-z_]{1,64}$/) }).passthrough().refine(params => !["owner_principal", "owner_session", "owner", "context", "answer", "approved"].some(key => key in params)),
     "contacts.requests": z.object({}).strict(),
     "contacts.respond": z.object({ request_id: stableId, decision: z.enum(["accept", "reject"]),

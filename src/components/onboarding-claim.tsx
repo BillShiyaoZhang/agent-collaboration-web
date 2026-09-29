@@ -9,7 +9,7 @@ import { useLocalTime } from "@/components/local-time";
 
 type Preview = { name: string; agent_urn: string; methods: string[]; expires_at: string; ticket_expires_at: string;
   status: "pending" | "approved" | "completed"; agent_id: string | null };
-const labels: Record<string, string> = { capabilities: "检查连接", "contacts.list": "读取联系人", "contacts.requests": "读取好友请求", "collaboration.state": "读取协作事项", "inbox.list": "读取收件箱", "inbox.review_preview": "预览待审核对端内容", "attention.list": "同步提醒", "conversation.send": "与 Hermes 对话", "conversation.get": "读取对话进展", "contacts.add": "添加联系人", "contacts.respond": "接受或拒绝好友", "contacts.block": "屏蔽联系人", "contacts.unblock": "解除联系人屏蔽", "inbox.review": "明确确认对端内容用途", "messages.send": "给好友发消息", "inbox.mark_read": "同步已读", "approval.respond": "处理审批", "collaboration.execute": "执行协作工具" };
+const labels: Record<string, string> = { capabilities: "检查连接", "contacts.list": "读取联系人", "contacts.requests": "读取好友请求", "collaboration.state": "读取协作事项", "task.list": "搜索本方合作事项", "task.detail": "读取事项详情与相关对话", "task.events": "读取事项进展与留存记录", "inbox.list": "读取收件箱", "inbox.review_preview": "预览待审核对端内容", "attention.list": "同步提醒", "conversation.send": "与 Hermes 对话", "conversation.get": "读取对话进展", "contacts.add": "添加联系人", "contacts.respond": "接受或拒绝好友", "contacts.block": "屏蔽联系人", "contacts.unblock": "解除联系人屏蔽", "inbox.review": "明确确认对端内容用途", "messages.send": "给好友发消息", "inbox.mark_read": "同步已读", "approval.respond": "处理审批", "collaboration.execute": "执行协作工具" };
 
 function ApprovalButton({ busy, approve }: { busy: boolean; approve: () => void }) {
   const allowed = usePolicyAccess();

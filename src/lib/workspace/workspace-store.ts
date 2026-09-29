@@ -292,7 +292,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
         };
         const code = string(record(response.error).code);
         const rejected = Object.hasOwn(rejectionMessages, code);
-        const turn = { turn_id: matchingPending.turnId, text: matchingPending.text, created_at: pendingRow.createdAt / 1000,
+        const turn = { turn_id: matchingPending.turnId, text: matchingPending.text, mentions: matchingPending.call.params.mentions, created_at: pendingRow.createdAt / 1000,
           status: rejected ? "failed" : "interrupted", locally_unconfirmed: !rejected,
           error: rejected ? rejectionMessages[code] : "Agent 返回异常，尚不能确认这条消息是否已被处理，请先核实结果。" };
         await saveConversation(tx, user.id, agent.id, matchingPending.conversationId, { turns: [turn] }, sourceAt, pendingRow.createdAt);
@@ -305,7 +305,9 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     const data = await filterWorkspaceInbound(tx,user.id,agent.id,agent.urn,row.method,record(response.result)), convId = string(data.conversation_id);
     if (row.method === "conversation.send") {
       const validId = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
-      const validReceipt = data.status === "submitted" && validId(data.conversation_id) && validId(data.turn_id) &&
+      const submittedMentions = records(matchingPending?.call.params.mentions).filter(item => item.kind === "task").map(item => string(item.task_id)).sort();
+      const receiptMentions = records(data.mentions).filter(item => item.kind === "task").map(item => string(item.task_id)).sort();
+      const validReceipt = data.status === "submitted" && validId(data.conversation_id) && validId(data.turn_id) && JSON.stringify(submittedMentions) === JSON.stringify(receiptMentions) &&
         (!matchingPending || data.conversation_id === matchingPending.conversationId && data.turn_id === matchingPending.turnId);
       if (!validReceipt) {
         // An authenticated but incomplete receipt is not evidence of acceptance.
@@ -380,7 +382,7 @@ export async function recordWorkspaceResponse(user: User, agent: Agent, row: Con
     }
     if (row.method === "conversation.send" && convId) {
       const turnId = string(data.turn_id), text = matchingPending?.text || "";
-      const turn = { ...data, turn_id: turnId, text, created_at: sourceAt / 1000, status: "submitted" };
+        const turn = { ...data, turn_id: turnId, text, created_at: sourceAt / 1000, status: "submitted" };
       await saveConversation(tx, user.id, agent.id, convId, { turns: [turn] }, sourceAt, sourceAt);
       if (turnId) await saveItem(tx, user.id, agent.id, "turn", turnId, convId, turn, sourceAt);
       await tx.$executeRaw`UPDATE "WorkspaceState" SET "activeConversationId" = ${convId} WHERE "agentId" = ${agent.id} AND "activeSelectedAt" <= ${sourceAt}`;
@@ -456,7 +458,7 @@ export async function dismissWorkspaceSubmission(userId: string, agentId: string
     if (!row) throw new ControlError("这条消息的待确认状态已更新。", 409);
     if (row.createdAt + 120000 > Date.now()) throw new ControlError("消息仍在等待受理回执，请稍后再继续。", 409);
     const pending = decodeSubmission(userId, agentId, row)!;
-    const turn = { turn_id: pending.turnId, text: pending.text, status: "interrupted", locally_unconfirmed: true,
+    const turn = { turn_id: pending.turnId, text: pending.text, mentions: pending.call.params.mentions, status: "interrupted", locally_unconfirmed: true,
       error: "未能确认这条消息是否已被处理，请勿直接重复发送。", created_at: row.createdAt / 1000 };
     await saveConversation(tx, userId, agentId, pending.conversationId, { turns: [turn] }, row.createdAt, row.createdAt);
     await saveItem(tx, userId, agentId, "turn", pending.turnId, pending.conversationId, turn, row.createdAt);

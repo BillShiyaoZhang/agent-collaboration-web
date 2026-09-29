@@ -13,8 +13,14 @@ download's digest before calling a package v2-capable. Older r2 packages do
 not support v2, and ordinary v1 agent-to-agent traffic is rejected under this
 policy. Preserve the existing Hermes identity and data while upgrading.
 
-Use a complete v0.9.5 or newer release with runtime 0.1.10 or newer and Hermes
-connector 1.5.12 or newer for the current owner-review and collaboration flow.
+Use a complete v0.9.6 or newer release with runtime 0.1.11 or newer and Hermes
+connector 1.5.13 or newer for task views and structured task mentions.
+The matching package is required; check the live release manifest before
+installing. Older installations can continue ordinary conversations, but cannot
+use the new task history and `@` selection until the runtime supports them and
+the owner explicitly grants `task.list`, `task.detail`, and `task.events` to
+the Web console. A task mention identifies context; it does not authorize an
+action or reveal the other owner's private agent process.
 The v0.9.4 package supports owner-review admission but is not the matching
 package for this flow; preserve the existing identity and upgrade. The older
 v0.9.3 package does not declare this capability and cannot start new Web

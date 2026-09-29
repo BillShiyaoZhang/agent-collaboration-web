@@ -41,9 +41,12 @@ export function activityItems(workspace: WorkspaceAgent): ActivityItem[] {
 }
 export function relatedTaskIds(turns: RemoteRecord[], conversationId: string, state: RemoteRecord): string[] {
   const ids = new Set<string>();
-  for (const turn of turns) for (const link of records(turn.related)) {
-    if (link.kind === "task") ids.add(string(link.id));
-    if (link.task_id) ids.add(string(link.task_id));
+  for (const turn of turns) {
+    for (const mention of records(turn.mentions)) if (mention.kind === "task") ids.add(string(mention.task_id));
+    for (const link of records(turn.related)) {
+      if (link.kind === "task") ids.add(string(link.id));
+      if (link.task_id) ids.add(string(link.task_id));
+    }
   }
   for (const task of records(state.tasks)) if (record(task.source_context).conversation_id === conversationId) ids.add(string(task.task_id));
   return [...ids].filter(Boolean);

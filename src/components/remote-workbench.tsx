@@ -25,8 +25,8 @@ export function RemoteWorkbench({ agent, initial, scope }: { agent: Connection; 
 function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial: WorkspaceAgent; scope: WorkbenchScope }) {
   const w = useWorkbench(agent, initial), search = useSearchParams(), router = useRouter(), displayTime = useLocalTime();
   const [linkError, setLinkError] = useState("");
-  const [discussionRequest, setDiscussionRequest] = useState<{ message: string; conversationId?: string } | null>(null);
-  const [pendingDiscussion, setPendingDiscussion] = useState<{ message: string; conversationId: string } | null>(null);
+  const [discussionRequest, setDiscussionRequest] = useState<{ message: string; conversationId?: string; taskId?: string } | null>(null);
+  const [pendingDiscussion, setPendingDiscussion] = useState<{ message: string; conversationId: string; taskId?: string } | null>(null);
   const [creating, setCreating] = useState(search.get("new") === "1");
   const subject = search.get("subject"), subjectAttempt = useRef("");
   const snapshotMethod = scope === "contacts" ? "contacts.list" : "collaboration.state";
@@ -43,16 +43,16 @@ function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial
     target.scrollIntoView({ block: "center" });
   }, [subject, snapshot]);
 
-  async function continueDiscussion(message: string, sourceConversationId?: string) {
+  async function continueDiscussion(message: string, sourceConversationId?: string, taskId?: string) {
     if (w.selectingConversation || w.submission) return;
-    setDiscussionRequest({ message, conversationId: sourceConversationId }); setLinkError("");
-    const target = sourceConversationId || w.conversationId;
+    setDiscussionRequest({ message, conversationId: sourceConversationId, taskId }); setLinkError("");
+    const target = sourceConversationId === undefined ? w.conversationId : sourceConversationId;
     if (target !== w.conversationId) {
       const known = w.conversations.some(value => value.id === target);
-      const opened = known ? await w.selectConversation(target) : w.canReadConversation ? await w.readConversation(target) : false;
+      const opened = !target ? await w.selectConversation("") : known ? await w.selectConversation(target) : w.canReadConversation ? await w.readConversation(target) : false;
       if (!opened) { setLinkError("暂时无法打开这件事的原对话，尚未加入讨论草稿。恢复连接后可重试。"); return; }
     }
-    setPendingDiscussion({ message, conversationId: target });
+    setPendingDiscussion({ message, conversationId: target, taskId });
   }
   const { conversationId, selectingConversation, setText } = w;
   useEffect(() => {
@@ -64,6 +64,7 @@ function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial
     setPendingDiscussion(null);
     const params = new URLSearchParams({ agent: agent.id });
     if (conversationId) params.set("conversation", conversationId);
+    if (pendingDiscussion.taskId) params.set("task", pendingDiscussion.taskId);
     router.push(`/dashboard/chats?${params}`);
   }, [pendingDiscussion, conversationId, selectingConversation, setText, router, agent.id]);
 
@@ -77,7 +78,7 @@ function ScopedWorkbench({ agent, initial, scope }: { agent: Connection; initial
         {scope !== "connection" && <Button id="connection-settings-toggle" variant="ghost" size="sm" className="gap-1" onClick={() => w.setPairingOpen(previous => !previous)} aria-expanded={showConnection} aria-controls="pairing-panel"><Settings2 className="h-3.5 w-3.5" />连接设置</Button>}
       </div>
     </div>
-    {linkError && <div role="alert" className="rounded-md border p-3 text-sm"><p>{linkError}</p>{discussionRequest && <Button variant="outline" size="sm" className="mt-2" disabled={w.selectingConversation || !!w.busy["conversation.get"]} onClick={() => void continueDiscussion(discussionRequest.message, discussionRequest.conversationId)}>重试打开原对话</Button>}</div>}
+    {linkError && <div role="alert" className="rounded-md border p-3 text-sm"><p>{linkError}</p>{discussionRequest && <Button variant="outline" size="sm" className="mt-2" disabled={w.selectingConversation || !!w.busy["conversation.get"]} onClick={() => void continueDiscussion(discussionRequest.message, discussionRequest.conversationId, discussionRequest.taskId)}>重试打开原对话</Button>}</div>}
     {w.cacheError && <p role="status" className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">{w.cacheError}</p>}
     <div id="pairing-panel" hidden={!showConnection}><PairingPanel agent={agent} workbench={w} featureCount={scope === "contacts" ? 1 : 2} /></div>
     {scope !== "connection" && <div className="min-w-0 rounded-md border bg-card py-3">

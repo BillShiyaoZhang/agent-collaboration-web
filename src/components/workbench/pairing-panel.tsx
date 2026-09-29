@@ -10,7 +10,7 @@ import { syncLabel } from "@/lib/workspace/workspace-client";
 import { CopyValue } from "./snapshot-views";
 import type { Connection, Workbench } from "./use-workbench";
 
-const methodLabels: Record<string, string> = { capabilities: "连接检查", "contacts.list": "联系人", "contacts.add": "添加联系人", "collaboration.state": "协作事项", "inbox.list": "收件箱", "conversation.send": "发送消息", "conversation.get": "读取对话", "attention.list": "持久提醒同步", "approval.respond": "远程确认", "contacts.requests": "好友请求", "contacts.respond": "接受或拒绝好友", "messages.send": "给好友发消息", "inbox.mark_read": "同步已读状态", "collaboration.execute": "完整协作工具" };
+const methodLabels: Record<string, string> = { capabilities: "连接检查", "contacts.list": "联系人", "contacts.add": "添加联系人", "collaboration.state": "协作事项", "task.list": "搜索合作事项", "task.detail": "事项详情与相关对话", "task.events": "事项进展与留存记录", "inbox.list": "收件箱", "conversation.send": "发送消息", "conversation.get": "读取对话", "attention.list": "持久提醒同步", "approval.respond": "远程确认", "contacts.requests": "好友请求", "contacts.respond": "接受或拒绝好友", "messages.send": "给好友发消息", "inbox.mark_read": "同步已读状态", "collaboration.execute": "完整协作工具" };
 
 export function RequestFeedback({ busy, error, onRetry }: { busy?: string; error?: WorkbenchError; onRetry?: () => void }) {
   if (busy) return <div role="status" className="flex items-center gap-2 text-xs leading-6 text-muted-foreground"><Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />{busy}</div>;

@@ -7,12 +7,13 @@ import { collaborationView, operationMeaning, taskJudgment } from "./collaborati
 import { CollaborationTaskControls, GoalWorkflow } from "./collaboration-workflow";
 import type { Workbench } from "./use-workbench";
 import { isRecordDeleted, RecordActions, recordDeletionReason } from "./record-actions";
+import { TaskEvidence } from "./task-evidence";
 
 const phases: Record<string, string> = { invited: "已发起邀请", negotiating: "正在协调方案", partially_accepted: "部分接受，等待另一方", agreed: "已形成双方约定", reconciling: "正在核对双方状态", closed: "本轮协作已结束" };
 const waiting: Record<string, string> = { agreement_sync: "等待对方核对约定", agreement_ack: "等待约定同步回执", agreement_ack_delivery: "同步回执正在投递", missing_event: "正在补齐缺失事件", withdrawal_decision: "撤回结果需要核实", cancel_decision: "等待取消决定", maintenance_permission: "需要续期或调整后续同步权限", maintenance_budget: "后续同步预算已用尽，需要本人决定", event_chain_conflict: "双方事件记录存在冲突，需要核对", owner_decision: "等待本人决定", peer_join: "等待对方加入", peer_accept: "等待对方接受" };
 const closed: Record<string, string> = { agreement_only_complete: "双方已同步约定", cancelled: "双方已取消约定", withdrawn: "已撤回接受", expired: "已到期" };
 
-function JudgmentCard({ data, task, collaboration, workbench: w, compact, onContinue }: { data: RemoteRecord; task: RemoteRecord; collaboration?: RemoteRecord; workbench?: Workbench; compact?: boolean; onContinue?: (message: string, conversationId?: string) => void }) {
+function JudgmentCard({ data, task, collaboration, workbench: w, compact, onContinue }: { data: RemoteRecord; task: RemoteRecord; collaboration?: RemoteRecord; workbench?: Workbench; compact?: boolean; onContinue?: (message: string, conversationId?: string, taskId?: string) => void }) {
   const displayTime = useLocalTime(), scope = record(task.scope), terms = record(collaboration?.terms), agreement = record(collaboration?.agreement);
   const id = string(task.task_id, string(collaboration?.collaboration_id)), phase = string(collaboration?.phase), closure = string(collaboration?.closure_reason);
   const judgment = taskJudgment(data, task, collaboration), snapshot = w?.snapshots["collaboration.state"];
@@ -41,12 +42,13 @@ function JudgmentCard({ data, task, collaboration, workbench: w, compact, onCont
       {!!judgment.operations.length && <div className="mt-3 space-y-2"><p className="font-medium">操作记录 · 本方 agent 返回</p>{judgment.operations.map(operation => <details key={string(operation.operation_id)} className="rounded-xl border p-3"><summary className="min-h-8 cursor-pointer break-words">{operationMeaning(operation)} · {({ ready: "待实际执行", awaiting_approval: "待确切批准", denied: "本方已拒绝", sending: "投递结果待核实", accepted: "本机队列已接收" } as Record<string, string>)[string(operation.status)] || string(operation.status, "状态未提供")}</summary><p className="mt-2 whitespace-pre-wrap break-words leading-6">{string(operation.text)}</p><p className="mt-1 break-all text-muted-foreground">原动作：{string(operation.operation_id)}</p>{operation.status === "accepted" && <p className="mt-1 text-muted-foreground">本机受理不代表对方已同意或业务完成。</p>}{operation.kind === "join" && operation.status === "denied" && <p className="mt-1 text-amber-800">不加入仅记录本方决定，尚未发送专用拒绝通知。</p>}</details>)}</div>}
       <p className="mt-3 break-all text-muted-foreground">事项 {id}{collaboration?.collaboration_id ? ` · 协作 ${string(collaboration.collaboration_id)}` : ""}</p>
     </details>
+    {w && !compact && !!string(task.task_id) && <TaskEvidence workbench={w} taskId={string(task.task_id)} exists={records(data.tasks).some(item => item.task_id === task.task_id)} />}
     {w && !compact && !!string(task.task_id) && <CollaborationTaskControls workbench={w} task={task} collaboration={collaboration} />}
-    {onContinue && <Button type="button" size="sm" variant="outline" className="mt-3" disabled={!w?.canSend || w.selectingConversation || !!w.submission} onClick={() => onContinue(`继续讨论事项 ${id}「${string(scope.topic, string(terms.topic, "协作事项"))}」。\n原目标：${judgment.goal}\n本方已知进展：${judgment.progress}\n当前完成范围：${judgment.result}\n我希望：`, string(record(task.source_context).conversation_id, string(record(collaboration?.source_context).conversation_id)) || undefined)}>围绕这件事继续讨论</Button>}
+    {onContinue && <div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={!w?.canSend || w.selectingConversation || !!w.submission} onClick={() => onContinue(`继续讨论${w?.canMentionTasks ? "" : `事项 ${id}`}「${string(scope.topic, string(terms.topic, "协作事项"))}」。\n原目标：${judgment.goal}\n本方已知进展：${judgment.progress}\n当前完成范围：${judgment.result}\n我希望：`, string(record(task.source_context).conversation_id, string(record(collaboration?.source_context).conversation_id)) || undefined, w?.canMentionTasks ? string(task.task_id) : undefined)}>围绕这件事继续讨论</Button>{!compact && <Button type="button" size="sm" variant="ghost" disabled={!w?.canSend || w.selectingConversation || !!w.submission} onClick={() => onContinue(`讨论${w?.canMentionTasks ? "" : `事项 ${id}`}「${string(scope.topic, string(terms.topic, "协作事项"))}」：`, "", w?.canMentionTasks ? string(task.task_id) : undefined)}>在新对话讨论</Button>}</div>}
   </article>;
 }
 
-export function CollaborationOverview({ workbench: w, taskId, compact = false, onContinue }: { workbench: Workbench; taskId?: string; compact?: boolean; onContinue?: (message: string, conversationId?: string) => void }) {
+export function CollaborationOverview({ workbench: w, taskId, compact = false, onContinue }: { workbench: Workbench; taskId?: string; compact?: boolean; onContinue?: (message: string, conversationId?: string, taskId?: string) => void }) {
   const data = w.snapshots["collaboration.state"]?.data || {}, collaborations = records(collaborationView(data).collaborations);
   const tasks = records(data.tasks).filter(task => (!taskId || task.task_id === taskId) && !isRecordDeleted(w.recordStates,"collaboration",string(task.task_id)));
   const unmatched = collaborations.filter(collaboration => !isRecordDeleted(w.recordStates,"collaboration",string(collaboration.collaboration_id)) && (!taskId || collaboration.task_id === taskId || collaboration.collaboration_id === taskId) && !tasks.some(task => task.task_id === collaboration.task_id));
@@ -54,7 +56,7 @@ export function CollaborationOverview({ workbench: w, taskId, compact = false, o
   return <section aria-label="关联事项当前状态" className="space-y-3">{tasks.map(task => <JudgmentCard key={string(task.task_id)} data={data} task={task} collaboration={collaborations.find(collaboration => collaboration.task_id === task.task_id)} workbench={w} compact={compact} onContinue={onContinue} />)}{unmatched.map(collaboration => <JudgmentCard key={string(collaboration.collaboration_id)} data={data} task={{ task_id: collaboration.task_id, scope: { topic: record(collaboration.terms).topic } }} collaboration={collaboration} workbench={w} compact={compact} onContinue={onContinue} />)}</section>;
 }
 
-export function CollaborationSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench?: Workbench; onContinue?: (message: string, conversationId?: string) => void }) {
+export function CollaborationSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench?: Workbench; onContinue?: (message: string, conversationId?: string, taskId?: string) => void }) {
   const displayTime = useLocalTime(), view = collaborationView(data), collaborations = records(view.collaborations).filter(value => !isRecordDeleted(workbench?.recordStates,"collaboration",string(value.collaboration_id)) && !isRecordDeleted(workbench?.recordStates,"collaboration",string(value.task_id))), invitations = records(view.invitations);
   if (!collaborations.length && !invitations.length) return null;
   return <section className="space-y-2 px-3 pb-3" aria-label="双方协作">

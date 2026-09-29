@@ -14,12 +14,18 @@ import { useAgentSharingPermission } from "./agent-sharing-permission";
 import { contentRequiresSharing, sharingStoppedMessage, type SharingGrant } from "@/lib/product/agent-sharing";
 
 export type Connection = { id: string; name: string; urn: string };
+export type TaskReference = { taskId: string; title: string };
 type Outcome = { result?: RemoteRecord; error?: WorkbenchError; blocked?: boolean; blockedReason?: string };
 const conversationSafetyUpgrade = "此 Agent 尚未提供先审核对端内容、关闭对端消息自动模型执行的安全能力。请先升级 Agent runtime/helper 并重新检查连接；已有对话仍可阅读。";
 
 async function expectedTurnId(consoleUrn: string, requestId: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${consoleUrn}\0${requestId}`));
   return `turn-${Array.from(new Uint8Array(hash), value => value.toString(16).padStart(2, "0")).join("").slice(0, 40)}`;
+}
+
+function mentionsMatch(expected: unknown, actual: unknown) {
+  const ids = (value: unknown) => records(value).filter(item => item.kind === "task").map(item => string(item.task_id)).sort();
+  return JSON.stringify(ids(expected)) === JSON.stringify(ids(actual));
 }
 
 export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
@@ -60,6 +66,8 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
   const draftEpoch = useRef(0);
   const textValue = useRef(initialDraft.text);
   const [text, setTextState] = useState(initialDraft.text);
+  const mentionCache = useRef(new Map<string, TaskReference[]>());
+  const [taskMentions, setTaskMentions] = useState<TaskReference[]>([]);
   const [conversationState, setConversationState] = useState<WorkspaceConversationState>(seed.activeConversationState || {archived:false,readAt:0,draft:"",scrollTop:null});
   const [operations,setOperations] = useState(seed.operations || []);
   const [recordStates,setRecordStates] = useState(seed.recordStates || []);
@@ -124,6 +132,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     draftCache.current.set("", { text: "", dirty: false, revision: 0 });
     saveDraft(agent.id + ":", { text: "", dirty: false, revision: 0 });
     setConversationId(""); setConversationInput(""); setTextState("");
+    setTaskMentions([]);
     setCurrentSnapshot(null); setHasEarlierTurns(false); setSubmittedTurns([]);
     setConversationState({ archived: false, deleted: false, readAt: 0, draft: "", scrollTop: null });
     setErrors(previous => ({ ...previous, "conversation.get": undefined, "conversation.send": undefined }));
@@ -256,6 +265,17 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     approvalDecisions: records(snapshots["collaboration.state"]?.data.approval_decisions), requests: records(snapshots["contacts.requests"]?.data.contact_requests ?? snapshots["contacts.requests"]?.data.requests),
     messages: records(snapshots["inbox.list"]?.data.messages), sentMessages: records(snapshots["collaboration.state"]?.data.sent_messages), savedOperations:operations });
   const canReadConversation = available("conversation.get");
+  const canMentionTasks = available("task.list") && available("task.detail");
+  function addTaskMention(taskId: string, title: string) {
+    if (!canMentionTasks || !/^[A-Za-z0-9._:-]{1,128}$/.test(taskId)) return;
+    setTaskMentions(previous => {
+      const next = previous.some(item => item.taskId === taskId) ? previous : [...previous, { taskId, title: title || taskId }].slice(0, 8);
+      mentionCache.current.set(selected.current, next); return next;
+    });
+  }
+  function removeTaskMention(taskId: string) {
+    setTaskMentions(previous => { const next = previous.filter(item => item.taskId !== taskId); mentionCache.current.set(selected.current, next); return next; });
+  }
   const remoteTurns = currentSnapshot?.conversation_id === conversationId ? records(currentSnapshot.turns) : [];
   const turns = mergeTurns(remoteTurns, submittedTurns.filter(turn => turn.conversation_id === conversationId && !remoteTurns.some(remote => remote.turn_id === turn.turn_id)));
   const watching = conversationPending({ turns }) || !!submission;
@@ -272,6 +292,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     if (submission?.phase === "uncertain" && reconciled) {
       resolvedCalls.current.add(submission.call.request_id);
       setSubmission(null); setText(previous => previous.trim() === submission.text ? "" : previous);
+      mentionCache.current.delete(submission.conversationId); setTaskMentions([]);
       setErrors(previous => ({ ...previous, "conversation.send": undefined }));
     }
   }, [reconciled, submission, setText]);
@@ -313,6 +334,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
         }
         selected.current=id;earlierLoaded.current=false;
         setConversationId(id);setConversationInput(id);setHasEarlierTurns(false);
+        setTaskMentions(mentionCache.current.get(id) || []);
         setCurrentSnapshot(timeline.current.get(id) || data.conversation);
         setErrors(previous=>({...previous,"conversation.get":undefined,"conversation.send":undefined}));
         applyWorkspace(data,version);restoreDraft(id, data.activeConversationState?.draft || "");
@@ -328,8 +350,9 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
     if (!grant || !await sharing.validate(grant) || sending.current || selecting.current || lifecycle.current.signal.aborted) return;
     const message = original?.text || text.trim();
     if (!message || !identity.virtualUrn) return;
+    if (!original && taskMentions.length && !canMentionTasks) { setConversationError("当前连接尚未开放结构化事项引用；请刷新能力或移除事项标签后发送。"); return; }
     sending.current = true;
-    const call = original?.call || client.prepare("conversation.send", { text: message, ...(conversationId ? { conversation_id: conversationId } : {}) });
+    const call = original?.call || client.prepare("conversation.send", { text: message, ...(conversationId ? { conversation_id: conversationId } : {}), ...(taskMentions.length ? { mentions: taskMentions.map(item => ({ kind: "task", task_id: item.taskId })) } : {}) });
     const item: WorkspaceSubmission = { call, text: message, conversationId: string(call.params.conversation_id, call.request_id), turnId: original?.turnId || "", phase: "sending", retryable: true };
     setSubmission(item); setConversationError("");
     try {
@@ -337,12 +360,13 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
       const { result, error, blocked, blockedReason } = await invoke("conversation.send", call.params, call, grant);
       if (lifecycle.current.signal.aborted) return;
       if (blocked) { setSubmission(original || null); setConversationError(blockedReason || sharingStoppedMessage); return; }
-      if (result && result.status === "submitted" && result.conversation_id === item.conversationId && result.turn_id === item.turnId) {
+      if (result && result.status === "submitted" && result.conversation_id === item.conversationId && result.turn_id === item.turnId && mentionsMatch(call.params.mentions, result.mentions)) {
         resolvedCalls.current.add(call.request_id);
         selected.current = result.conversation_id; selectionVersion.current++;
         setConversationId(result.conversation_id); setConversationInput(result.conversation_id);
         setSubmittedTurns(previous => [...previous.filter(turn => turn.turn_id !== result.turn_id), { ...result, text: message, created_at: Date.now() / 1000 }]);
         setText(previous => previous.trim() === message ? "" : previous); setSubmission(null);
+        mentionCache.current.delete(conversationId); setTaskMentions([]);
         if (!conversationId) {
           const empty = editDraft(draftCache.current.get(""), ""); draftCache.current.set("", empty); saveDraft(agent.id + ":", empty);
           void persistDraft("", empty).catch(() => {});
@@ -414,7 +438,7 @@ export function useWorkbench(agent: Connection, initial: WorkspaceAgent) {
 
   function newConversation() { void selectConversation("").then(saved => { if (saved) composer.current?.focus(); }); }
   return { agentId:agent.id, sharing, conversationState, saveConversationState, afterConversationDeleted, recordStates, operations, policyAllowed, identity, identityBusy, identityError, createIdentity, pairingOpen, setPairingOpen, snapshots, busy, errors, invoke,
-    capabilitySnapshot, methods, available, canSend, conversationSafetyError, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
+    capabilitySnapshot, methods, available, canSend, canMentionTasks, taskMentions, addTaskMention, removeTaskMention, conversationSafetyError, canAddContact, canRespondApproval, mutations, canReadConversation, text, setText, composer, conversationId, conversationInput,
     setConversationInput, conversationError, submission, turns, currentSnapshot, watching,
     sendMessage, inspectSubmission, readConversation, newConversation, conversations, selectConversation, selectingConversation,
     hasEarlierTurns, loadingEarlier, loadEarlier, dismissSubmission, dismissingSubmission, sync,

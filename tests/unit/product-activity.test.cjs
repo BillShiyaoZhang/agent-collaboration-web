@@ -16,6 +16,7 @@ test("uncertain writes remain actionable and no received message claims agreemen
 test("task links come only from structured host associations, never message text",()=>{
  assert.deepEqual(relatedTaskIds([{text:"task-secret",response:"task-secret"}],"c",{tasks:[{task_id:"task-secret",source_context:{conversation_id:"another"}}]}),[]);
  assert.deepEqual(relatedTaskIds([{related:[{kind:"task",id:"t"}]}],"c",{tasks:[{task_id:"t2",source_context:{conversation_id:"c"}}]}),["t","t2"]);
+ assert.deepEqual(relatedTaskIds([{mentions:[{kind:"task",task_id:"a"},{kind:"task",task_id:"b"}],related:[{kind:"task",id:"b"}]}],"c",{}),["a","b"]);
 });
 test("incomplete agreement sync evidence never announces completion",()=>{
  const item=activityItems(workspace({collaboration_v2:{collaborations:[{collaboration_id:"c",phase:"closed",closure_reason:"agreement_only_complete",agreement_synced:false}]}}))[0];

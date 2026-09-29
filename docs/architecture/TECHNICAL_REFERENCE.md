@@ -103,7 +103,7 @@ worker 会在读取 Registry 或 MQ 前核验当前政策与账户确认。待�
 3. 首次打开工作台时自动创建控制台身份；失败可重试。复制页面显示的本机绑定命令或控制台 URN。
 4. 在 agent 本机通过本地管理员 CLI 配对它；Web 没有自助提升权限的配对 API。例如：
    ```text
-   python -m agent_comm_runtime.daemon remote pair --hermes-profile YOUR_HERMES_PROFILE --console-urn YOUR_CONSOLE_URN --allow capabilities --allow contacts.list --allow contacts.add --allow contacts.requests --allow contacts.respond --allow messages.send --allow inbox.mark_read --allow collaboration.execute --allow collaboration.state --allow inbox.list --allow attention.list --allow approval.respond --allow conversation.send --allow conversation.get --expires FUTURE_UTC_EXPIRY
+   python -m agent_comm_runtime.daemon remote pair --hermes-profile YOUR_HERMES_PROFILE --console-urn YOUR_CONSOLE_URN --allow capabilities --allow contacts.list --allow contacts.add --allow contacts.requests --allow contacts.respond --allow messages.send --allow inbox.mark_read --allow collaboration.execute --allow collaboration.state --allow task.list --allow task.detail --allow task.events --allow inbox.list --allow attention.list --allow approval.respond --allow conversation.send --allow conversation.get --expires FUTURE_UTC_EXPIRY
    ```
    替换 profile、控制台 URN 和未来的 RFC3339 有效期（如 `YYYY-MM-DDTHH:MM:SSZ`）。只列出允许的具体方法；若不允许 Web 添加联系人或回答审批，分别省略 `contacts.add` 或 `approval.respond`。使用运行 Hermes 的 Python 环境。旧配对不会自动增加这些权限，需显式重配并保留仍需使用的全部方法。安装包的新版配置脚本通过 `--allow-web-actions` 显式追加社交写操作与协作工具，详见根仓库的配对说明。
 5. Hermes connector 配置的 `extra.remote_enabled` 设为 `true`，`extra.allow_from` 显式包含同一控制台 URN。配对与 allowlist 是两项独立条件。helper 地址是本机 loopback 地址，不是云端平台网址。
@@ -122,11 +122,16 @@ worker 会在读取 Registry 或 MQ 前核验当前政策与账户确认。待�
 | `messages.send` / `inbox.mark_read` | 本机发消息及记录跨端已读 |
 | `collaboration.execute` | 使用本机 Runtime 同一协作动作，describe 返回表单字段 |
 | `collaboration.state` | agent 本地 Store 的委托、待办、联系人、收件箱和状态 |
+| `task.list` / `task.detail` / `task.events` | 本方任务的搜索、独立详情和分页留存事件；均需显式配对读取权限 |
 | `inbox.list` | agent 本地已接收的消息 |
 | `attention.list` | agent 本地持久、分页的提醒记录 |
 | `approval.respond` | 用户同意或拒绝 agent 生成的具体待确认请求，由 agent 保存决定 |
 | `conversation.send` | 适配器实际受理一个远程会话回合 |
 | `conversation.get` | 查询 agent 保存的回合状态与真实答复 |
+
+`conversation.send` 可带 `mentions: [{kind:"task",task_id}]`（最多 8 个本方已存在任务，去重）。运行时逐项核对配对 owner，回执和 `conversation.get.turns` 回传该字段。`mentions` 是用户指明上下文；`related` 仍表示实际操作产生的可信来源，两者不可混作授权。Web 将确切参数连同原请求 ID 保存，结果不明时仅查询或重试同一请求。旧 runtime 或旧配对缺少 `task.list` / `task.detail` 时，输入菜单说明不可用，普通文本对话继续可用；配对不会因 Web 升级自动扩大。
+
+事项详情以 `task.detail.conversation_refs` 反向导航已保存的提及和实际来源回合，并以 `task.events` 展示进展与记录。事件含 `event_id`、`kind`、`at`、`source`、`summary` 和可用详情；`coverage` 显示历史缺口。Web 只展示本方 Agent 获准返回且真实留存的记录，不推断对端内部步骤或过去没有保存的授权问题。概览仍可在旧配对下使用 `collaboration.state` 最近同步副本。
 
 未提供的方法隐藏，显式不支持的方法展示原因。发送对话的 `submitted` 仅表示受理；`conversation.get` 中的最终回合状态和答复来自 agent。新增联系人与审批回答分别受 `contacts.add` 和 `approval.respond` 配对权限约束，不能由远程对话权限推导。
 

@@ -14,7 +14,7 @@ export type SyncPlanItem = {
 export declare function remoteTimestamp(value: unknown): number;
 export declare function isPairingError(code: unknown): boolean;
 export declare function availableMethods(capabilities: unknown): RpcMethod[];
-export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "inbox.review_preview", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"];
+export declare const RPC_METHODS: readonly ["capabilities", "contacts.list", "collaboration.state", "task.list", "task.detail", "task.events", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "inbox.review_preview", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"];
 export type RpcMethod = typeof RPC_METHODS[number];
 export type RemoteRecord = Record<string, unknown>;
 export type PendingCall = {
@@ -80,10 +80,12 @@ export type SourceContext =
     { origin: "paired_conversation"; conversation_id: string; turn_id: string } |
     { origin: "paired_control"; request_id: string; conversation_id?: string };
 export type ConversationRelated = { kind: "task" | "approval" | "collaboration"; id: string; task_id?: string };
+/** A mention selects an existing owner task. It is context, never approval. */
+export type TaskMention = { kind: "task"; task_id: string };
 export type ConversationTurn = {
     turn_id: string; status: "submitted" | "running" | "completed" | "failed" | "interrupted";
     text: string; response: string | null; error: string | null; created_at: number; updated_at: number;
-    related?: ConversationRelated[];
+    related?: ConversationRelated[]; mentions?: TaskMention[];
 };
 export type ConversationResult = {
     conversation_id: string; turns: ConversationTurn[];

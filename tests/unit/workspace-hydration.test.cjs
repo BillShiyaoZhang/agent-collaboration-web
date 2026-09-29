@@ -28,6 +28,8 @@ const panel = load("../../src/components/workbench/conversation-panel.tsx", {
  "./snapshot-views": { CopyValue: () => null, RawSnapshot: () => null, StatusBadge: () => null },
  "./pairing-panel": { RequestFeedback: () => null }, "./message-content": { MessageContent: ({ text }) => React.createElement("p", null, text) },
  "./collaboration-snapshot": { CollaborationOverview: () => null }, "./mutation-panels": { ApprovalRequests: () => null },
+ "./task-mention-input": { TaskMentionInput: () => React.createElement("textarea", { "aria-label": "给 agent 的消息" }) },
+ "./turn-task-links": { TurnTaskLinks: () => null },
  "./collaboration-workflow-model": { collaborationOperations: () => [] }, "@/lib/product/activity-model": { relatedTaskIds: () => [] },
 });
 const agent = { id: "own-agent", name: "Own", urn: "urn:agent:own" };

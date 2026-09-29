@@ -4,6 +4,8 @@
 
 This package is an extraction of the existing production code. `index.js` is the maintained implementation and `index.d.ts` is its public type surface. Changes to protocol behavior should update the schema, fixtures, declarations and conformance tests together. Contract v1 preserves extension fields in remote result objects; clients should retain unfamiliar fields and render only capabilities they understand.
 
+The task read methods `task.list`, `task.detail`, and `task.events` require separate runtime pairing permissions. `conversation.send` may include up to eight distinct `mentions: [{kind: "task", task_id: "..."}]`. A mention is a context reference to an existing owner task, not an approval or an executed-action provenance link. The returned conversation turn keeps `mentions` separate from trusted `related` links. Clients should hide task selection when the methods are not advertised and keep ordinary text conversation available.
+
 ## Use in JavaScript / TypeScript
 
 Within this repository npm workspaces links the package automatically after `npm ci`. To use it from a separate project, install the local package path or run `npm pack --workspace @agent-comm/client-contract` and install the resulting tarball. Publication to a registry is a separate release action.

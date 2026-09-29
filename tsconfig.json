@@ -22,6 +22,9 @@
       }
     ],
     "paths": {
+      "@agent-comm/client-contract": [
+        "./packages/client-contract"
+      ],
       "@/*": [
         "./src/*"
       ]

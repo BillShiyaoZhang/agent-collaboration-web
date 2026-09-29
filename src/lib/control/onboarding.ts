@@ -9,7 +9,7 @@ import { scheduleWorkspaceSync } from "@/lib/workspace/workspace-store";
 import { startWorkspaceSync } from "@/lib/workspace/workspace-sync";
 
 export const ONBOARDING_PROTOCOL = "agent-comm-onboarding/v1";
-export const ONBOARDING_METHODS = ["capabilities", "contacts.list", "contacts.requests", "collaboration.state", "inbox.list", "inbox.review_preview", "attention.list", "conversation.send", "conversation.get", "contacts.add", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "approval.respond", "collaboration.execute"] as const;
+export const ONBOARDING_METHODS = ["capabilities", "contacts.list", "contacts.requests", "collaboration.state", "task.list", "task.detail", "task.events", "inbox.list", "inbox.review_preview", "attention.list", "conversation.send", "conversation.get", "contacts.add", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "approval.respond", "collaboration.execute"] as const;
 const TICKET_MS = 30 * 60 * 1000;
 const requestSchema = z.object({
   protocol: z.literal(ONBOARDING_PROTOCOL), agent_urn: z.string().min(10).max(256),

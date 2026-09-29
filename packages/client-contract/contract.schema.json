@@ -35,6 +35,9 @@
         "capabilities",
         "contacts.list",
         "collaboration.state",
+        "task.list",
+        "task.detail",
+        "task.events",
         "inbox.list",
         "conversation.send",
         "conversation.get",
@@ -914,6 +917,16 @@
         "id"
       ]
     },
+    "taskMention": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "task" },
+        "task_id": { "$ref": "#/$defs/stableId" }
+      },
+      "required": ["kind", "task_id"],
+      "additionalProperties": false,
+      "description": "Owner task context only; never an approval or executed-action provenance link."
+    },
     "conversationTurn": {
       "type": "object",
       "properties": {
@@ -957,6 +970,11 @@
           "items": {
             "$ref": "#/$defs/conversationRelated"
           }
+        },
+        "mentions": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/taskMention" }
         }
       },
       "required": [

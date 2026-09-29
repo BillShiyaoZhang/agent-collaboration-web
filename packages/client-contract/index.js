@@ -38,7 +38,7 @@ function isPairingError(code) {
 function availableMethods(capabilities) {
     return records(record(capabilities).methods).filter(item => item.available === true && exports.RPC_METHODS.includes(string(item.name))).map(item => item.name);
 }
-exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "inbox.review_preview", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"];
+exports.RPC_METHODS = ["capabilities", "contacts.list", "collaboration.state", "task.list", "task.detail", "task.events", "inbox.list", "conversation.send", "conversation.get", "attention.list", "contacts.add", "approval.respond", "contacts.requests", "inbox.review_preview", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"];
 const WRITE_METHODS = new Set(["conversation.send", "contacts.add", "approval.respond", "contacts.respond", "contacts.block", "contacts.unblock", "inbox.review", "messages.send", "inbox.mark_read", "collaboration.execute"]);
 // These authenticated agent errors establish rejection before execution. Other
 // errors may follow a committed side effect or response serialization failure.

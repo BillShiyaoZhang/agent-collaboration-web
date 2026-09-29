@@ -95,7 +95,7 @@ function ReadableDetail({ label, value }: { label: string; value: string }) {
   return <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs leading-5"><dt className="w-14 shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 flex-1 break-words">{value}</dd></div>;
 }
 
-export function TasksSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench: Workbench; onContinue?: (message: string, conversationId?: string) => void }) {
+export function TasksSnapshot({ data, workbench, onContinue }: { data: RemoteRecord; workbench: Workbench; onContinue?: (message: string, conversationId?: string, taskId?: string) => void }) {
   const tasks = records(data.tasks), approvals = records(data.pending_confirmations), operations = records(data.operations);
   const view = record(data.collaboration ?? data.collaboration_v2);
   const collaborations = records(data.collaborations ?? view.collaborations);

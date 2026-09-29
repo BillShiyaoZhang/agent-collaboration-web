@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Clock3, Loader2, Plus, RefreshCw, Settings2 } from "lucide-react";
+import { ChevronDown, Clock3, Loader2, Plus, RefreshCw, Settings2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/shared/utils";
 import { record, records, string } from "@/lib/control/workbench-client";
 import { useLocalTime } from "@/components/local-time";
@@ -18,10 +18,16 @@ import { ApprovalRequests } from "./mutation-panels";
 import { collaborationOperations } from "./collaboration-workflow-model";
 import { relatedTaskIds } from "@/lib/product/activity-model";
 import { AgentSharingPermissionButton } from "./agent-sharing-permission";
+import { TaskMentionInput } from "./task-mention-input";
+import { TurnTaskLinks } from "./turn-task-links";
 import { ReportButton } from "./report-button";
 import type { Workbench } from "./use-workbench";
 
 export function ConversationPanel({ workbench: w, agentName, desktop = false }: { workbench: Workbench; agentName: string; desktop?: boolean }) {
+  const search = useSearchParams();
+  const linkedTask = search.get("task");
+  const linkedTaskApplied = useRef("");
+  const [linkedTaskError, setLinkedTaskError] = useState("");
   const displayTime = useLocalTime();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newResult, setNewResult] = useState(false);
@@ -29,10 +35,23 @@ export function ConversationPanel({ workbench: w, agentName, desktop = false }: 
   const scrollTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const restored=useRef("");
   const state=w.snapshots["collaboration.state"]?.data || {};
+  useEffect(() => {
+    if (!linkedTask || linkedTaskApplied.current === `${w.agentId}:${linkedTask}`) return;
+    if (!w.canMentionTasks) { setLinkedTaskError("当前 Agent 尚未开放结构化事项引用；仍可在普通对话中讨论。"); return; }
+    linkedTaskApplied.current = `${w.agentId}:${linkedTask}`;
+    const saved = records(state.tasks).find(item => item.task_id === linkedTask);
+    if (saved) { w.addTaskMention(linkedTask, string(record(saved.scope).topic, linkedTask)); setLinkedTaskError(""); return; }
+    void w.invoke("task.detail", { task_id: linkedTask }).then(outcome => {
+      if (outcome.result) { w.addTaskMention(linkedTask, string(record(record(outcome.result.task).scope).topic, linkedTask)); setLinkedTaskError(""); }
+      else setLinkedTaskError(outcome.error?.message || "暂时无法核验这项合作事项。");
+    });
+    // The URL denotes one user navigation; avoid repeating a read on every workspace refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedTask, w.agentId, w.canMentionTasks]);
   const taskIds=relatedTaskIds(w.turns,w.conversationId,state);
   const subjectIds=new Set([...taskIds,...collaborationOperations(state).filter(v=>taskIds.includes(string(v.task_id))).map(v=>string(v.operation_id)),...w.turns.flatMap(t=>records(t.related).filter(v=>v.kind==="approval").map(v=>string(v.id)))]);
   const approvals=records(state.pending_confirmations).filter(v=>subjectIds.has(string(v.subject_id)) || subjectIds.has(string(v.approval_id)) || record(v.source_context).conversation_id===w.conversationId);
-  const continueDiscussion=(message:string)=>{w.setText(previous=>previous.trim() ? `${previous}\n\n${message}` : message);w.composer.current?.focus();};
+  const continueDiscussion=(message:string,_conversationId?:string,taskId?:string)=>{w.setText(previous=>previous.trim() ? `${previous}\n\n${message}` : message);if(taskId && w.canMentionTasks){const task=records(state.tasks).find(item=>item.task_id===taskId);w.addTaskMention(taskId,string(record(task?.scope).topic,taskId));}w.composer.current?.focus();};
   useEffect(()=>{if(transcript.current && w.conversationId && restored.current!==w.conversationId && w.turns.length){restored.current=w.conversationId;if(w.conversationState.scrollTop!==null){transcript.current.scrollTop=w.conversationState.scrollTop;nearBottom.current=transcript.current.scrollHeight-transcript.current.scrollTop-transcript.current.clientHeight<80;}}},[w.conversationId,w.turns.length,w.conversationState.scrollTop]);
   useEffect(()=>()=>{if(scrollTimer.current)clearTimeout(scrollTimer.current);},[]);
   const nearBottom = useRef(true);
@@ -79,6 +98,7 @@ export function ConversationPanel({ workbench: w, agentName, desktop = false }: 
     </div></div>
 
     {w.conversationSafetyError && <p role="status" className="shrink-0 border-b bg-amber-50 px-4 py-2 text-xs leading-6 text-amber-900">{w.conversationSafetyError}</p>}
+    {linkedTaskError && <p role="status" className="shrink-0 border-b bg-amber-50 px-4 py-2 text-xs leading-6 text-amber-900">{linkedTaskError}</p>}
     {!desktop && !!w.conversations.length && <div className="flex flex-wrap items-center gap-3 border-b bg-muted/15 px-5 py-3"><label htmlFor="saved-conversation" className="shrink-0 text-xs text-muted-foreground">历史对话</label><select id="saved-conversation" aria-label="选择历史对话" value={w.conversationId} disabled={changingConversation} onChange={event => { nearBottom.current = true; void w.selectConversation(event.target.value); }} className="min-w-0 flex-1 rounded-lg border bg-card px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"><option value="">新对话</option>{w.conversationId && !w.conversations.some(conversation => conversation.id === w.conversationId) && <option value={w.conversationId}>当前对话</option>}{w.conversations.map(conversation => <option key={conversation.id} value={conversation.id}>{conversation.title || "未命名对话"}{conversation.pending ? " · 处理中" : ""} · {displayTime(conversation.updatedAt / 1000)}</option>)}</select></div>}
     {!desktop && settingsOpen && <ConversationLibrary workbench={w} />}
     {!desktop && settingsOpen && <div className="border-b bg-muted/25 px-5 py-4"><label htmlFor="conversation-id" className="text-xs font-medium">打开已有对话</label><div className="mt-2 flex items-center gap-2"><Input id="conversation-id" value={w.conversationInput} maxLength={128} placeholder="输入对话 ID" className="min-w-0 rounded-xl bg-card font-mono text-base" disabled={changingConversation} onChange={event => w.setConversationInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && w.canReadConversation && !changingConversation) void w.readConversation(w.conversationInput.trim()); }} />{w.canReadConversation && <Button variant="outline" className="rounded-xl" disabled={!w.conversationInput.trim() || changingConversation} onClick={() => void w.readConversation(w.conversationInput.trim())}>打开</Button>}{w.conversationId && <CopyValue value={w.conversationId} label="复制对话 ID" compact />}</div><p className="mt-2 text-xs text-muted-foreground">会话会自动保存。也可以用对话 ID 找回尚未同步到账号的记录。</p></div>}
@@ -90,7 +110,7 @@ export function ConversationPanel({ workbench: w, agentName, desktop = false }: 
       {!w.turns.length && !w.submission && <div className="flex min-h-full flex-col items-center justify-center py-2 text-center"><span aria-hidden="true" className="agent-avatar mb-4 h-20 w-20 shrink-0" /><h2 className="text-xl font-medium tracking-tight sm:text-2xl">{w.conversationId ? w.currentSnapshot?.conversation_id === w.conversationId ? "这个对话暂时没有回合" : "正在打开这个对话" : "有什么想一起推进的？"}</h2><p className="mt-3 max-w-sm text-sm leading-6 text-muted-foreground">{w.conversationId ? w.currentSnapshot?.conversation_id === w.conversationId ? "新回合会自动同步到这里。" : "已安排后台同步，保存的对话记录会自动显示。" : "告诉 agent 你的想法、问题，或下一件要做的事。"}</p>{w.canSend && !w.conversationId && <div className="mt-5 flex flex-wrap justify-center gap-2">{["帮我梳理今天的待办", "看看协作事项的进展", "我们可以一起做什么？"].map(prompt => <button key={prompt} type="button" className="min-h-10 rounded-xl border bg-card/70 px-3 py-2 text-xs text-muted-foreground transition-colors [&:not(:first-child)]:hidden sm:[&:not(:first-child)]:inline-flex hover:border-primary/30 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { w.setText(prompt); w.composer.current?.focus(); }}>{prompt}</button>)}</div>}</div>}
       {w.turns.map((turn, index) => record(turn.content_review).status === "rejected" || record(turn.moderation).status === "rejected"
         ? <div id={"turn-"+string(turn.turn_id)} key={string(turn.turn_id, String(index))} className="rounded-xl bg-muted/55 px-4 py-3 text-sm leading-7 text-muted-foreground">此回合内容已由工作区处理移除。</div>
-        : <div id={"turn-"+string(turn.turn_id)} key={string(turn.turn_id, String(index))} className="space-y-4"><div className="ml-auto w-fit max-w-[88%] sm:max-w-[80%]"><p className="conversation-user-bubble whitespace-pre-wrap break-words rounded-[1.25rem] rounded-br-md px-4 py-3 text-sm leading-7">{string(turn.text)}</p><div className="mt-2 flex items-center justify-end gap-2"><span className="text-xs text-muted-foreground">{displayTime(turn.created_at)}</span><StatusBadge value={turn.status} /></div></div><div className="flex items-start gap-2.5"><span aria-hidden="true" className="agent-avatar mt-1 h-9 w-9 shrink-0" /><div className="min-w-0 max-w-[88%]">
+        : <div id={"turn-"+string(turn.turn_id)} key={string(turn.turn_id, String(index))} className="space-y-4"><div className="ml-auto w-fit max-w-[88%] sm:max-w-[80%]"><p className="conversation-user-bubble whitespace-pre-wrap break-words rounded-[1.25rem] rounded-br-md px-4 py-3 text-sm leading-7">{string(turn.text)}</p><TurnTaskLinks turn={turn} state={state} agentId={w.agentId} /><div className="mt-2 flex items-center justify-end gap-2"><span className="text-xs text-muted-foreground">{displayTime(turn.created_at)}</span><StatusBadge value={turn.status} /></div></div><div className="flex items-start gap-2.5"><span aria-hidden="true" className="agent-avatar mt-1 h-9 w-9 shrink-0" /><div className="min-w-0 max-w-[88%]">
         {turn.status === "completed" ? <div className="space-y-2"><div className="conversation-agent-bubble break-words rounded-[1.25rem] rounded-tl-md px-4 py-3 text-sm leading-7"><MessageContent text={string(turn.response) || "Agent 已结束本回合，未返回文本内容。"} /></div><div className="flex flex-wrap gap-2"><CopyValue value={string(turn.response)} label="复制回复" compact />{string(turn.turn_id) && <div role="group" aria-label={"举报 Agent 回复 " + string(turn.turn_id)}><ReportButton agentId={w.agentId} target={{kind:"turn",id:string(turn.turn_id)}} /></div>}<Button variant="ghost" size="sm" className="h-8 text-xs" disabled={!w.canSend} onClick={()=>continueDiscussion("> "+string(turn.response).slice(0,2000).replace(/\n/g,"\n> ")+"\n\n")}>引用回复</Button></div></div> : ["failed", "interrupted"].includes(string(turn.status)) ? <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-800"><p>{turn.status === "interrupted" ? turn.locally_unconfirmed === true ? "这条消息的处理结果尚未确认，请先核实后再安排后续操作。" : "处理曾中断，请先核实执行结果。" : "这个回合未能完成。"}</p>{!!turn.error && <p className="mt-1 break-words text-xs">{string(turn.error)}</p>}</div> : <div className="flex items-center gap-2 rounded-2xl bg-muted/55 px-4 py-3 text-sm text-muted-foreground"><Clock3 className="h-3.5 w-3.5" />{turn.status === "running" ? "Agent 正在处理这一回合…" : turn.status === "submitted" ? "Agent 已受理，等待开始处理…" : "Agent 返回了新的回合状态，请查看原始快照。"}</div>}
       </div></div></div>)}
       {w.submission && <div className="ml-auto w-fit max-w-[88%] sm:max-w-[80%]"><p className="conversation-user-bubble whitespace-pre-wrap break-words rounded-[1.25rem] rounded-br-md px-4 py-3 text-sm leading-7">{w.submission.text}</p><p className="mt-2 flex items-center justify-end gap-1.5 text-xs text-muted-foreground">{w.submission.phase === "sending" && <Loader2 className="h-3 w-3 animate-spin" />}{w.submission.phase === "sending" ? "正在等待受理回执" : "发送结果尚未确认"}</p></div>}
@@ -104,7 +124,7 @@ export function ConversationPanel({ workbench: w, agentName, desktop = false }: 
       {w.conversationError && <p role="alert" className="text-xs leading-6 text-destructive">{w.conversationError}</p>}
     </div>}
 
-      {(w.canSend || desktop) ? <div className={cn("conversation-composer shrink-0", desktop ? "p-3 md:px-5 md:pb-4 xl:px-7" : "p-4 sm:p-5")}><div className="mb-2 flex flex-wrap items-center gap-2"><AgentSharingPermissionButton access={w.sharing} />{!w.sharing.allowed && <p className="text-xs text-muted-foreground">首次发送前请单独决定是否允许内容共享。</p>}</div><div className="conversation-composer-box rounded-2xl border bg-card p-3 transition-shadow focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10"><Textarea ref={w.composer} aria-label="给 agent 的消息" maxLength={8000} value={w.text} disabled={!w.canSend || !!w.submission || w.selectingConversation} onChange={event => { w.setText(event.target.value); event.target.style.height = "auto"; event.target.style.height = `${Math.min(event.target.scrollHeight, 180)}px`; }} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey)) { event.preventDefault(); send(); } }} placeholder={w.canSend ? "告诉 agent 你想做什么…" : "连接与授权恢复后可发送消息"} className={cn("resize-none rounded-none border-0 bg-transparent p-1 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60", desktop ? "min-h-14" : "min-h-20")} /><div className="mt-2 flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground"><span className="hidden sm:inline">Ctrl / ⌘ + Enter 发送</span><span className="sm:hidden">换行可继续输入</span>{w.text.length > 7000 && <span className="ml-2">{w.text.length} / 8000</span>}</p><Button aria-label="发送消息" disabled={!w.canSend || !w.text.trim() || !!w.submission || w.selectingConversation || !!w.busy["conversation.send"]} onClick={send} className="min-h-10 gap-1.5 rounded-full px-4">{w.busy["conversation.send"] ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}发送</Button></div></div>
+      {(w.canSend || desktop) ? <div className={cn("conversation-composer shrink-0", desktop ? "p-3 md:px-5 md:pb-4 xl:px-7" : "p-4 sm:p-5")}><div className="mb-2 flex flex-wrap items-center gap-2"><AgentSharingPermissionButton access={w.sharing} />{!w.sharing.allowed && <p className="text-xs text-muted-foreground">首次发送前请单独决定是否允许内容共享。</p>}</div><TaskMentionInput workbench={w} desktop={desktop} onSend={send} />
         {!w.canSend && desktop ? <p role="status" className="mt-1 text-xs text-muted-foreground">{w.sync.status === "needs_pairing" ? "请先在连接设置中完成配对。" : !w.policyAllowed ? "当前远程控制已暂停，请到“我”查看政策与恢复选项。" : "当前连接未开放发送权限，已保存的记录仍可查看。"}</p> : !desktop && (w.canReadConversation ? <details className="mt-3 px-1 text-xs leading-5 text-muted-foreground"><summary className="inline-flex min-h-8 cursor-pointer items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">发送和处理说明</summary><p className="mt-1">受理后会自动保存并同步处理结果，离开页面后也会继续。需要你确认的协作请求会显示具体授权问题。处理中发送的新消息会进入队列，不能即时修改正在执行的回合。</p></details> : <p className="mt-3 px-1 text-xs leading-5 text-amber-800">当前 agent 仅开放发送能力。受理后，请在 agent 本机查看处理结果。</p>)}
       </div> : <div className="border-t px-5 py-4 text-xs leading-6 text-muted-foreground">当前配对仅支持读取对话。可以打开历史对话，或在设置中输入对话 ID。</div>}
     {!desktop && w.currentSnapshot?.conversation_id === w.conversationId && <RawSnapshot data={w.currentSnapshot} />}
