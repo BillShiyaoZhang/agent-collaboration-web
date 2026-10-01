@@ -20,6 +20,14 @@ const compiled = ts.transpileModule(fs.readFileSync(middlewarePath, "utf8"), {
 const middlewareModule = new Module(middlewarePath, module);
 middlewareModule.filename = middlewarePath;
 middlewareModule.paths = Module._nodeModulePaths(path.dirname(middlewarePath));
+const securityPath = path.resolve(__dirname, '../../src/lib/auth/workspace-security.ts');
+const securityModule = new Module(securityPath, module);
+securityModule.filename = securityPath; securityModule.paths = Module._nodeModulePaths(path.dirname(securityPath));
+securityModule._compile(ts.transpileModule(fs.readFileSync(securityPath, 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText, securityPath);
+middlewareModule.require = name => name === './lib/auth/workspace-security' ? securityModule.exports
+  : Module.prototype.require.call(middlewareModule, name);
 middlewareModule._compile(compiled.outputText, middlewarePath);
 const { middleware } = middlewareModule.exports;
 
@@ -61,11 +69,12 @@ async function assertUnauthorizedJson(response) {
 test("authentication middleware", { concurrency: false }, async (t) => {
   // NextAuth chooses its default cookie name from NEXTAUTH_URL. Keep all cases
   // serial and restore the caller's environment, including initially unset keys.
-  const envKeys = ["NEXTAUTH_URL", "NEXTAUTH_SECRET", "VERCEL"];
+  const envKeys = ["NEXTAUTH_URL", "NEXTAUTH_SECRET", "VERCEL", "WORKSPACE_GATEWAY_ORIGIN_MODE"];
   const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   process.env.NEXTAUTH_URL = productionOrigin;
   process.env.NEXTAUTH_SECRET = secret;
   delete process.env.VERCEL;
+  delete process.env.WORKSPACE_GATEWAY_ORIGIN_MODE;
 
   try {
     const validToken = await encode({ secret, token: { sub: "regression-user" } });

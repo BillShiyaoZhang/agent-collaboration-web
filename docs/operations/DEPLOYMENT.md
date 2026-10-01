@@ -126,10 +126,22 @@ npm run db:migrate
 
 控制台专用信箱中，验签成功但不是有效匹配 RPC 的消息会消费丢弃。升级前需要保留的旧控制台消息应从升级前数据库和备份离线归档。
 
-## Ambient 工作区入口（建议实现）
+## Ambient 工作区入口
 
-按 [独立 Gateway 契约](../architecture/REMOTE_WORKSPACE.md) 配置运行时 `WORKSPACE_GATEWAY_URL`、`WORKSPACE_GATEWAY_SECRET`、`WORKSPACE_GATEWAY_PUBLIC_URL` 和 `WORKSPACE_GATEWAY_DOMAIN`；不要以 `NEXT_PUBLIC_` 导出 service secret。Gateway 必须支持账户 terminal 删除，确认撤销既有浏览器会话/通道并拒绝之后的新授权，Web 才能安全删除云账户。Gateway 配置改变后重新创建 Web 容器；源码提案不代表现网已经发布。
+以下步骤对应 main 的实现；线上是否启用、实际版本和验证结果以根部署仓库带日期的发布及验收记录为准。
+
+`WORKSPACE_GATEWAY_ORIGIN_MODE` 默认 `separate-site`，严格枚举，空值或未知值使配置失效。以下独立可注册域要求是默认方式；临时例外必须显式使用 `same-site-subdomains`，并同时完成下述 Portal 与 nginx 加固，不能单独取消域名校验。
+
+按 [独立 Gateway 契约](../architecture/REMOTE_WORKSPACE.md) 配置运行时 `WORKSPACE_GATEWAY_URL`、`WORKSPACE_GATEWAY_SECRET`、`WORKSPACE_GATEWAY_PUBLIC_URL` 和 `WORKSPACE_GATEWAY_DOMAIN`；不要以 `NEXT_PUBLIC_` 导出 service secret。Gateway 必须支持账户 terminal 删除，确认撤销既有浏览器会话/通道并拒绝之后的新授权，Web 才能安全删除云账户。Gateway 配置改变后重新创建 Web 容器；源码更新不代表现网已经发布。
 
 生产环境必须给工作区使用与 Portal 不同的可注册域（含 private PSL）：公开控制 origin 和节点 wildcard 根共用工作区域，`NEXTAUTH_URL` 属于另一个域。仅从 `console.example.com` 换成 `nodes.example.com` 不满足隔离。`WORKSPACE_GATEWAY_PUBLIC_URL` 只能是 HTTPS origin，公开控制地址不由内网服务地址推断。节点根与 Gateway/根 Compose overlay 保持一致；不要给工作区节点发送 Portal Cookie。Web 在发码和打开前使用离线 PSL 验证，错误配置拒绝发码，不需要访问外部域名检查服务。
 
-Gateway 与 Web 必须同时升级到登录账户一次性 enrollment 和 `{nodes,next_cursor}` 有界分页协议；旧匿名配对与旧无游标节点列表不属于兼容入口。Web 无新增数据库迁移；保留现有账户、NEXTAUTH_SECRET 和连接状态。上线前在隔离环境验收发码、一次使用/过期、同账户领取、本机确认、分页和有界账户撤销；Ambient 客户端还需实现接入码输入及 `/v1/connector/pairings` 的 `enrollment_token` 字段。
+Gateway 与 Web 必须同时升级到登录账户一次性 enrollment 和 `{nodes,next_cursor}` 有界分页协议；旧匿名配对与旧无游标节点列表不属于兼容入口。Web 无新增数据库迁移；保留现有账户、NEXTAUTH_SECRET 和连接状态。上线前在隔离环境验收发码、一次使用/过期、同账户领取、本机确认、分页和有界账户撤销；Ambient 客户端须使用支持接入码输入及 `/v1/connector/pairings` 的 `enrollment_token` 字段的配套版本。
+
+临时子域模式仅允许同一可注册域内不同的 Portal、控制和节点根 host，Portal 不能位于节点根之下，节点仍逐个独立 origin；三个入口均须 HTTPS，不能用同 host 的不同端口或路径替代。Web、Gateway、ingress 的模式必须一致。Web 在该模式把六类 NextAuth Cookie 改为 host-only `__Host-`，旧 `__Secure-`/无前缀 Cookie 不再认证；安排用户重新登录，但保留 `NEXTAUTH_SECRET`、账户数据库和已有业务状态。不要为兼容旧 Cookie 增加回退，否则恢复子域注入风险。
+
+Web middleware 先于公开 API 执行严格 Fetch Metadata/Origin 门禁，并附 `Origin-Agent-Cluster: ?1`、`Cross-Origin-Opener-Policy: same-origin`。必须在 nginx 对同一 Portal Host 的 Platform/Admin 路由执行等价门禁，因为它们绕过 Next.js；不要增加子域 credentialed CORS、通配信任或跨源 WS。仅接受明确 Portal Host，覆盖不可信代理头，保持 Gateway 节点 `__Host-ambient_workspace` Cookie 与原撤销策略。
+
+此模式拒绝 Cookie 请求缺失/非法 Fetch Metadata；原生 Cookie 客户端需适配，临时入口支持现代浏览器。所有同站跨源浏览器请求拒绝，从 Workspace 返回 Portal 请用地址栏或书签。普通父域 Cookie 仍能影响 header 大小及浏览器存储可用性，本模式没有独立站点的完整隔离。启用前必须真实浏览器验证 Domain/旧 Cookie 注入、fetch/form/iframe 拒绝、正常 Portal 登录发码和节点打开；之后优先迁回 `separate-site`。
+
+隔离 fixture `tests/integration/workspace-portal-fixture.cjs` 支持 `WORKSPACE_PORTAL_FIXTURE_HOST`（默认 `localhost`，HTTPS 可用 `portal.example.com` 等保留合成名），仅监听 127.0.0.1；浏览器需本地 resolver 与网络白名单，不访问外网。`WORKSPACE_PORTAL_FIXTURE_OUTPUT_DIR` 可指定 `build/workspace-portal-preview/` 内的本次目录，数据库必须新建，TLS 文件及 Next cwd 都限制在该目录并拒绝 dotenv。readiness 直接连接内部 loopback HTTP 并携带公开 Host/代理协议，READY URL 与 `NEXTAUTH_URL` 使用实际测试 hostname。可选 `WORKSPACE_PORTAL_FIXTURE_REQUEST_AUDIT_PATH` 必须是本次 output 内的新文件，只由 HTTPS 代理记录实际收到的 pathname、有限 Fetch Metadata 值以及 Cookie/Host session Cookie 是否存在；不记录 query、Cookie 值、正文或凭据，最多 10,000 条 JSONL，用于核对浏览器自动产生的请求元数据。

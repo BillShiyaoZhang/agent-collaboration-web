@@ -12,7 +12,8 @@ const { migrateAccountEmail } = require("../../scripts/migrate-account-email.cjs
 function load(relative, dependencies = {}) {
   const filename = path.resolve(__dirname, relative), loaded = new Module(filename, module);
   loaded.filename = filename; loaded.paths = Module._nodeModulePaths(path.dirname(filename));
-  loaded.require = name => Object.hasOwn(dependencies, name) ? dependencies[name] : Module.prototype.require.call(loaded, name);
+  loaded.require = name => Object.hasOwn(dependencies, name) ? dependencies[name]
+    : name === './workspace-security' ? load('../../src/lib/auth/workspace-security.ts') : Module.prototype.require.call(loaded, name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
   return loaded.exports;
 }

@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/shared/db";
 import { hashPassword, passwordNeedsUpgrade, validPasswordSize, verifyPassword } from "./password";
+import { workspaceNextAuthCookies } from "./workspace-security";
 export { hashPassword, verifyPassword } from "./password";
 
 export const authOptions: NextAuthOptions = {
+  ...workspaceNextAuthCookies(),
   providers: [
     CredentialsProvider({
       name: "credentials",

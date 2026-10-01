@@ -1,6 +1,6 @@
-# Ambient 本地工作区云入口（建议实现）
+# Ambient 本地工作区云入口
 
-此入口复用现有 NextAuth 账户，只连接用户电脑上的 Ambient，不在 Web 或 Platform 启动另一份 Agent。当前改动位于隔离建议分支，尚未部署。
+此入口复用现有 NextAuth 账户，只连接用户电脑上的 Ambient，不在 Web 或 Platform 启动另一份 Agent。本文描述 main 的实现；线上启用状态、版本和验收结果以部署仓库的发布及验收记录、实际入口为准。
 
 ## 使用流程与授权
 
@@ -15,6 +15,8 @@
 
 ## Web 与 Gateway 接口
 
+以下地址约束描述默认 `WORKSPACE_GATEWAY_ORIGIN_MODE=separate-site`。此变量严格只接受 `separate-site` 与 `same-site-subdomains`，未设置时使用前者；空值、拼写错误及未知值拒绝，不会退回宽松配置。临时同站子域的额外约束见下一节。
+
 设置服务端环境变量 `WORKSPACE_GATEWAY_URL`（例如内网 `http://workspace-gateway:8090`）和 `WORKSPACE_GATEWAY_SECRET`（至少 32 字节随机值）。另设 `WORKSPACE_GATEWAY_PUBLIC_URL`（Ambient 可访问的控制 origin）与 `WORKSPACE_GATEWAY_DOMAIN`（Gateway 同一节点 wildcard 根域）。公网控制 URL 必须 HTTPS，且控制与节点根的可注册域必须相同、与 `NEXTAUTH_URL` 不同；使用 `tldts` 的完整 PSL（含 private suffix）核对，不能仅换子域名隔离 Portal Cookie。本机允许 HTTP loopback/localhost 与独立端口，示例 `http://localhost:8788` 和 `localhost:8788`。公开 URL 不允许路径、用户信息、query 或 fragment，配置无效时发码与打开返回 503/502；内部 URL 不作为公开地址回退。这两个内部值不使用 `NEXT_PUBLIC_`，不传入浏览器。Gateway 需配置相同 service secret。未设置时入口返回未配置提示，现有聊天和账户功能继续使用原服务。
 
 | 浏览器 BFF | Gateway | 约束 |
@@ -28,6 +30,16 @@
 所有 BFF 使用真实 `getServerSession(authOptions)`；变更请求沿用现有可信 `NEXTAUTH_URL` 同源 Origin 校验、严格 JSON 和有界正文。Gateway 的所有账户请求带独立 service Bearer；不透传浏览器 Cookie、Authorization、Host 或账户参数。响应为 `private, no-store`，`Vary: Cookie`。接入码仅在页面内存显示，可复制但不进入 URL、localStorage/sessionStorage 或日志。Web 不自动把接入码作为连接码领取，也不自动重试发码。Gateway 元数据（含账户删除回执）严格限制为 128 KiB JSON 与 10 秒网络超时；访问链接还须精确匹配当前节点 origin 和唯一 ticket 路径。429 回执安全保留 1–300 秒的整数 Retry-After（异常值使用 60 秒）；浏览器按账户在内存保存冷却期限，期限内不发起节点轮询或重复生成，并暂时禁用发码。没有 Gateway 请求正文或响应正文日志，不创建 Ambient 工作区数据库副本。
 
 Gateway 节点列表必须为 `{nodes:[...],next_cursor:null|string}`，单页最多请求的 limit 条，不兼容旧无界响应；游标缺失或越界时拒绝显示，升级 Web 与 Gateway 必须成套。浏览器按用户动作加载下一页、保留最多最近载入 500 项；多页期间暂停首屏轮询，点击重新读取返回最新一页。节点字段含 `node_id,name,status,online,account_id,account_label,grant_id,scopes,expires_at,workspace_origin,last_seen_at`，时间使用 ISO 8601 UTC 字符串。状态为 `pending/claimed/paired/revoked/expired`；新 pending 已绑定接入码所属账户、account_label 暂为空，仍需本人领取和本机确认；`online` 为独立布尔值，已配对但断开显示离线。列表数据由 Gateway 返回，Web 不从云记录推断当前本机权限。
+
+## 临时同站子域模式
+
+只有显式设置 `WORKSPACE_GATEWAY_ORIGIN_MODE=same-site-subdomains` 才允许 Portal、公开控制 origin 与节点根共用可注册域。完整 PSL（含 private suffix）仍参与校验；三者必须 HTTPS、host 不同，Portal 不能位于节点根内，公开控制地址仍是纯 origin，每个节点仍使用自己的 `<node_id>.<root>` origin。仅改端口或把工作区 HTML 放到门户路径不能建立此边界。Web、Gateway 和生产 ingress 必须配置同一模式，不能只关闭其中一层的 PSL 检查。
+
+此模式使用 Edge 可用的 `src/lib/auth/workspace-security.ts`：NextAuth 的 session、callback、CSRF、PKCE、state、nonce 六类 Cookie 全部为 `__Host-`、Secure、HttpOnly、SameSite=Lax、Path=/、无 Domain；middleware 使用相同 session Cookie 名并支持分块。原 `__Secure-`/无前缀会话不再被认证，切换时必须重新登录，账户、原密钥和数据库保留。默认独立站点模式不修改现有 Cookie 配置。
+
+Portal 浏览器门禁先于公开路由执行：拒绝所有 `Sec-Fetch-Site: same-site`；有 Cookie 而 Fetch Metadata 缺失/非法时拒绝；有 Cookie 的非 GET/HEAD 请求要求精确 Portal Origin；显式外部或 `null` Origin 拒绝。地址栏/书签的 `none` 安全请求可用；来自外部站点的 GET/HEAD document 导航仅允许页面，不允许 `/api`，fetch、iframe 与不安全请求拒绝。无 Cookie、无 Fetch Metadata 的 CLI onboarding 保留原签名/Bearer 验证。响应增加 `Origin-Agent-Cluster: ?1` 和 `Cross-Origin-Opener-Policy: same-origin`；运维还须让 nginx 保护同 Host 的 Platform/Admin 入口。
+
+临时模式仅支持具备 Cookie 前缀和 Fetch Metadata 的现代浏览器；现有不发送 Fetch Metadata 的 native Cookie 客户端需适配，不能据现有 native 契约宣称兼容。Workspace 到 Portal 的同站链接也会被拒绝，需在地址栏打开 Portal 或使用书签。`__Host-` 阻止认证 Cookie 的 Domain/Path 注入，但同注册域的普通父域 Cookie 仍可能造成请求头过大或浏览器存储可用性影响；本模式不等同独立可注册域的完整隔离，后续仍应迁回默认模式。
 
 ## 验证与部署边界
 
