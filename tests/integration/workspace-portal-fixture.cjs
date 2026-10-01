@@ -8,7 +8,10 @@ const bcrypt = require("bcryptjs");
 const root = path.resolve(__dirname, "../..");
 const output = path.join(root, "build/workspace-portal-preview");
 fs.mkdirSync(output, { recursive: true });
-const dbFile = path.join(output, "portal-" + Date.now() + ".db");
+const dbFile = process.env.WORKSPACE_PORTAL_FIXTURE_DATABASE_PATH || path.join(output, "portal-" + Date.now() + ".db");
+const dbParent = fs.realpathSync(path.dirname(dbFile)), dbRelative = path.relative(fs.realpathSync(output), dbParent);
+if (dbRelative.startsWith("..") || path.isAbsolute(dbRelative) || fs.existsSync(dbFile))
+  throw new Error("Fixture database must be new and inside its build directory");
 const db = new PrismaClient({ datasources: { db: { url: "file:" + dbFile.replaceAll("\\", "/") + "?connection_limit=1" } } });
 let child, proxy;
 const password = "Ambient-Fixture-" + crypto.randomBytes(12).toString("hex");
@@ -37,13 +40,22 @@ process.on("SIGINT", stop); process.on("SIGTERM", stop);
   for (const [id, email] of [["portal-owner", "ambient-owner@example.invalid"], ["portal-other", "ambient-other@example.invalid"]])
     await db.user.create({ data: { id, email, passwordHash, requiresEmailVerification: false, emailVerifiedAt: new Date() } });
   await db.$disconnect();
+  const nextCwd = process.env.WORKSPACE_PORTAL_FIXTURE_NEXT_CWD || root;
+  if (nextCwd !== root) {
+    const resolved = fs.realpathSync(nextCwd), relative = path.relative(fs.realpathSync(output), resolved);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Fixture Next cwd must be inside its build directory");
+  }
+  for (const name of [".env", ".env.local", ".env.production", ".env.production.local", ".env.development", ".env.development.local", ".env.test", ".env.test.local"])
+    if (fs.existsSync(path.join(nextCwd, name))) throw new Error("Refusing to load existing dotenv files; use an isolated fixture Next cwd");
   child = spawn(process.execPath, [path.join(root, "node_modules/next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(nextPort)], {
-    cwd: root, windowsHide: true, stdio: "inherit", env: { ...process.env,
+    cwd: nextCwd, windowsHide: true, stdio: "inherit", env: { ...process.env,
       DATABASE_URL: "file:" + dbFile.replaceAll("\\", "/") + "?connection_limit=1",
       NEXTAUTH_URL: base, NEXTAUTH_SECRET: crypto.randomBytes(32).toString("hex"),
       AGENT_PLATFORM_URL: "http://127.0.0.1:1", WEB_PUSH_DISABLED: "1", RESEND_API_KEY: "",
       WORKSPACE_GATEWAY_URL: process.env.WORKSPACE_GATEWAY_URL || "http://127.0.0.1:8788",
       WORKSPACE_GATEWAY_SECRET: process.env.WORKSPACE_GATEWAY_SECRET,
+      WORKSPACE_GATEWAY_PUBLIC_URL: process.env.WORKSPACE_GATEWAY_PUBLIC_URL || "http://localhost:8788",
+      WORKSPACE_GATEWAY_DOMAIN: process.env.WORKSPACE_GATEWAY_DOMAIN || "localhost:8788",
     },
   });
   child.on("exit", code => { proxy?.close(); process.exitCode = code || 0; });
@@ -63,5 +75,5 @@ process.on("SIGINT", stop); process.on("SIGTERM", stop);
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   if (!(await fetch(base + "/api/auth/csrf")).ok) throw new Error("fixture did not start");
-  console.log("WORKSPACE_PORTAL_READY " + JSON.stringify({ url: base, owner: "ambient-owner@example.invalid", other: "ambient-other@example.invalid", password, pid: child.pid, database: dbFile }));
+  console.log("WORKSPACE_PORTAL_READY " + JSON.stringify({ url: base, owner: "ambient-owner@example.invalid", other: "ambient-other@example.invalid", ...(process.env.WORKSPACE_PORTAL_FIXTURE_HIDE_PASSWORD === "1" ? {} : { password }), pid: child.pid, database: dbFile }));
 })().catch(async error => { console.error("Workspace portal fixture failed:", error.message); await db.$disconnect(); stop(); process.exitCode = 1; });

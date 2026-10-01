@@ -128,4 +128,8 @@ npm run db:migrate
 
 ## Ambient 工作区入口（建议实现）
 
-按 [独立 Gateway 契约](../architecture/REMOTE_WORKSPACE.md) 配置运行时 `WORKSPACE_GATEWAY_URL` 和 `WORKSPACE_GATEWAY_SECRET`；不要以 `NEXT_PUBLIC_` 导出 service secret。Gateway 必须支持账户 terminal 删除，确认撤销既有浏览器会话/通道并拒绝之后的新授权，Web 才能安全删除云账户。Gateway 配置改变后重新创建 Web 容器；源码提案不代表现网已经发布。
+按 [独立 Gateway 契约](../architecture/REMOTE_WORKSPACE.md) 配置运行时 `WORKSPACE_GATEWAY_URL`、`WORKSPACE_GATEWAY_SECRET`、`WORKSPACE_GATEWAY_PUBLIC_URL` 和 `WORKSPACE_GATEWAY_DOMAIN`；不要以 `NEXT_PUBLIC_` 导出 service secret。Gateway 必须支持账户 terminal 删除，确认撤销既有浏览器会话/通道并拒绝之后的新授权，Web 才能安全删除云账户。Gateway 配置改变后重新创建 Web 容器；源码提案不代表现网已经发布。
+
+生产环境必须给工作区使用与 Portal 不同的可注册域（含 private PSL）：公开控制 origin 和节点 wildcard 根共用工作区域，`NEXTAUTH_URL` 属于另一个域。仅从 `console.example.com` 换成 `nodes.example.com` 不满足隔离。`WORKSPACE_GATEWAY_PUBLIC_URL` 只能是 HTTPS origin，公开控制地址不由内网服务地址推断。节点根与 Gateway/根 Compose overlay 保持一致；不要给工作区节点发送 Portal Cookie。Web 在发码和打开前使用离线 PSL 验证，错误配置拒绝发码，不需要访问外部域名检查服务。
+
+Gateway 与 Web 必须同时升级到登录账户一次性 enrollment 和 `{nodes,next_cursor}` 有界分页协议；旧匿名配对与旧无游标节点列表不属于兼容入口。Web 无新增数据库迁移；保留现有账户、NEXTAUTH_SECRET 和连接状态。上线前在隔离环境验收发码、一次使用/过期、同账户领取、本机确认、分页和有界账户撤销；Ambient 客户端还需实现接入码输入及 `/v1/connector/pairings` 的 `enrollment_token` 字段。

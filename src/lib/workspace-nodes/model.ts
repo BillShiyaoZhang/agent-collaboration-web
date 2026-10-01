@@ -29,3 +29,8 @@ export const workspaceScopeLabels = {
   "workspace.control": "操作工作区与运行任务",
   "workspace.manage": "管理模型、Agent 与能力配置",
 };
+
+// Long histories remain traversable while the browser retains a bounded window.
+export function mergeWorkspaceNodePage(previous: WorkspaceNode[], page: WorkspaceNode[]): WorkspaceNode[] {
+  return [...new Map([...previous, ...page].map(node => [node.node_id, node])).values()].slice(-500);
+}

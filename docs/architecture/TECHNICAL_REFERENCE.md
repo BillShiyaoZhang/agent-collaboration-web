@@ -335,6 +335,6 @@ Web 在认证响应保存、直接控制响应和旧快照读取时统一隔离�
 
 ## Ambient 本地工作区云入口（建议实现）
 
-隔离建议分支新增账户派生的工作区节点 BFF、一次性码领取、等待本机确认、状态列表、打开与撤销。独立 Gateway 处理工作区 HTTP/WS；Web 不创建 Ambient 内容副本，也不通过原 MQ 模拟整个页面。接口、权限、环境变量和部署边界见 [云入口契约](REMOTE_WORKSPACE.md)，用户流程见 [连接本地工作区](../users/REMOTE_WORKSPACE.md)。
+隔离建议分支新增登录账户派生的 5 分钟一次性本机接入码、严格分页节点 BFF、一次性连接码领取、等待本机确认、状态列表、打开与撤销。独立 Gateway 处理工作区 HTTP/WS；Web 不创建 Ambient 内容副本，也不通过原 MQ 模拟整个页面。接口、权限、环境变量和部署边界见 [云入口契约](REMOTE_WORKSPACE.md)，用户流程见 [连接本地工作区](../users/REMOTE_WORKSPACE.md)。
 
 配置 Gateway 时，删除账户在密码、会话及账户确认后，先调用 `DELETE /v1/accounts/{account_id}`。Gateway 持久停用该 ID、撤销其所有节点与现有通道，并拒绝迟到的领取、批准和打开；幂等成功回执后 Web 才执行本地条件删除事务。撤销未确认返回 `503 WORKSPACE_REVOKE_UNCONFIRMED` 并保留账户。云撤销成功后本地删除失败时，远程访问仍已停止，不能把数据库回滚解释为权限恢复。未配置此可选功能的既有安装保留原删除路径。

@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict"), path = require("node:path"), crypto = require("node:crypto");
 const { seedAccount } = require("./seed-account.cjs");
 const base = process.env.WORKSPACE_PORTAL_FIXTURE_URL || "http://localhost:3310";
-const gateway = process.env.WORKSPACE_GATEWAY_URL || "http://127.0.0.1:8788";
+const gateway = process.env.WORKSPACE_GATEWAY_PUBLIC_URL || process.env.WORKSPACE_GATEWAY_URL || "http://localhost:8788";
 for (const value of [base, gateway]) {
   const url = new URL(value);
   assert.ok(["http:", "https:"].includes(url.protocol));
@@ -36,9 +36,20 @@ async function device(url, token, body) {
     body: new URLSearchParams({ csrfToken: csrf.csrfToken, email, password, callbackUrl: base + "/dashboard/workspaces", json: "true" }) });
   assert.equal(login.status, 200);
   const session = await (await browser("/api/auth/session")).json(); assert.equal(session.user.id, account.id);
+  assert.equal((await browser("/api/workspace-nodes/enroll", { method: "POST", origin: "https://foreign.invalid", body: {} })).status, 403);
+  assert.equal((await browser("/api/workspace-nodes/enroll", { method: "POST", body: { account_id: "portal-owner" } })).status, 400);
+  const enrollmentResponse = await browser("/api/workspace-nodes/enroll", { method: "POST", body: {} });
+  assert.equal(enrollmentResponse.status, 200); const enrollment = await enrollmentResponse.json();
+  assert.equal(new URL(enrollment.gateway_url).hostname, "localhost");
   const pairResponse = await fetch(gateway + "/v1/connector/pairings", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "HTTP fixture deletion", scopes: ["workspace.control"], expires_in: 3600 }) });
+    body: JSON.stringify({ enrollment_token: enrollment.enrollment_token, name: "HTTP fixture deletion", scopes: ["workspace.control"], expires_in: 3600 }) });
   assert.equal(pairResponse.status, 200); const pair = await pairResponse.json();
+  const replay = await fetch(gateway + "/v1/connector/pairings", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enrollment_token: enrollment.enrollment_token, name: "Replay fixture", scopes: ["workspace.control"], expires_in: 3600 }) });
+  assert.equal(replay.status, 409, "an enrollment can create only one pairing");
+  const pendingPage = await (await browser("/api/workspace-nodes?limit=1&view=active")).json();
+  assert.equal(pendingPage.nodes[0].account_id, account.id); assert.equal(pendingPage.nodes[0].status, "pending");
+  assert.ok(Object.hasOwn(pendingPage, "next_cursor"));
   assert.equal((await browser("/api/workspace-nodes/claim", { method: "POST", origin: "https://foreign.invalid", body: { code: pair.pairing_code } })).status, 403);
   assert.equal((await browser("/api/workspace-nodes/claim", { method: "POST", body: { code: pair.pairing_code, account_id: "portal-owner" } })).status, 400);
   const claimedResponse = await browser("/api/workspace-nodes/claim", { method: "POST", body: { code: pair.pairing_code } });

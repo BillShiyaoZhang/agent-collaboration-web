@@ -13,6 +13,7 @@
 - [连接 Ambient 本地工作区（建议实现）](users/REMOTE_WORKSPACE.md)：领取、回到本机确认、打开与撤销。
 - [核对、屏蔽与举报](users/CONTENT_SAFETY.md)：本人网站审核、App 入口与未知提交核实。
 - [测试入口](../tests/README.md)：自动测试及隔离集成检查。
+- [工作区接入与资源边界验证](verification/REMOTE_WORKSPACE_HARDENING_2026-10-01.md)：登录发码、PSL 隔离、有界分页/删除回执、Retry-After、Linux 全套与最终定向检查。
 - [工作区入口建议分支验证](verification/REMOTE_WORKSPACE_PROPOSAL_2026-10-01.md)：Linux 完整回归、Windows 权限差异与合成 HTTPS 删除 smoke。
 - [官网与文档入口](../site/README.md)：Next.js 公开页面、文档阅读器与历史静态文件。
 - [客户端契约](../packages/client-contract/README.md)：跨端协议与兼容要求。

@@ -125,6 +125,10 @@ Web 会把已经获准读取的对话、联系人、事项和收件内容保存�
 
 要停止后续访问，在 agent 所在设备按[安装说明中的撤销步骤](https://github.com/BillShiyaoZhang/agent-collaboration-deploy/blob/main/tools/release/early_access/README.md#4-配对远程-web)撤销控制台配对。退出网页登录不会撤销配对；撤销也不会收回已经同步、已经发出的内容，或撤回已经执行的动作。已经保存的历史和 agent 本机资料各有自己的保存范围。
 
+## Ambient 本地工作区（隔离建议分支）
+
+本分支提供登录后“生成本机接入码”、同账户领取、本机确认及工作区入口。接入码 5 分钟有效，需粘贴到自己电脑上的 Ambient；生成码不会自动连接或运行任务。当前尚未合并、部署，Ambient 还需完成本机接入码适配。使用流程见[连接本地工作区](docs/users/REMOTE_WORKSPACE.md)，独立 Gateway、域隔离及配置见[云入口契约](docs/architecture/REMOTE_WORKSPACE.md)。
+
 ## 项目结构
 
 ```text
@@ -141,7 +145,7 @@ packages/client-contract/ # 多端共享契约和 fixtures
 prisma/                # 数据模型与兼容迁移
 site/                  # 旧官网 HTML 留作历史参考；现行页面在 src/app/
 tests/{unit,integration,fixtures}/
-docs/{architecture,operations}/
+docs/{architecture,operations,users,verification}/
 ```
 
 详见[文档入口](docs/README.md)和[测试说明](tests/README.md)。
