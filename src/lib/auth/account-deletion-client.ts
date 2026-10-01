@@ -17,7 +17,7 @@ export async function requestAccountDeletion(currentPassword: string, expectedAc
     const body: unknown = await response.json().catch(() => null);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
     if (response.status === 200 && data.deleted === true) return { state: "deleted", message: "账户已删除，本工作区的登录会话已失效。", ...(typeof data.consoleUrn === "string" ? { consoleUrn: data.consoleUrn } : {}) };
-    const rejected = [400, 401, 403, 409, 413].includes(response.status) || data.code === "DELETE_SCHEMA_UNSUPPORTED";
+    const rejected = [400, 401, 403, 409, 413].includes(response.status) || data.code === "DELETE_SCHEMA_UNSUPPORTED" || data.code === "WORKSPACE_REVOKE_UNCONFIRMED";
     if (!rejected) return { state: "uncertain", message: UNKNOWN };
     const fallback = response.status === 401 ? "登录已失效，请重新登录以确认账户状态。"
       : response.status === 413 ? "请求内容过大，删除未执行。" : "请求被拒绝，账户未删除。请核对输入和登录状态。";

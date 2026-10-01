@@ -259,3 +259,15 @@ Webpack、报告和快照只写入 `build/workspace-sync-preview/content-review-
 脚本使用随机 loopback 端口，不改 `.next`，不使用真实身份、数据库、业务状态或共享
 3061～3063 fixture；可通过 `PLAYWRIGHT_MODULE`、`CHROME_EXECUTABLE` 指定已有工具。
 这些回归不代表生产部署或真实 Agent 业务已经通过。
+
+## Ambient 工作区入口（建议实现）
+
+`node --test tests/unit/workspace-nodes.test.cjs tests/unit/middleware.test.cjs tests/unit/account-deletion.test.cjs` 验证账户派生、同源写入、浏览器不能选择账户/范围、上游凭据隔离、领取与本机确认的区分、打开/撤销、登录保留一次性链接及账户删除前的撤销失败保护。再执行 `npm run build`。
+
+浏览器联调用 `node tests/integration/workspace-portal-fixture.cjs`：只启动 `localhost:3310` 的隔离 Web，创建全新 `build/workspace-portal-preview/` SQLite 和合成 `.invalid` 账户，随机测试密码只在运行时输出。默认连接 loopback Gateway `127.0.0.1:8788`；通过运行时 `WORKSPACE_GATEWAY_SECRET` 设置与隔离 Gateway 一致的 service secret。此 fixture 不联系公网 Platform、模型或邮件服务。结束时停止 fixture；数据库、密码和运行输出不进入提交。
+
+生产账户变更要求 HTTPS。验证真实删除时，为独立 fixture 设置 `WORKSPACE_PORTAL_FIXTURE_PORT=3311`、`WORKSPACE_PORTAL_FIXTURE_NEXT_PORT=3312`、`WORKSPACE_PORTAL_FIXTURE_TLS_CERT` 和 `WORKSPACE_PORTAL_FIXTURE_TLS_KEY`，证书与私钥必须位于上述 build 目录。可在该目录生成一次性 localhost 自签证书；通过该进程的 `NODE_EXTRA_CA_CERTS` 信任它，不改变系统信任或生产认证规则。
+
+fixture 输出新建数据库绝对路径。为 smoke 设置 `WORKSPACE_PORTAL_FIXTURE_URL=https://localhost:3311`、`WORKSPACE_PORTAL_FIXTURE_DATABASE` 为该路径、`NODE_EXTRA_CA_CERTS` 为 fixture 证书，然后执行 `node tests/integration/workspace-portal-smoke.cjs`。它只在显式 build 数据库生成随机合成删除账户，走真实 NextAuth/BFF/Gateway，验证账号和 Origin 隔离、本机确认、密码错误不撤销、成功删除终止授权、旧 cookie 失效及迟到确认被拒绝。证书、私钥、DB 和运行时凭据均不打包。
+
+`node --test tests/unit/dashboard-workspace-policy.test.cjs tests/unit/policy-disclosure-route.test.cjs` 验证新工作区页面独立于聊天 RPC 的 policy disclosure；聊天、联系人等原页面继续执行原门禁。上线独立 Gateway 服务仍须运营者制定其服务政策、传输正文及留存披露，不以聊天 RPC 的签名政策代替。

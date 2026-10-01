@@ -12,7 +12,7 @@ const nextConfig = {
     ];
     return [
       { source: "/agent-comm-sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Service-Worker-Allowed", value: "/" }] },
-      ...["/verify-email", "/reset-password", "/confirm-password-change", "/forgot-password", "/resend-verification", "/api/auth/:path*"].map(source => ({ source, headers: privateHeaders })),
+      ...["/connect-workspace", "/api/workspace-nodes/:path*", "/verify-email", "/reset-password", "/confirm-password-change", "/forgot-password", "/resend-verification", "/api/auth/:path*"].map(source => ({ source, headers: privateHeaders })),
     ];
   },
 };

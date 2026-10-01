@@ -28,7 +28,7 @@ export async function GET() {
   const userId = await accountId();
   if (!userId) return json({ error: "Unauthorized" }, 401);
   try { return json(await readPolicyDisclosure(userId)); }
-  catch { return json({ error: "无法验证平台当前政策，远程工作台已暂停。" }, 503); }
+  catch { return json({ error: "无法验证平台当前政策，聊天工作台已暂停。" }, 503); }
 }
 
 export async function POST(request: Request) {
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
       "resume" in body && body.resume === true) {
     try { const disclosure = await resumePolicyUse(userId); await wakeAfterPolicyAccess(userId); return json(disclosure); }
     catch (error) { return error instanceof PolicyChangedError ? json({ error: error.message }, 409)
-      : json({ error: "无法验证平台当前政策，远程工作台保持暂停。" }, 503); }
+      : json({ error: "无法验证平台当前政策，聊天工作台保持暂停。" }, 503); }
   }
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 2 ||
       !("policy_hash" in body) || !("confirm" in body) ||
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     await wakeAfterPolicyAccess(userId); return json(disclosure); }
   catch (error) {
     if (error instanceof PolicyChangedError) return json({ error: error.message }, 409);
-    return json({ error: "无法验证平台当前政策，远程工作台已暂停。" }, 503);
+    return json({ error: "无法验证平台当前政策，聊天工作台已暂停。" }, 503);
   }
 }
 

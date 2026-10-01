@@ -11,7 +11,7 @@ const ACCOUNT_TABLES = ["ManagedConsoleCertificate", "UserPolicyConsent", "UserC
 const LEGACY_TABLES = ["Contact", "Message", "HITLRequest", "Transaction"];
 const KNOWN_TABLES = new Set(["User", "Agent", "OnboardingTicket", "WebPushSubscription", "WebPushDelivery", "AuthEmailSend", ...AGENT_TABLES, ...ACCOUNT_TABLES, ...LEGACY_TABLES]);
 const identifier = (name: string) => Prisma.raw('"' + name.replaceAll('"', '""') + '"');
-type Dependencies = { db?: PrismaClient; verify?: typeof verifyPassword };
+type Dependencies = { db?: PrismaClient; verify?: typeof verifyPassword; revokeWorkspaces?: (userId: string) => Promise<void> };
 
 function unsafeSchema() {
   return new AccountEmailError("当前服务的账户存档尚未支持安全删除，请联系工作区运营者升级后再操作。", 503, "DELETE_SCHEMA_UNSUPPORTED");
@@ -39,6 +39,11 @@ async function inspectArchives(tx: Prisma.TransactionClient) {
 
 export function createAccountDeletionService(dependencies: Dependencies = {}) {
   const db = dependencies.db || prisma, verify = dependencies.verify || verifyPassword;
+  const revokeWorkspaces = dependencies.revokeWorkspaces || (async (userId: string) => {
+    if (!process.env.WORKSPACE_GATEWAY_URL && !process.env.WORKSPACE_GATEWAY_SECRET) return;
+    const { revokeAccountWorkspaceNodes } = await import("../workspace-nodes/gateway");
+    await revokeAccountWorkspaceNodes(userId);
+  });
   return {
     async deleteAccount(userId: string, currentPassword: string, sessionVersion: number) {
       if (!userId || !Number.isInteger(sessionVersion) || sessionVersion < 0) throw new AccountEmailError("请重新登录后再删除账户。", 401, "UNAUTHORIZED");
@@ -47,6 +52,13 @@ export function createAccountDeletionService(dependencies: Dependencies = {}) {
       if (!account) throw new AccountEmailError("请重新登录后确认账户状态。", 401, "UNAUTHORIZED");
       if (account.sessionVersion !== sessionVersion) throw new AccountEmailError("账户状态已改变，请重新登录后再操作。", 409, "ACCOUNT_CHANGED");
       if (!await verify(currentPassword, account.passwordHash)) throw new AccountEmailError("当前密码不正确，账户未删除。", 400, "INVALID_PASSWORD");
+
+      // Validate before the external revocation; the final transaction repeats the fence.
+      if (!await db.user.findFirst({ where: { id: userId, sessionVersion, passwordHash: account.passwordHash } }))
+        throw new AccountEmailError("账户状态已改变，请重新登录后再操作。", 409, "ACCOUNT_CHANGED");
+      await inspectArchives(db);
+      try { await revokeWorkspaces(userId); }
+      catch { throw new AccountEmailError("工作区远程访问撤销尚未确认，账户未删除。请稍后重试或联系运营者。", 503, "WORKSPACE_REVOKE_UNCONFIRMED"); }
 
       // No automatic retry: an unexpected transport/database failure is reported
       // for the caller to verify, never interpreted as proof that deletion failed.

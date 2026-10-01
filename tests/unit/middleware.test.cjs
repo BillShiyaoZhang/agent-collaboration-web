@@ -105,6 +105,11 @@ test("authentication middleware", { concurrency: false }, async (t) => {
       assertLoginRedirect(await middleware(request(productionOrigin, pathname)), productionOrigin, pathname);
     });
 
+    await t.test("preserves the workspace claim code through login without claiming it", async () => {
+      const destination = "/connect-workspace?code=PAIR1234";
+      assertLoginRedirect(await middleware(request(productionOrigin, destination)), productionOrigin, destination);
+    });
+
     await t.test("rejects expired sessions", async () => {
       const token = await encode({ secret, token: { sub: "regression-user" }, maxAge: -120 });
       assertLoginRedirect(await middleware(request(

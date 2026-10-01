@@ -125,3 +125,7 @@ npm run db:migrate
 现有 SDK 没有 conversation.list，也没有 inbox / conversation 历史分页；首次升级只能恢复已知会话及远端最近 100 项读取窗口，不能宣称完整旧历史已回补。同步失败时保留最后一次成功读取的数据，并准确显示离线、权限或同步失败状态。
 
 控制台专用信箱中，验签成功但不是有效匹配 RPC 的消息会消费丢弃。升级前需要保留的旧控制台消息应从升级前数据库和备份离线归档。
+
+## Ambient 工作区入口（建议实现）
+
+按 [独立 Gateway 契约](../architecture/REMOTE_WORKSPACE.md) 配置运行时 `WORKSPACE_GATEWAY_URL` 和 `WORKSPACE_GATEWAY_SECRET`；不要以 `NEXT_PUBLIC_` 导出 service secret。Gateway 必须支持账户 terminal 删除，确认撤销既有浏览器会话/通道并拒绝之后的新授权，Web 才能安全删除云账户。Gateway 配置改变后重新创建 Web 容器；源码提案不代表现网已经发布。

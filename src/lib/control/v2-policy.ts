@@ -110,9 +110,9 @@ export async function readPolicyDisclosure(userId: string): Promise<PolicyDisclo
 
 export async function requirePolicyAcknowledgement(userId: string): Promise<void> {
   const disclosure = await readPolicyDisclosure(userId);
-  if (disclosure.paused) throw new PolicyConsentRequiredError("本账户已暂停新的远程控制与同步。请在政策提示中恢复使用。");
+  if (disclosure.paused) throw new PolicyConsentRequiredError("本账户已暂停新的聊天控制与同步。请在政策提示中恢复使用。");
   if (!disclosure.can_use_workbench)
-    throw new PolicyConsentRequiredError("请先阅读并确认当前合规政策，再继续使用远程工作台。");
+    throw new PolicyConsentRequiredError("请先阅读并确认当前合规政策，再继续使用聊天工作台。");
 }
 
 export async function pausePolicyUse(userId: string): Promise<void> {
@@ -186,7 +186,7 @@ async function enrollManagedConsole(user: User, keys: ConsoleKeys, rawPolicy: Bu
 /** Require a signed policy decision before sending or consuming a legacy console envelope. */
 export async function requireManagedV1(user: User, keys: ConsoleKeys, forceEnrollment = false): Promise<void> {
   if (await prisma.userControlPause.findUnique({ where: { userId: user.id } }))
-    throw new PolicyConsentRequiredError("本账户已暂停新的远程控制与同步。请在政策提示中恢复使用。");
+    throw new PolicyConsentRequiredError("本账户已暂停新的聊天控制与同步。请在政策提示中恢复使用。");
   const current = await policyForConsole();
   if (!current) return; // Old platform, with no v2 trust root configured.
   const { policy, raw } = current;

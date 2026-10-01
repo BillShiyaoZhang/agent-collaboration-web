@@ -116,8 +116,8 @@ export function AccountDeletionSection({ accountId, email, onDeleted }: { accoun
       <p className="text-sm leading-6 text-muted-foreground">本工作区保存的账户资料、连接、消息副本、草稿、协作记录与提醒已删除。Agent 本机和 Platform 的数据、日志与备份不在这次删除范围内。</p>
       <Button asChild className="min-h-11"><a href="/login">返回登录</a></Button>
     </> : <>
-      <p id="delete-account-scope" className="text-sm leading-6 text-muted-foreground">这会永久删除本工作区的账户、控制台身份密钥、连接、已保存的消息与协作副本、草稿、提醒和后台推送订阅，并使所有设备的登录会话失效。删除后无法恢复。</p>
-      <p className="text-sm leading-6 text-muted-foreground">删除不会关闭 Agent 本机或清除它和 Platform 保存的数据，也不会撤销本机配对。已派发的操作可能继续完成；需要时请先在 Agent 本机撤销授权。服务日志、备份和邮件提供商保存的数据按运营者的政策处理。</p>
+      <p id="delete-account-scope" className="text-sm leading-6 text-muted-foreground">这会永久删除本工作区的账户、控制台身份密钥、连接、已保存的消息与协作副本、草稿、提醒和后台推送订阅，先停止本账户全部 Ambient 工作区的远程访问，并使所有设备的登录会话失效。删除后无法恢复。</p>
+      <p className="text-sm leading-6 text-muted-foreground">删除不会关闭 Agent 本机或清除它和 Platform 保存的数据，普通聊天的本机配对仍需在 Agent 本机管理。已派发的操作可能继续完成；需要时请先在 Agent 本机撤销授权。服务日志、备份和邮件提供商保存的数据按运营者的政策处理。</p>
       <Link href="/privacy" className="inline-flex min-h-11 items-center rounded-sm text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">查看隐私政策与删除范围</Link>
       {result && <AuthNotice>{result.message}</AuthNotice>}
       {result?.state === "uncertain" ? <div className="space-y-3">
@@ -131,7 +131,7 @@ export function AccountDeletionSection({ accountId, email, onDeleted }: { accoun
       <Dialog open={dialog} onOpenChange={value => { if (!value) pendingPassword.current = ""; setDialog(value); }}>
         <DialogContent>
           <DialogTitle>永久删除账户？</DialogTitle>
-          <DialogDescription className="break-all leading-6">你正在删除 {pendingIdentity.current?.email ?? email} 在本工作区的账户及已保存数据。所有登录会话将失效，删除后无法恢复。</DialogDescription>
+          <DialogDescription className="break-all leading-6">你正在删除 {pendingIdentity.current?.email ?? email} 在本工作区的账户及已保存数据。所有 Ambient 工作区远程访问将先停止，所有登录会话将失效，删除后无法恢复。</DialogDescription>
           <DialogFooter className="gap-3"><Button type="button" variant="outline" onClick={() => { pendingPassword.current = ""; setDialog(false); }}>取消</Button><Button type="button" variant="destructive" onClick={deleteAccount}>永久删除账户</Button></DialogFooter>
         </DialogContent>
       </Dialog>

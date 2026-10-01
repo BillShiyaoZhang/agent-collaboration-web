@@ -267,3 +267,39 @@ test("lost, invalid or server-error deletion replies remain uncertain and never 
   const success = await client.requestAccountDeletion("synthetic-password", "owner", async () => Response.json({ deleted: true, consoleUrn: "urn:console:owner" }));
   assert.equal(success.state, "deleted"); assert.equal(success.consoleUrn, "urn:console:owner");
 });
+
+test("Gateway revocation is checked before deletion and a failure keeps local account data", () => fixture(async ({ db, owner, password }) => {
+  const events = [];
+  const guarded = deletion.createAccountDeletionService({ db, revokeWorkspaces: async userId => {
+    events.push(userId); throw new Error("synthetic gateway unavailable");
+  } });
+  await assert.rejects(guarded.deleteAccount(owner.id, "wrong-password", 0), error => error.code === "INVALID_PASSWORD");
+  assert.deepEqual(events, []);
+  await assert.rejects(guarded.deleteAccount(owner.id, password, 1), error => error.code === "ACCOUNT_CHANGED");
+  assert.deepEqual(events, []);
+  await assert.rejects(guarded.deleteAccount(owner.id, password, 0), error => error.code === "WORKSPACE_REVOKE_UNCONFIRMED" && error.status === 503);
+  assert.deepEqual(events, ["owner"]);
+  assert.equal((await db.user.findUnique({ where: { id: owner.id } })).sessionVersion, 0);
+  assert.equal(await db.agent.count(), 2);
+}));
+
+test("Gateway terminal revocation precedes successful local removal for the exact account", () => fixture(async ({ db, owner, other, password }) => {
+  const events = [];
+  const guarded = deletion.createAccountDeletionService({ db, revokeWorkspaces: async userId => {
+    assert.ok(await db.user.findUnique({ where: { id: userId } }));
+    events.push(userId);
+  } });
+  assert.equal((await guarded.deleteAccount(owner.id, password, 0)).deleted, true);
+  assert.deepEqual(events, [owner.id]);
+  assert.equal(await db.user.findUnique({ where: { id: owner.id } }), null);
+  assert.ok(await db.user.findUnique({ where: { id: other.id } }));
+}));
+
+
+test("workspace revoke refusal is an explicit deletion rejection that the user may retry", async () => {
+
+  const message = "工作区远程访问撤销尚未确认，账户未删除。请稍后重试。";
+  const result = await client.requestAccountDeletion("synthetic-password", "owner", async () => Response.json({ error: message, code: "WORKSPACE_REVOKE_UNCONFIRMED" }, { status: 503 }));
+  assert.equal(result.state, "rejected");
+  assert.equal(result.message, message);
+});
